@@ -52,8 +52,8 @@ export default function App() {
   const [financeTxs] = useState<FinanceTransaction[]>(INITIAL_FINANCE_TXS);
 
   // Handlers
-  const handleAddProduct = (newProduct: Product) => {
-    setProducts((prev) => [newProduct, ...prev]);
+  const handleAddProduct = (newProduct: Omit<Product, 'id'>) => {
+    setProducts((prev) => [{ ...newProduct, id: Date.now().toString() }, ...prev]);
     // Log audit
     setAuditLogs((prev) => [
       {
@@ -70,16 +70,31 @@ export default function App() {
     ]);
   };
 
-  const handleUpdateStock = (sku: string, newStock: number) => {
+  const handleApplyAdjustment = (productId: string, delta: number) => {
     setProducts((prev) =>
       prev.map((p) => {
-        if (p.sku === sku) {
-          const status = newStock === 0 ? 'OutOfStock' : newStock <= p.minStock ? 'LowStock' : 'InStock';
-          return { ...p, stock: newStock, status };
+        if (p.id === productId) {
+          const stock = p.stock + delta;
+          const status = stock === 0 ? 'OutOfStock' : stock <= p.minStock ? 'LowStock' : 'InStock';
+          return { ...p, stock, status };
         }
         return p;
       })
     );
+    // Log audit
+    setAuditLogs((prev) => [
+      {
+        id: Date.now().toString(),
+        timestamp: 'Ahora',
+        user: 'Ana Silva',
+        userInitials: 'AS',
+        action: 'Ajuste de Stock',
+        module: 'Inventario',
+        ip: '192.168.1.45',
+        details: `Ajuste de stock aplicado al producto ${productId} (${delta > 0 ? '+' : ''}${delta} unidades)`,
+      },
+      ...prev,
+    ]);
   };
 
   const handleAddSale = (newSale: SaleTransaction) => {
@@ -125,13 +140,13 @@ export default function App() {
             {/* View Container */}
             <main className="pt-20 p-lg flex-1 flex flex-col max-w-[1600px] w-full mx-auto">
               {currentView === 'dashboard' && (
-                <DashboardView products={products} sales={sales} onNavigate={setCurrentView} />
+                <DashboardView onNavigate={setCurrentView} />
               )}
               {currentView === 'inventario' && (
                 <InventoryView products={products} onNavigate={setCurrentView} />
               )}
               {currentView === 'inventario-ajuste' && (
-                <StockAdjustmentView products={products} onNavigate={setCurrentView} onUpdateStock={handleUpdateStock} />
+                <StockAdjustmentView products={products} onNavigate={setCurrentView} onApplyAdjustment={handleApplyAdjustment} />
               )}
               {currentView === 'inventario-transferencia' && (
                 <StockTransferView products={products} onNavigate={setCurrentView} />
@@ -140,7 +155,7 @@ export default function App() {
                 <AddProductView onAddProduct={handleAddProduct} onNavigate={setCurrentView} />
               )}
               {currentView === 'pos' && (
-                <PosView products={products} onAddSale={handleAddSale} onNavigate={setCurrentView} />
+                <PosView products={products} onCompleteSale={handleAddSale} onNavigate={setCurrentView} />
               )}
               {currentView === 'ventas' && (
                 <SalesView sales={sales} onNavigate={setCurrentView} />

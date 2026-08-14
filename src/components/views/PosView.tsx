@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
-import { ViewPath, Product, CartItem } from '../../types';
+import { ViewPath, Product, CartItem, SaleTransaction } from '../../types';
 
 interface PosViewProps {
   products: Product[];
-  onCompleteSale: (total: number, itemsCount: number, paymentMethod: string) => void;
+  onCompleteSale: (sale: SaleTransaction) => void;
   onNavigate: (view: ViewPath) => void;
 }
 
@@ -62,7 +62,19 @@ export const PosView: React.FC<PosViewProps> = ({ products, onCompleteSale, onNa
   const handleCheckout = (method: string) => {
     if (cart.length === 0) return;
     const totalItems = cart.reduce((acc, item) => acc + item.quantity, 0);
-    onCompleteSale(total, totalItems, method);
+    const sale: SaleTransaction = {
+      id: Date.now().toString(),
+      type: 'Venta',
+      date: new Date().toLocaleString(),
+      clientName: 'Cliente',
+      clientType: 'Mayorista',
+      amount: total,
+      paymentStatus: 'Pagado',
+      fulfillmentStatus: 'Nuevo',
+      paymentMethod: method,
+      itemsCount: totalItems,
+    };
+    onCompleteSale(sale);
     setSaleCompleted(true);
     setTimeout(() => {
       setCart([]);
