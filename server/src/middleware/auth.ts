@@ -58,6 +58,18 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
 }
 
 /**
+ * Tenancy helper: every business query MUST be scoped to the authenticated
+ * company. Returns the Prisma where clause for the current tenant.
+ */
+export function tenantWhere(req: Request): { companyId: number } {
+  const auth = req.authUser;
+  if (!auth) {
+    throw new Error('tenantWhere requires requireAuth to run first');
+  }
+  return { companyId: auth.companyId };
+}
+
+/**
  * Guards routes by a single permission (e.g. 'inventario.escribir').
  * Loads the user's permissions from the DB on every request — simple, correct,
  * and cheap enough for this scale. Requires requireAuth to have run first.
