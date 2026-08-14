@@ -1,0 +1,375 @@
+// Nexus ERP — Prisma schema (MySQL, multi-tenant)
+// Design approved: unified documents, per-line frozen tax, stock traceability.
+// Naming in English for consistency with the TS codebase.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ============ CORE / MULTI-TENANT ============
+
+model Company {
+  id        Int      @id @default(autoincrement())
+  name      String   @db.VarChar(120)
+  legalName String?  @db.VarChar(200)
+  taxId     String?  @unique @db.VarChar(50)
+  currency  String   @default("USD") @db.VarChar(3)
+  timezone  String?  @db.VarChar(50)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users      User[]
+  roles      Role[]
+  branches   Branch[]
+  warehouses Warehouse[]
+  categories Category[]
+  products   Product[]
+  clients    Client[]
+  suppliers  Supplier[]
+  documents  Document[]
+  payments   Payment[]
+  auditLogs  AuditLog[]
+
+  @@map("empresas")
+}
+
+// ============ SECURITY / RBAC ============
+
+model User {
+  id           Int       @id @default(autoincrement())
+  companyId    Int
+  firstName    String    @db.VarChar(80)
+  lastName     String    @db.VarChar(80)
+  email        String    @unique @db.VarChar(150)
+  passwordHash String    @db.VarChar(255)
+  status       String    @default("Activo") @db.VarChar(20)
+  lastAccess   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  company      Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  roles          UserRole[]
+  auditLogs      AuditLog[]
+  documents      Document[]
+  stockMovements StockMovement[]
+
+  @@map("usuarios")
+}
+
+model Role {
+  id          Int     @id @default(autoincrement())
+  companyId   Int
+  name        String  @db.VarChar(50)
+  description String? @db.Text
+  company     Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  users       UserRole[]
+  permissions RolePermission[]
+
+  @@map("roles")
+}
+
+model UserRole {
+  userId Int
+  roleId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@map("usuario_roles")
+}
+
+model Permission {
+  id          Int    @id @default(autoincrement())
+  name        String @unique @db.VarChar(50)
+  description String? @db.Text
+
+  roles RolePermission[]
+
+  @@map("permisos")
+}
+
+model RolePermission {
+  roleId       Int
+  permissionId Int
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("rol_permisos")
+}
+
+// ============ STRUCTURE ============
+
+model Branch {
+  id        Int    @id @default(autoincrement())
+  companyId Int
+  name      String @db.VarChar(100)
+  address   String? @db.VarChar(200)
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  warehouses Warehouse[]
+  documents  Document[]
+  cashBoxes  CashBox[]
+
+  @@map("sucursales")
+}
+
+model Warehouse {
+  id        Int    @id @default(autoincrement())
+  companyId Int
+  branchId  Int
+  name      String @db.VarChar(100)
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  branch    Branch  @relation(fields: [branchId], references: [id])
+
+  stocks               Stock[]
+  stockMovementsFrom   StockMovement[] @relation("StockMovementFrom")
+  stockMovementsTo     StockMovement[] @relation("StockMovementTo")
+  documents            Document[]     @relation("DocumentWarehouse")
+  destinationDocuments Document[]     @relation("DocumentDestination")
+
+  @@map("depositos")
+}
+
+model Category {
+  id        Int    @id @default(autoincrement())
+  companyId Int
+  name      String @db.VarChar(80)
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  products Product[]
+
+  @@map("categorias")
+}
+
+model Tax {
+  id     Int     @id @default(autoincrement())
+  name   String  @db.VarChar(80)
+  rate   Decimal @db.Decimal(5, 2)
+  active Boolean @default(true)
+
+  products Product[]
+
+  @@map("impuestos")
+}
+
+// ============ CATALOG ============
+
+model Product {
+  id           Int     @id @default(autoincrement())
+  companyId    Int
+  internalCode String? @db.VarChar(50)
+  barcode      String? @db.VarChar(50)
+  name         String  @db.VarChar(150)
+  description  String? @db.Text
+  salePrice    Decimal @db.Decimal(14, 2)
+  costPrice    Decimal @db.Decimal(14, 2)
+  categoryId   Int?
+  taxId        Int
+  allowOversell Boolean @default(false)
+  active       Boolean @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  company      Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  category     Category? @relation(fields: [categoryId], references: [id])
+  tax          Tax     @relation(fields: [taxId], references: [id])
+
+  stocks         Stock[]
+  stockMovements StockMovement[]
+  documentItems  DocumentItem[]
+
+  @@index([companyId, internalCode])
+  @@map("productos")
+}
+
+model Stock {
+  id            Int     @id @default(autoincrement())
+  productId     Int
+  warehouseId   Int
+  quantity      Decimal @db.Decimal(14, 3)
+  minStock      Decimal @db.Decimal(14, 3)
+  maxStock      Decimal? @db.Decimal(14, 3)
+  product       Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  warehouse     Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, warehouseId])
+  @@map("stocks")
+}
+
+model StockMovement {
+  id            Int      @id @default(autoincrement())
+  productId     Int
+  warehouseFromId Int?
+  warehouseToId   Int?
+  quantity      Decimal  @db.Decimal(14, 3)
+  type          String   @db.VarChar(30)
+  reason        String?  @db.Text
+  userId        Int
+  documentId    Int?
+  createdAt     DateTime @default(now())
+  product       Product   @relation(fields: [productId], references: [id])
+  warehouseFrom Warehouse? @relation("StockMovementFrom", fields: [warehouseFromId], references: [id])
+  warehouseTo   Warehouse? @relation("StockMovementTo", fields: [warehouseToId], references: [id])
+  user          User      @relation(fields: [userId], references: [id])
+  document      Document? @relation(fields: [documentId], references: [id])
+
+  @@map("movimientos_stocks")
+}
+
+// ============ CONTACTS ============
+
+model Client {
+  id        Int    @id @default(autoincrement())
+  companyId Int
+  name      String @db.VarChar(150)
+  type      String @default("Persona") @db.VarChar(20)
+  taxId     String? @db.VarChar(50)
+  email     String? @db.VarChar(150)
+  phone     String? @db.VarChar(30)
+  address   String? @db.VarChar(200)
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  documents Document[] @relation("DocumentClient")
+
+  @@map("clientes")
+}
+
+model Supplier {
+  id        Int    @id @default(autoincrement())
+  companyId Int
+  name      String @db.VarChar(150)
+  taxId     String? @db.VarChar(50)
+  email     String? @db.VarChar(150)
+  phone     String? @db.VarChar(30)
+  contact   String? @db.VarChar(120)
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  documents Document[] @relation("DocumentSupplier")
+
+  @@map("proveedores")
+}
+
+// ============ UNIFIED DOCUMENTS ============
+
+enum DocumentType {
+  OC // Orden de compra
+  COMPRA
+  VENTA
+  COTIZACION
+  REMITO
+  PEDIDO
+}
+
+model Document {
+  id            Int          @id @default(autoincrement())
+  companyId     Int
+  type          DocumentType
+  series        String       @default("A") @db.VarChar(10)
+  number        Int
+  date          DateTime     @default(now())
+  clientId      Int?
+  supplierId    Int?
+  userId        Int
+  branchId      Int?
+  warehouseId   Int?
+  destinationWarehouseId Int?
+  sourceDocumentId Int?
+  status        String       @default("Abierto") @db.VarChar(30)
+  subtotal      Decimal      @db.Decimal(14, 2)
+  totalTax      Decimal      @db.Decimal(14, 2)
+  total         Decimal      @db.Decimal(14, 2)
+  currency      String       @default("USD") @db.VarChar(3)
+  exchangeRate  Decimal      @default(1) @db.Decimal(14, 6)
+  notes         String?      @db.Text
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  company       Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  client        Client?      @relation("DocumentClient", fields: [clientId], references: [id])
+  supplier      Supplier?    @relation("DocumentSupplier", fields: [supplierId], references: [id])
+  user          User         @relation(fields: [userId], references: [id])
+  branch        Branch?      @relation(fields: [branchId], references: [id])
+  warehouse     Warehouse?   @relation("DocumentWarehouse", fields: [warehouseId], references: [id])
+  destinationWarehouse Warehouse? @relation("DocumentDestination", fields: [destinationWarehouseId], references: [id])
+  sourceDocument Document?   @relation("DocumentChain", fields: [sourceDocumentId], references: [id])
+  childDocuments Document[]  @relation("DocumentChain")
+
+  items       DocumentItem[]
+  stockMovements StockMovement[]
+  payments    Payment[]
+
+  @@unique([companyId, type, series, number])
+  @@index([companyId, type, date])
+  @@map("comprobantes")
+}
+
+model DocumentItem {
+  id            Int     @id @default(autoincrement())
+  documentId    Int
+  productId     Int?
+  description   String  @db.VarChar(200)
+  quantity      Decimal @db.Decimal(14, 3)
+  unitPrice     Decimal @db.Decimal(14, 2)
+  taxRate       Decimal @db.Decimal(5, 2)
+  discount      Decimal @default(0) @db.Decimal(14, 2)
+  lineTotal     Decimal @db.Decimal(14, 2)
+  document      Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  product       Product?  @relation(fields: [productId], references: [id])
+
+  @@map("comprobante_items")
+}
+
+// ============ PAYMENTS / CASH ============
+
+model CashBox {
+  id        Int    @id @default(autoincrement())
+  branchId  Int
+  name      String @db.VarChar(80)
+  status    String @default("Abierta") @db.VarChar(20)
+  branch    Branch @relation(fields: [branchId], references: [id])
+
+  payments Payment[]
+
+  @@map("cajas")
+}
+
+model Payment {
+  id          Int      @id @default(autoincrement())
+  companyId   Int
+  documentId  Int
+  cashBoxId   Int?
+  date        DateTime @default(now())
+  amount      Decimal  @db.Decimal(14, 2)
+  method      String   @db.VarChar(30)
+  status      String   @default("Pagado") @db.VarChar(20)
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  document    Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  cashBox     CashBox? @relation(fields: [cashBoxId], references: [id])
+
+  @@map("pagos")
+}
+
+// ============ AUDIT ============
+
+model AuditLog {
+  id         Int      @id @default(autoincrement())
+  companyId  Int
+  userId     Int
+  action     String   @db.VarChar(60)
+  module     String   @db.VarChar(40)
+  entity     String?  @db.VarChar(40)
+  entityId   Int?
+  details    String?  @db.Text
+  ip         String?  @db.VarChar(45)
+  createdAt  DateTime @default(now())
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id])
+
+  @@index([companyId, createdAt])
+  @@map("audit_log")
+}
