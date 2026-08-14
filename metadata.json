@@ -1,0 +1,6 @@
+{
+  "name": "Nexus ERP",
+  "description": "Sistema de gestión empresarial integral (SaaS ERP) con inventario, POS, compras, ventas, finanzas, pedidos públicos, reportes y configuración.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
