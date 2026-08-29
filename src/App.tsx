@@ -2,9 +2,6 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   ViewPath, Product, PurchaseOrder, Supplier, SaleTransaction, PublicOrder, User, AuditLog, FinanceTransaction, PurchaseDocument, WarehouseOption, DashboardData, RoleOption, TaxRate,
 } from './types';
-import {
-  INITIAL_PUBLIC_ORDERS,
-} from './data/mockData';
 import { useAuth } from './lib/auth';
 import { apiFetch } from './lib/api';
 import { CartItem } from './types';
@@ -170,7 +167,7 @@ export default function App() {
   const [sales, setSales] = useState<SaleTransaction[]>([]);
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [financeTxs, setFinanceTxs] = useState<FinanceTransaction[]>([]);
-  const [publicOrders] = useState<PublicOrder[]>(INITIAL_PUBLIC_ORDERS);
+  const [publicOrders, setPublicOrders] = useState<PublicOrder[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [userRoles, setUserRoles] = useState<RoleOption[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
@@ -231,6 +228,26 @@ export default function App() {
       setSales(data.map(toFrontSale));
     } catch (err) {
       console.error('No se pudieron cargar las ventas', err);
+    }
+  }, []);
+
+  const loadPublicOrders = useCallback(async () => {
+    try {
+      const data = await apiFetch<ApiDocument[]>('/api/documents?type=PEDIDO');
+      setPublicOrders(
+        data.map((d) => ({
+          id: `${d.type} ${d.series}-${String(d.number).padStart(4, '0')}`,
+          client: d.client?.name ?? 'Sin cliente',
+          clientType: d.client?.type ?? 'Mayorista',
+          date: new Date(d.date).toLocaleDateString('es-ES'),
+          total: Number(d.total),
+          paymentStatus: d.status === 'Pagado' ? 'Pagado' : 'Pendiente',
+          logisticsStatus:
+            d.status === 'Recibido' ? 'Enviado' : d.status === 'Parcial' ? 'En Proceso' : 'Nuevo',
+        })),
+      );
+    } catch (err) {
+      console.error('No se pudieron cargar los pedidos públicos', err);
     }
   }, []);
 
@@ -341,12 +358,13 @@ export default function App() {
     void loadProducts();
     void loadPurchases();
     void loadSales();
+    void loadPublicOrders();
     void loadFinance();
     void loadDashboard();
     void loadUsers();
     void loadAudit();
     void loadTaxes();
-  }, [loadProducts, loadPurchases, loadSales, loadFinance, loadDashboard, loadUsers, loadAudit, loadTaxes]);
+  }, [loadProducts, loadPurchases, loadSales, loadPublicOrders, loadFinance, loadDashboard, loadUsers, loadAudit, loadTaxes]);
 
   useEffect(() => {
     if (user) {
@@ -361,6 +379,7 @@ export default function App() {
       setSales([]);
       setFinanceTxs([]);
       setDashboard(null);
+      setPublicOrders([]);
       setUsers([]);
       setUserRoles([]);
       setAuditLogs([]);
@@ -603,7 +622,7 @@ export default function App() {
       <div className="min-h-screen bg-surface font-sans text-on-surface flex flex-col">
         <div className="w-full min-h-screen">
           {currentView === 'portal-clientes' && (
-            <PublicClientStoreView products={products} onNavigate={setCurrentView} />
+            <PublicClientStoreView onNavigate={setCurrentView} />
           )}
           {currentView === 'auth-login' && !user && (
             <AuthLoginView onNavigate={setCurrentView} onLoginSuccess={() => setCurrentView('dashboard')} />

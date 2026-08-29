@@ -1,29 +1,54 @@
-import React, { useState } from 'react';
-import { ViewPath, Product, CartItem } from '../../types';
+import React, { useEffect, useState } from 'react';
+import { ViewPath } from '../../types';
+import { apiFetch } from '../../lib/api';
+
+interface PublicProduct {
+  id: number;
+  name: string;
+  description: string | null;
+  sku: string | null;
+  category: string;
+  price: number;
+  taxRate: number;
+  stock: number;
+}
+
+interface CartItem {
+  product: PublicProduct;
+  quantity: number;
+}
 
 interface PublicClientStoreViewProps {
-  products: Product[];
   onNavigate: (view: ViewPath) => void;
 }
 
-export const PublicClientStoreView: React.FC<PublicClientStoreViewProps> = ({ products, onNavigate }) => {
+export const PublicClientStoreView: React.FC<PublicClientStoreViewProps> = ({ onNavigate }) => {
+  const [products, setProducts] = useState<PublicProduct[]>([]);
+  const [loading, setLoading] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState('Todos');
-  const [cart, setCart] = useState<CartItem[]>([
-    { product: products[1] || products[0], quantity: 1 },
-    { product: products[0] || products[1], quantity: 1 },
-  ]);
-  const [fullName, setFullName] = useState('Juan Pérez');
-  const [phone, setPhone] = useState('+54 9 11 4567 8900');
+  const [cart, setCart] = useState<CartItem[]>([]);
+  const [fullName, setFullName] = useState('');
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
   const [deliveryMethod, setDeliveryMethod] = useState<'delivery' | 'pickup'>('delivery');
-  const [orderConfirmed, setOrderCompleted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+  const [confirmedOrder, setConfirmedOrder] = useState<string | null>(null);
 
-  const categories = ['Todos', 'Electrónica', 'Muebles', 'Ropa', 'Bebidas', 'Snacks'];
+  useEffect(() => {
+    apiFetch<PublicProduct[]>('/api/public/products', { auth: false })
+      .then(setProducts)
+      .catch(() => setProducts([]))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const categories = ['Todos', ...Array.from(new Set(products.map((p) => p.category)))];
 
   const filteredProducts = products.filter((prod) =>
     selectedCategory === 'Todos' ? true : prod.category === selectedCategory
   );
 
-  const addToCart = (product: Product) => {
+  const addToCart = (product: PublicProduct) => {
     setCart((prev) => {
       const existing = prev.find((item) => item.product.id === product.id);
       if (existing) {
@@ -35,23 +60,45 @@ export const PublicClientStoreView: React.FC<PublicClientStoreViewProps> = ({ pr
     });
   };
 
-  const removeFromCart = (productId: string) => {
+  const removeFromCart = (productId: number) => {
     setCart((prev) => prev.filter((item) => item.product.id !== productId));
   };
 
   const subtotal = cart.reduce((acc, item) => acc + item.product.price * item.quantity, 0);
-  const tax = subtotal * 0.21;
+  const tax = cart.reduce(
+    (acc, item) => acc + (item.product.price * item.quantity * item.product.taxRate) / 100,
+    0,
+  );
   const total = subtotal + tax;
 
-  const handleConfirmOrder = (e: React.FormEvent) => {
+  const handleConfirmOrder = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (cart.length === 0) return;
-    setOrderCompleted(true);
-    setTimeout(() => {
+    if (cart.length === 0 || !fullName.trim()) return;
+    setSubmitting(true);
+    setError('');
+    try {
+      const order = await apiFetch<{ number: string; total: number }>('/api/public/orders', {
+        method: 'POST',
+        auth: false,
+        body: {
+          clientName: fullName.trim(),
+          clientEmail: email.trim() || undefined,
+          clientPhone: phone.trim() || undefined,
+          notes: deliveryMethod === 'delivery' ? 'Envío a domicilio' : 'Retiro en sucursal',
+          items: cart.map((i) => ({ productId: i.product.id, quantity: i.quantity })),
+        },
+      });
+      setConfirmedOrder(order.number);
       setCart([]);
-      setOrderCompleted(false);
-      onNavigate('pedidos-publicos');
-    }, 2000);
+      setTimeout(() => {
+        setConfirmedOrder(null);
+        onNavigate('pedidos-publicos');
+      }, 2500);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo registrar el pedido');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -106,38 +153,44 @@ export const PublicClientStoreView: React.FC<PublicClientStoreViewProps> = ({ pr
             </div>
 
             {/* Catalog Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-md">
-              {filteredProducts.map((prod) => (
-                <div key={prod.id} className="bg-surface-container-lowest rounded-xl shadow-sm hover:shadow-lg transition-all duration-300 overflow-hidden flex flex-col border border-outline-variant/20 group">
-                  <div className="h-44 w-full bg-surface-container-low relative overflow-hidden flex items-center justify-center">
-                    {prod.imageUrl ? (
-                      <img src={prod.imageUrl} alt={prod.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
-                    ) : (
+            {loading ? (
+              <p className="text-center py-16 text-on-surface-variant">Cargando catálogo...</p>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-md">
+                {filteredProducts.map((prod) => (
+                  <div key={prod.id} className="bg-surface-container-lowest rounded-xl shadow-sm hover:shadow-lg transition-all duration-300 overflow-hidden flex flex-col border border-outline-variant/20 group">
+                    <div className="h-44 w-full bg-surface-container-low relative overflow-hidden flex items-center justify-center">
                       <span className="material-symbols-outlined text-[48px] text-outline opacity-40">inventory_2</span>
-                    )}
-                    {prod.stock <= prod.minStock && prod.stock > 0 && (
-                      <div className="absolute top-sm right-sm bg-error-container text-on-error-container font-label-md text-label-md px-xs py-base rounded shadow-sm">
-                        Últimas Unidades
-                      </div>
-                    )}
-                  </div>
-                  <div className="p-md flex flex-col flex-1 gap-sm">
-                    <div className="flex justify-between items-start gap-sm">
-                      <h3 className="font-headline-md text-headline-md text-on-surface line-clamp-2">{prod.name}</h3>
-                      <span className="font-headline-md text-headline-md text-primary">${prod.price.toFixed(2)}</span>
+                      {prod.stock > 0 && prod.stock <= 5 && (
+                        <div className="absolute top-sm right-sm bg-error-container text-on-error-container font-label-md text-label-md px-xs py-base rounded shadow-sm">
+                          Últimas Unidades
+                        </div>
+                      )}
+                      {prod.stock === 0 && (
+                        <div className="absolute inset-0 bg-surface/60 flex items-center justify-center">
+                          <span className="bg-surface-container-high text-on-surface-variant font-label-md text-label-md px-md py-sm rounded-full">Sin stock</span>
+                        </div>
+                      )}
                     </div>
-                    <p className="font-body-md text-body-md text-on-surface-variant line-clamp-2 flex-1">{prod.description || 'Producto de excelente calidad garantizada.'}</p>
-                    <button
-                      onClick={() => addToCart(prod)}
-                      className="w-full bg-secondary-container text-on-secondary-container font-label-md text-label-md py-sm rounded-lg flex items-center justify-center gap-sm hover:opacity-90 transition-opacity shadow-sm cursor-pointer"
-                    >
-                      <span className="material-symbols-outlined text-[18px]">add_shopping_cart</span>
-                      Agregar al carrito
-                    </button>
+                    <div className="p-md flex flex-col flex-1 gap-sm">
+                      <div className="flex justify-between items-start gap-sm">
+                        <h3 className="font-headline-md text-headline-md text-on-surface line-clamp-2">{prod.name}</h3>
+                        <span className="font-headline-md text-headline-md text-primary">${prod.price.toFixed(2)}</span>
+                      </div>
+                      <p className="font-body-md text-body-md text-on-surface-variant line-clamp-2 flex-1">{prod.description || 'Producto de excelente calidad garantizada.'}</p>
+                      <button
+                        onClick={() => addToCart(prod)}
+                        disabled={prod.stock === 0}
+                        className="w-full bg-secondary-container text-on-secondary-container font-label-md text-label-md py-sm rounded-lg flex items-center justify-center gap-sm hover:opacity-90 transition-opacity shadow-sm cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        <span className="material-symbols-outlined text-[18px]">add_shopping_cart</span>
+                        Agregar al carrito
+                      </button>
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Floating Cart & Checkout Panel */}
@@ -153,11 +206,11 @@ export const PublicClientStoreView: React.FC<PublicClientStoreViewProps> = ({ pr
                 </span>
               </div>
 
-              {orderConfirmed ? (
+              {confirmedOrder ? (
                 <div className="p-lg text-center flex flex-col items-center justify-center py-10 gap-sm">
                   <span className="material-symbols-outlined text-[48px] text-on-tertiary-container">check_circle</span>
-                  <h3 className="font-headline-md text-on-surface">¡Pedido Recibido!</h3>
-                  <p className="font-body-md text-on-surface-variant text-xs">Su orden ha sido registrada en el sistema ERP.</p>
+                  <h3 className="font-headline-md text-on-surface">¡Pedido {confirmedOrder} Recibido!</h3>
+                  <p className="font-body-md text-on-surface-variant text-xs">Su orden fue registrada en el sistema ERP y ya está visible para administración.</p>
                 </div>
               ) : (
                 <form onSubmit={handleConfirmOrder} className="p-md flex flex-col gap-md">
@@ -169,11 +222,7 @@ export const PublicClientStoreView: React.FC<PublicClientStoreViewProps> = ({ pr
                       cart.map((item) => (
                         <div key={item.product.id} className="flex gap-sm items-center p-sm rounded-lg hover:bg-surface-container-low transition-colors">
                           <div className="w-10 h-10 bg-surface-container-high rounded shrink-0 overflow-hidden flex items-center justify-center">
-                            {item.product.imageUrl ? (
-                              <img src={item.product.imageUrl} alt={item.product.name} className="w-full h-full object-cover" />
-                            ) : (
-                              <span className="material-symbols-outlined text-outline text-[18px]">inventory_2</span>
-                            )}
+                            <span className="material-symbols-outlined text-outline text-[18px]">inventory_2</span>
                           </div>
                           <div className="flex-1 min-w-0">
                             <p className="font-body-md text-body-md text-on-surface truncate font-semibold">{item.product.name}</p>
@@ -200,7 +249,7 @@ export const PublicClientStoreView: React.FC<PublicClientStoreViewProps> = ({ pr
                       <span>${subtotal.toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span>Impuestos (21%)</span>
+                      <span>Impuestos</span>
                       <span>${tax.toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between font-headline-lg text-headline-lg text-on-surface mt-sm pt-sm border-t border-outline-variant/30">
@@ -221,12 +270,18 @@ export const PublicClientStoreView: React.FC<PublicClientStoreViewProps> = ({ pr
                       required
                     />
                     <input
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="Email (opcional, para seguimiento)"
+                      className="bg-surface-container-low border border-outline-variant/50 rounded-lg p-sm font-body-md text-body-md text-on-surface outline-none"
+                    />
+                    <input
                       type="tel"
                       value={phone}
                       onChange={(e) => setPhone(e.target.value)}
                       placeholder="Teléfono / WhatsApp"
                       className="bg-surface-container-low border border-outline-variant/50 rounded-lg p-sm font-body-md text-body-md text-on-surface outline-none"
-                      required
                     />
 
                     <label className="font-label-md text-on-surface uppercase mt-xs">Método de Entrega</label>
@@ -252,11 +307,18 @@ export const PublicClientStoreView: React.FC<PublicClientStoreViewProps> = ({ pr
                     </label>
                   </div>
 
+                  {error && (
+                    <div className="p-sm bg-error-container/20 text-on-error-container rounded-lg font-label-md text-sm flex items-center gap-xs">
+                      <span className="material-symbols-outlined text-[18px]">error</span> {error}
+                    </div>
+                  )}
+
                   <button
                     type="submit"
-                    className="w-full bg-primary text-on-primary font-label-md text-label-md py-md rounded-lg shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-sm cursor-pointer mt-xs"
+                    disabled={submitting || cart.length === 0}
+                    className="w-full bg-primary text-on-primary font-label-md text-label-md py-md rounded-lg shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-sm cursor-pointer mt-xs disabled:opacity-50"
                   >
-                    Confirmar Pedido
+                    {submitting ? 'Registrando...' : 'Confirmar Pedido'}
                     <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
                   </button>
                 </form>

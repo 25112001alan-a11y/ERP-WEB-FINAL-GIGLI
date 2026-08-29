@@ -15,6 +15,10 @@ export const PublicOrdersView: React.FC<PublicOrdersViewProps> = ({ orders, onNa
       o.id.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  const pendingNew = orders.filter((o) => o.logisticsStatus === 'Nuevo').length;
+  const inProgress = orders.filter((o) => o.logisticsStatus === 'En Proceso').length;
+  const shipped = orders.filter((o) => o.logisticsStatus === 'Enviado').length;
+
   return (
     <div className="flex flex-col w-full gap-lg">
       {/* Header Area */}
@@ -54,7 +58,7 @@ export const PublicOrdersView: React.FC<PublicOrdersViewProps> = ({ orders, onNa
           </div>
           <div>
             <p className="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-sm">Pendientes Nuevos</p>
-            <p className="font-display-lg text-display-lg text-on-surface">42</p>
+            <p className="font-display-lg text-display-lg text-on-surface">{pendingNew}</p>
           </div>
         </div>
 
@@ -66,7 +70,7 @@ export const PublicOrdersView: React.FC<PublicOrdersViewProps> = ({ orders, onNa
           </div>
           <div>
             <p className="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-sm">Por Procesar</p>
-            <p className="font-display-lg text-display-lg text-on-surface">156</p>
+            <p className="font-display-lg text-display-lg text-on-surface">{inProgress}</p>
           </div>
         </div>
 
@@ -79,7 +83,7 @@ export const PublicOrdersView: React.FC<PublicOrdersViewProps> = ({ orders, onNa
           </div>
           <div>
             <p className="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-sm">Enviados</p>
-            <p className="font-display-lg text-display-lg text-on-surface">89</p>
+            <p className="font-display-lg text-display-lg text-on-surface">{shipped}</p>
           </div>
         </div>
 
