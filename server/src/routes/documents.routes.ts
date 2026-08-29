@@ -21,7 +21,9 @@ const documentSchema = z.object({
   series: z.string().max(10).optional().default('A'),
   date: z.string().datetime().optional(),
   clientId: z.number().int().positive().optional(),
+  clientName: z.string().min(1).max(150).optional(),
   supplierId: z.number().int().positive().optional(),
+  supplierName: z.string().min(1).max(150).optional(),
   branchId: z.number().int().positive().optional(),
   warehouseId: z.number().int().positive().optional(),
   destinationWarehouseId: z.number().int().positive().optional(),
@@ -117,28 +119,56 @@ router.post('/', requirePermission('ventas.escribir'), async (req, res) => {
     res.status(400).json({ error: `Los comprobantes ${type} requieren warehouseId` });
     return;
   }
-  if (type === DocumentType.VENTA && !data.clientId) {
-    res.status(400).json({ error: 'Los comprobantes VENTA requieren clientId' });
+  if (type === DocumentType.VENTA && !data.clientId && !data.clientName) {
+    res.status(400).json({ error: 'Los comprobantes VENTA requieren clientId o clientName' });
     return;
   }
-  if (type === DocumentType.COMPRA && !data.supplierId) {
-    res.status(400).json({ error: 'Los comprobantes COMPRA requieren supplierId' });
+  if (type === DocumentType.COMPRA && !data.supplierId && !data.supplierName) {
+    res.status(400).json({ error: 'Los comprobantes COMPRA requieren supplierId o supplierName' });
     return;
   }
 
   const result = await prisma.$transaction(async (tx) => {
     // Tenancy + existence checks for referenced entities.
-    if (data.clientId) {
+    let clientId = data.clientId;
+    if (clientId) {
       const client = await tx.client.findFirst({
-        where: { id: data.clientId, ...tenantWhere(req) },
+        where: { id: clientId, ...tenantWhere(req) },
       });
       if (!client) throw Object.assign(new Error('Cliente no válido'), { status: 400 });
+    } else if (data.clientName) {
+      // Find-or-create a client by name so the POS can sell to a free-typed customer.
+      const existing = await tx.client.findFirst({
+        where: { companyId: req.authUser!.companyId, name: data.clientName },
+      });
+      if (existing) {
+        clientId = existing.id;
+      } else {
+        const created = await tx.client.create({
+          data: { companyId: req.authUser!.companyId, name: data.clientName },
+        });
+        clientId = created.id;
+      }
     }
-    if (data.supplierId) {
+
+    let supplierId = data.supplierId;
+    if (supplierId) {
       const supplier = await tx.supplier.findFirst({
-        where: { id: data.supplierId, ...tenantWhere(req) },
+        where: { id: supplierId, ...tenantWhere(req) },
       });
       if (!supplier) throw Object.assign(new Error('Proveedor no válido'), { status: 400 });
+    } else if (data.supplierName) {
+      const existing = await tx.supplier.findFirst({
+        where: { companyId: req.authUser!.companyId, name: data.supplierName },
+      });
+      if (existing) {
+        supplierId = existing.id;
+      } else {
+        const created = await tx.supplier.create({
+          data: { companyId: req.authUser!.companyId, name: data.supplierName },
+        });
+        supplierId = created.id;
+      }
     }
     if (data.warehouseId) {
       const warehouse = await tx.warehouse.findFirst({
@@ -224,8 +254,8 @@ router.post('/', requirePermission('ventas.escribir'), async (req, res) => {
         series: data.series,
         number: await nextNumber(req.authUser!.companyId, type, data.series),
         date: data.date ? new Date(data.date) : new Date(),
-        clientId: data.clientId,
-        supplierId: data.supplierId,
+        clientId,
+        supplierId,
         userId: req.authUser!.userId,
         branchId: data.branchId,
         warehouseId: data.warehouseId,

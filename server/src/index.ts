@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import express from 'express';
+import cors from 'cors';
 import authRoutes from './routes/auth.routes.js';
 import productsRoutes from './routes/products.routes.js';
 import stockRoutes from './routes/stock.routes.js';
@@ -9,6 +10,9 @@ import documentsRoutes from './routes/documents.routes.js';
 
 const app = express();
 
+// Dev CORS: the Vite frontend (localhost:3000) talks to this API (3001) directly.
+// Tighten origins before production.
+app.use(cors());
 app.use(express.json());
 
 app.get('/api/health', (_req, res) => {

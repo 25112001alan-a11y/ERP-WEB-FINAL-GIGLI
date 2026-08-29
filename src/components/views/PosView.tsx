@@ -1,9 +1,15 @@
 import React, { useState } from 'react';
 import { ViewPath, Product, CartItem, SaleTransaction } from '../../types';
 
+export interface CompleteSalePayload {
+  items: CartItem[];
+  method: string;
+  clientName: string;
+}
+
 interface PosViewProps {
   products: Product[];
-  onCompleteSale: (sale: SaleTransaction) => void;
+  onCompleteSale: (payload: CompleteSalePayload) => Promise<SaleTransaction>;
   onNavigate: (view: ViewPath) => void;
 }
 
@@ -16,6 +22,8 @@ export const PosView: React.FC<PosViewProps> = ({ products, onCompleteSale, onNa
   ]);
   const [clientName, setClientName] = useState('Consumidor Final');
   const [saleCompleted, setSaleCompleted] = useState(false);
+  const [saleError, setSaleError] = useState<string | null>(null);
+  const [checkingOut, setCheckingOut] = useState(false);
 
   const categories = ['Todos', 'Electrónica', 'Ropa', 'Muebles', 'Bebidas', 'Snacks'];
 
@@ -59,27 +67,22 @@ export const PosView: React.FC<PosViewProps> = ({ products, onCompleteSale, onNa
   const tax = subtotal * 0.12;
   const total = subtotal + tax;
 
-  const handleCheckout = (method: string) => {
-    if (cart.length === 0) return;
-    const totalItems = cart.reduce((acc, item) => acc + item.quantity, 0);
-    const sale: SaleTransaction = {
-      id: Date.now().toString(),
-      type: 'Venta',
-      date: new Date().toLocaleString(),
-      clientName: 'Cliente',
-      clientType: 'Mayorista',
-      amount: total,
-      paymentStatus: 'Pagado',
-      fulfillmentStatus: 'Nuevo',
-      paymentMethod: method,
-      itemsCount: totalItems,
-    };
-    onCompleteSale(sale);
-    setSaleCompleted(true);
-    setTimeout(() => {
-      setCart([]);
-      setSaleCompleted(false);
-    }, 1800);
+  const handleCheckout = async (method: string) => {
+    if (cart.length === 0 || checkingOut) return;
+    setCheckingOut(true);
+    setSaleError(null);
+    try {
+      await onCompleteSale({ items: cart, method, clientName });
+      setSaleCompleted(true);
+      setTimeout(() => {
+        setCart([]);
+        setSaleCompleted(false);
+      }, 1800);
+    } catch (err) {
+      setSaleError(err instanceof Error ? err.message : 'No se pudo completar la venta');
+    } finally {
+      setCheckingOut(false);
+    }
   };
 
   return (
@@ -264,6 +267,12 @@ export const PosView: React.FC<PosViewProps> = ({ products, onCompleteSale, onNa
               <span className="font-display-lg text-display-lg text-primary font-bold leading-none">${total.toFixed(2)}</span>
             </div>
 
+            {saleError && (
+              <div className="bg-error-container text-on-error-container rounded-xl px-md py-sm font-body-md text-body-md">
+                {saleError}
+              </div>
+            )}
+
             {/* Payment Buttons Grid */}
             <div className="grid grid-cols-2 gap-sm">
               <button
@@ -306,9 +315,10 @@ export const PosView: React.FC<PosViewProps> = ({ products, onCompleteSale, onNa
               </button>
               <button
                 onClick={() => handleCheckout('Efectivo')}
-                className="flex-1 rounded-xl bg-secondary text-on-secondary flex items-center justify-center font-label-md text-label-md uppercase tracking-wider shadow-md hover:shadow-lg transition-all cursor-pointer py-3"
+                disabled={checkingOut}
+                className="flex-1 rounded-xl bg-secondary text-on-secondary flex items-center justify-center font-label-md text-label-md uppercase tracking-wider shadow-md hover:shadow-lg transition-all cursor-pointer py-3 disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                Cobrar ${total.toFixed(2)}
+                {checkingOut ? 'Procesando...' : `Cobrar ${total.toFixed(2)}`}
               </button>
             </div>
           </div>

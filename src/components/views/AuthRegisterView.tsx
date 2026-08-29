@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { ViewPath } from '../../types';
+import { useAuth } from '../../lib/auth';
 
 interface AuthRegisterViewProps {
   onNavigate: (view: ViewPath) => void;
@@ -7,15 +8,29 @@ interface AuthRegisterViewProps {
 }
 
 export const AuthRegisterView: React.FC<AuthRegisterViewProps> = ({ onNavigate, onRegisterSuccess }) => {
+  const { register, loading } = useAuth();
   const [companyName, setCompanyName] = useState('Mi Empresa SaaS');
   const [adminName, setAdminName] = useState('Juan Admin');
   const [email, setEmail] = useState('juan@miempresa.com');
   const [password, setPassword] = useState('Secret123!');
+  const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    onRegisterSuccess(companyName);
-    onNavigate('dashboard');
+    setError(null);
+    const [firstName, ...lastParts] = adminName.trim().split(' ');
+    try {
+      const user = await register({
+        companyName,
+        firstName: firstName || adminName,
+        lastName: lastParts.join(' '),
+        email,
+        password,
+      });
+      onRegisterSuccess(user.company?.name ?? companyName);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo crear la cuenta');
+    }
   };
 
   return (
@@ -78,11 +93,18 @@ export const AuthRegisterView: React.FC<AuthRegisterViewProps> = ({ onNavigate, 
             />
           </div>
 
+          {error && (
+            <div className="bg-error-container text-on-error-container rounded-lg px-sm py-xs font-body-md text-body-sm">
+              {error}
+            </div>
+          )}
+
           <button
             type="submit"
-            className="w-full bg-primary text-on-primary font-label-md text-label-md py-md rounded-lg shadow-md hover:shadow-lg transition-all cursor-pointer mt-xs"
+            disabled={loading}
+            className="w-full bg-primary text-on-primary font-label-md text-label-md py-md rounded-lg shadow-md hover:shadow-lg transition-all cursor-pointer mt-xs disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            Registrar Organización
+            {loading ? 'Creando cuenta...' : 'Registrar Organización'}
           </button>
         </form>
 

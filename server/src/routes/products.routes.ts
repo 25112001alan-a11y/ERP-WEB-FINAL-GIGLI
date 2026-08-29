@@ -8,6 +8,21 @@ const router = Router();
 router.use(requireAuth);
 router.use(requirePermission('inventario.leer'));
 
+/** GET /api/products/categories — tenant category catalog (before :id routes) */
+router.get('/categories', async (req, res) => {
+  const categories = await prisma.category.findMany({
+    where: tenantWhere(req),
+    orderBy: { name: 'asc' },
+  });
+  res.json(categories);
+});
+
+/** GET /api/products/taxes — global tax catalog */
+router.get('/taxes', async (_req, res) => {
+  const taxes = await prisma.tax.findMany({ where: { active: true }, orderBy: { rate: 'desc' } });
+  res.json(taxes);
+});
+
 const productSchema = z.object({
   name: z.string().min(1).max(150),
   internalCode: z.string().min(1).max(50).optional(),

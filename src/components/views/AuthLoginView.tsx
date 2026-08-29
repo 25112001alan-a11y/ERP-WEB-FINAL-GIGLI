@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { ViewPath } from '../../types';
+import { useAuth } from '../../lib/auth';
 
 interface AuthLoginViewProps {
   onNavigate: (view: ViewPath) => void;
@@ -7,14 +8,21 @@ interface AuthLoginViewProps {
 }
 
 export const AuthLoginView: React.FC<AuthLoginViewProps> = ({ onNavigate, onLoginSuccess }) => {
+  const { login, loading } = useAuth();
   const [email, setEmail] = useState('ana.silva@empresa.com');
   const [password, setPassword] = useState('password123');
   const [rememberMe, setRememberMe] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    onLoginSuccess(email);
-    onNavigate('dashboard');
+    setError(null);
+    try {
+      const user = await login({ email, password });
+      onLoginSuccess(user.email);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo iniciar sesión');
+    }
   };
 
   return (
@@ -76,11 +84,18 @@ export const AuthLoginView: React.FC<AuthLoginViewProps> = ({ onNavigate, onLogi
             </label>
           </div>
 
+          {error && (
+            <div className="bg-error-container text-on-error-container rounded-lg px-sm py-xs font-body-md text-body-sm">
+              {error}
+            </div>
+          )}
+
           <button
             type="submit"
-            className="w-full bg-primary text-on-primary font-label-md text-label-md py-md rounded-lg shadow-md hover:shadow-lg transition-all cursor-pointer mt-xs"
+            disabled={loading}
+            className="w-full bg-primary text-on-primary font-label-md text-label-md py-md rounded-lg shadow-md hover:shadow-lg transition-all cursor-pointer mt-xs disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            Iniciar Sesión
+            {loading ? 'Verificando...' : 'Iniciar Sesión'}
           </button>
         </form>
 

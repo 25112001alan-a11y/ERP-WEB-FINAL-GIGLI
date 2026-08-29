@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
 import { ViewPath } from '../../types';
+import { useAuth } from '../../lib/auth';
 
 interface HeaderProps {
   currentView: ViewPath;
   onNavigate: (view: ViewPath) => void;
   searchTerm: string;
   onSearchChange: (term: string) => void;
+  onLogout: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -13,9 +15,15 @@ export const Header: React.FC<HeaderProps> = ({
   onNavigate,
   searchTerm,
   onSearchChange,
+  onLogout,
 }) => {
+  const { user } = useAuth();
   const [showQuickNav, setShowQuickNav] = useState(false);
   const [notificationsOpen, setShowNotificationsOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+
+  const displayName = user ? `${user.firstName} ${user.lastName}`.trim() : 'Admin User';
+  const companyName = user?.company?.name ?? 'SaaS Enterprise Tenant';
 
   return (
     <header className="fixed top-0 left-64 right-0 h-16 bg-surface-container-lowest/90 backdrop-blur-xl shadow-[0_1px_8px_rgba(0,0,0,0.04)] z-40 flex items-center justify-between px-lg border-b border-outline-variant/20">
@@ -37,8 +45,8 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* Right User Actions */}
       <div className="flex items-center gap-lg">
-        <span className="font-label-md text-label-md text-on-surface-variant uppercase tracking-widest hidden md:inline-block">
-          SaaS Enterprise Tenant
+        <span className="font-label-md text-label-md text-on-surface-variant uppercase tracking-widest hidden md:inline-block max-w-[220px] truncate">
+          {companyName}
         </span>
 
         {/* Quick View Switcher Button */}
@@ -86,18 +94,35 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         {/* User Profile Dropdown */}
-        <div className="flex items-center gap-sm pl-md border-l border-outline-variant">
+        <div className="flex items-center gap-sm pl-md border-l border-outline-variant relative">
           <div className="text-right hidden lg:block">
-            <p className="text-body-md font-bold leading-tight">Admin User</p>
-            <p className="text-mono-sm text-on-surface-variant uppercase">Super Administrador</p>
+            <p className="text-body-md font-bold leading-tight">{displayName}</p>
+            <p className="text-mono-sm text-on-surface-variant uppercase">{user?.roles[0] ?? 'Super Administrador'}</p>
           </div>
           <button
-            onClick={() => onNavigate('auth-login')}
-            title="Ver Iniciar Sesión / Cuenta"
+            onClick={() => setProfileOpen(!profileOpen)}
+            title="Mi cuenta"
             className="w-8 h-8 rounded-full bg-primary hover:bg-primary-container transition-colors flex items-center justify-center text-on-primary cursor-pointer"
           >
             <span className="material-symbols-outlined text-[18px]">person</span>
           </button>
+
+          {profileOpen && (
+            <div className="absolute right-0 top-10 mt-2 w-64 bg-surface-container-lowest rounded-xl shadow-xl border border-outline-variant/30 p-md z-50">
+              <div className="border-b border-outline-variant/20 pb-sm mb-sm">
+                <p className="font-headline-md text-[14px] text-on-surface">{displayName}</p>
+                <p className="font-body-md text-xs text-on-surface-variant truncate">{user?.email}</p>
+                <p className="font-mono-sm text-[10px] text-primary uppercase mt-xs">{companyName}</p>
+              </div>
+              <button
+                onClick={() => { setProfileOpen(false); onLogout(); }}
+                className="w-full text-left px-sm py-xs rounded-lg hover:bg-error-container hover:text-on-error-container text-error font-label-md text-label-md transition-colors cursor-pointer flex items-center gap-xs"
+              >
+                <span className="material-symbols-outlined text-[16px]">logout</span>
+                Cerrar sesión
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
