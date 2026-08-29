@@ -115,3 +115,28 @@ export interface CartItem {
   product: Product;
   quantity: number;
 }
+
+export interface PurchaseItem {
+  productId: string;
+  name: string;
+  sku: string;
+  ordered: number;
+  received: number;
+  unitPrice: number;
+}
+
+export interface PurchaseDocument {
+  id: string;
+  number: string;
+  type: string;
+  date: string;
+  supplier: string;
+  total: number;
+  status: string;
+  items: PurchaseItem[];
+}
+
+export interface WarehouseOption {
+  id: number;
+  name: string;
+}

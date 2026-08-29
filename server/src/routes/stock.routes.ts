@@ -34,6 +34,15 @@ router.get('/', async (req, res) => {
   res.json(stocks);
 });
 
+/** GET /api/stock/warehouses — tenant-scoped warehouse catalog (for receipt/transfer pickers) */
+router.get('/warehouses', async (_req, res) => {
+  const warehouses = await prisma.warehouse.findMany({
+    where: { companyId: _req.authUser!.companyId },
+    orderBy: { name: 'asc' },
+  });
+  res.json(warehouses);
+});
+
 /**
  * POST /api/stock/adjust — manual stock adjustment.
  * Atomically updates the stock row and writes a StockMovement for traceability.

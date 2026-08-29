@@ -2,12 +2,28 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { DocumentType } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
-import { requireAuth, requirePermission, tenantWhere } from '../middleware/auth.js';
+import {
+  requireAuth,
+  requirePermission,
+  requireAnyPermission,
+  tenantWhere,
+  getUserPermissions,
+} from '../middleware/auth.js';
 
 const router = Router();
 
 router.use(requireAuth);
-router.use(requirePermission('ventas.leer'));
+
+// Document types map to their owning module. VENTA/PEDIDO/COTIZACION belong to
+// sales; OC/COMPRA/REMITO belong to purchases.
+const DOCUMENT_PERMISSION: Record<DocumentType, string> = {
+  [DocumentType.OC]: 'compras.escribir',
+  [DocumentType.COMPRA]: 'compras.escribir',
+  [DocumentType.REMITO]: 'compras.escribir',
+  [DocumentType.COTIZACION]: 'ventas.escribir',
+  [DocumentType.VENTA]: 'ventas.escribir',
+  [DocumentType.PEDIDO]: 'ventas.escribir',
+};
 
 const itemSchema = z.object({
   productId: z.number().int().positive(),
@@ -49,7 +65,7 @@ async function nextNumber(
 }
 
 /** GET /api/documents — tenant-scoped list with totals */
-router.get('/', async (req, res) => {
+router.get('/', requireAnyPermission('ventas.leer', 'compras.leer'), async (req, res) => {
   const { type } = req.query;
   const documents = await prisma.document.findMany({
     where: {
@@ -60,7 +76,16 @@ router.get('/', async (req, res) => {
       client: { select: { id: true, name: true } },
       supplier: { select: { id: true, name: true } },
       warehouse: { select: { name: true } },
-      items: { select: { id: true, description: true, quantity: true, lineTotal: true } },
+      items: {
+        select: {
+          id: true,
+          productId: true,
+          description: true,
+          quantity: true,
+          unitPrice: true,
+          lineTotal: true,
+        },
+      },
     },
     orderBy: { createdAt: 'desc' },
   });
@@ -68,7 +93,7 @@ router.get('/', async (req, res) => {
 });
 
 /** GET /api/documents/:id */
-router.get('/:id', async (req, res) => {
+router.get('/:id', requireAnyPermission('ventas.leer', 'compras.leer'), async (req, res) => {
   const id = Number(req.params.id);
   const document = await prisma.document.findFirst({
     where: { id, ...tenantWhere(req) },
@@ -113,6 +138,14 @@ router.post('/', requirePermission('ventas.escribir'), async (req, res) => {
   }
   const data = bodyParsed.data;
   const type = data.type as DocumentType;
+
+  // Permission depends on the document's owning module (sales vs purchases).
+  const requiredPermission = DOCUMENT_PERMISSION[type];
+  const userPermissions = await getUserPermissions(req);
+  if (!userPermissions.has(requiredPermission)) {
+    res.status(403).json({ error: `Permiso requerido: ${requiredPermission}` });
+    return;
+  }
 
   const isStockType = type === DocumentType.VENTA || type === DocumentType.COMPRA;
   if (isStockType && !data.warehouseId) {
@@ -335,6 +368,209 @@ router.post('/', requirePermission('ventas.escribir'), async (req, res) => {
   });
 
   res.status(201).json(result);
+});
+
+const receiveSchema = z.object({
+  items: z
+    .array(
+      z.object({
+        productId: z.number().int().positive(),
+        quantity: z.number().positive(),
+      }),
+    )
+    .min(1, 'Debe incluir al menos un ítem'),
+  warehouseId: z.number().int().positive(),
+  paymentMethod: z.string().max(30).optional(),
+  date: z.string().datetime().optional(),
+  notes: z.string().optional(),
+});
+
+/**
+ * POST /api/documents/:id/receive
+ * Receives goods against an open purchase order (type OC):
+ *   - validates each line against the pending quantity (ordered - already received)
+ *   - creates a COMPRA chained to the OC via sourceDocumentId
+ *   - increments stock (ENTRADA movements) atomically
+ *   - marks the OC as Parcial or Recibido
+ */
+router.post('/:id/receive', requirePermission('compras.escribir'), async (req, res) => {
+  const id = Number(req.params.id);
+  const parsed = receiveSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
+    return;
+  }
+  const data = parsed.data;
+  const companyId = req.authUser!.companyId;
+
+  const result = await prisma.$transaction(async (tx) => {
+    const oc = await tx.document.findFirst({
+      where: { id, companyId, type: DocumentType.OC },
+      include: { items: true },
+    });
+    if (!oc) {
+      throw Object.assign(new Error('Orden de compra no encontrada'), { status: 404 });
+    }
+    if (oc.status === 'Recibido') {
+      throw Object.assign(new Error('La orden ya fue recibida completamente'), { status: 409 });
+    }
+
+    const warehouse = await tx.warehouse.findFirst({ where: { id: data.warehouseId, companyId } });
+    if (!warehouse) {
+      throw Object.assign(new Error('Depósito no válido'), { status: 400 });
+    }
+
+    // Already-received quantities per product, from chained COMPRA documents.
+    const children = await tx.document.findMany({
+      where: { companyId, sourceDocumentId: oc.id, type: DocumentType.COMPRA },
+      include: { items: true },
+    });
+    const receivedByProduct = new Map<number, number>();
+    for (const child of children) {
+      for (const line of child.items) {
+        if (line.productId) {
+          receivedByProduct.set(
+            line.productId,
+            (receivedByProduct.get(line.productId) ?? 0) + Number(line.quantity),
+          );
+        }
+      }
+    }
+
+    const lines: {
+      productId: number;
+      quantity: number;
+      unitPrice: number;
+      taxRate: number;
+      lineTotal: number;
+      taxAmount: number;
+      productName: string;
+    }[] = [];
+
+    for (const item of data.items) {
+      const ocLine = oc.items.find((l) => l.productId === item.productId);
+      if (!ocLine) {
+        throw Object.assign(new Error(`El producto ${item.productId} no está en la orden`), {
+          status: 400,
+        });
+      }
+      const previously = receivedByProduct.get(item.productId) ?? 0;
+      const pending = Number(ocLine.quantity) - previously;
+      if (pending < item.quantity) {
+        throw Object.assign(
+          new Error(
+            `La recepción de ${ocLine.description} excede el pendiente (quedan ${pending} unidades)`,
+          ),
+          { status: 409 },
+        );
+      }
+
+      const product = await tx.product.findFirst({
+        where: { id: item.productId, companyId },
+        include: { tax: true },
+      });
+      if (!product) throw Object.assign(new Error('Producto no válido'), { status: 400 });
+
+      const unitPrice = Number(ocLine.unitPrice) || Number(product.costPrice);
+      const taxRate = Number(ocLine.taxRate) || Number(product.tax.rate);
+      const lineTotal = unitPrice * item.quantity;
+      lines.push({
+        productId: item.productId,
+        quantity: item.quantity,
+        unitPrice,
+        taxRate,
+        lineTotal,
+        taxAmount: (lineTotal * taxRate) / 100,
+        productName: product.name,
+      });
+    }
+
+    const subtotal = lines.reduce((acc, l) => acc + l.lineTotal, 0);
+    const totalTax = lines.reduce((acc, l) => acc + l.taxAmount, 0);
+    const total = subtotal + totalTax;
+
+    const compra = await tx.document.create({
+      data: {
+        companyId,
+        type: DocumentType.COMPRA,
+        series: 'A',
+        number: await nextNumber(companyId, DocumentType.COMPRA, 'A'),
+        date: data.date ? new Date(data.date) : new Date(),
+        supplierId: oc.supplierId,
+        userId: req.authUser!.userId,
+        warehouseId: data.warehouseId,
+        sourceDocumentId: oc.id,
+        status: 'Recibido',
+        subtotal,
+        totalTax,
+        total,
+        currency: 'USD',
+        notes: data.notes,
+        items: {
+          create: lines.map((l) => ({
+            productId: l.productId,
+            description: l.productName,
+            quantity: l.quantity,
+            unitPrice: l.unitPrice,
+            taxRate: l.taxRate,
+            discount: 0,
+            lineTotal: l.lineTotal,
+          })),
+        },
+        ...(data.paymentMethod
+          ? {
+              payments: {
+                create: {
+                  companyId,
+                  amount: total,
+                  method: data.paymentMethod,
+                  status: 'Pagado',
+                },
+              },
+            }
+          : {}),
+      },
+      include: { items: true, payments: true },
+    });
+
+    for (const line of lines) {
+      // Upsert: first receipt of a product in this warehouse creates the row.
+      await tx.stock.upsert({
+        where: {
+          productId_warehouseId: { productId: line.productId, warehouseId: data.warehouseId },
+        },
+        create: { productId: line.productId, warehouseId: data.warehouseId, quantity: line.quantity, minStock: 0 },
+        update: { quantity: { increment: line.quantity } },
+      });
+      await tx.stockMovement.create({
+        data: {
+          productId: line.productId,
+          warehouseToId: data.warehouseId,
+          quantity: line.quantity,
+          type: 'ENTRADA',
+          reason: `COMPRA A-${String(compra.number).padStart(4, '0')} (recepción OC A-${String(oc.number).padStart(4, '0')})`,
+          userId: req.authUser!.userId,
+          documentId: compra.id,
+        },
+      });
+    }
+
+    // Mark the OC complete only when every ordered line is fully received.
+    const receivedNow = new Map<number, number>();
+    for (const line of lines) receivedNow.set(line.productId, line.quantity);
+    const allComplete = oc.items.every((l) => {
+      if (!l.productId) return true;
+      const totalReceived =
+        (receivedByProduct.get(l.productId) ?? 0) + (receivedNow.get(l.productId) ?? 0);
+      return totalReceived >= Number(l.quantity);
+    });
+    const ocStatus = allComplete ? 'Recibido' : 'Parcial';
+    await tx.document.update({ where: { id: oc.id }, data: { status: ocStatus } });
+
+    return { document: compra, ocStatus };
+  });
+
+  res.status(201).json({ ok: true, ...result });
 });
 
 export default router;

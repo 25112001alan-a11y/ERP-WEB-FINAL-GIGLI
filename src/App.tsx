@@ -1,10 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
-  ViewPath, Product, PurchaseOrder, Supplier, SaleTransaction, PublicOrder, User, AuditLog, FinanceTransaction,
+  ViewPath, Product, PurchaseOrder, Supplier, SaleTransaction, PublicOrder, User, AuditLog, FinanceTransaction, PurchaseDocument, WarehouseOption,
 } from './types';
 import {
-  INITIAL_PURCHASE_ORDERS,
-  INITIAL_SUPPLIERS,
   INITIAL_SALES,
   INITIAL_PUBLIC_ORDERS,
   INITIAL_USERS,
@@ -80,6 +78,65 @@ function toFrontProduct(p: ApiProduct): Product {
   };
 }
 
+interface ApiDocument {
+  id: number;
+  type: string;
+  series: string;
+  number: number;
+  date: string;
+  status: string;
+  subtotal: string | number;
+  totalTax: string | number;
+  total: string | number;
+  supplier: { id: number; name: string } | null;
+  client: { id: number; name: string } | null;
+  items: {
+    id: number;
+    productId: number | null;
+    description: string;
+    quantity: string | number;
+    unitPrice: string | number;
+    lineTotal: string | number;
+  }[];
+}
+
+const RECEIPT_STATUS: Record<string, PurchaseOrder['receiptStatus']> = {
+  Abierto: 'Pendiente',
+  Parcial: 'Parcial',
+  Recibido: 'Recibido',
+};
+
+function toFrontPurchaseOrder(d: ApiDocument): PurchaseOrder {
+  return {
+    id: `${d.type}-${d.series}-${String(d.number).padStart(4, '0')}`,
+    date: new Date(d.date).toLocaleDateString(),
+    supplier: d.supplier?.name ?? d.client?.name ?? 'Sin entidad',
+    total: Number(d.total),
+    receiptStatus: RECEIPT_STATUS[d.status] ?? 'Pendiente',
+    paymentStatus: d.status === 'Pagado' ? 'Pagado' : 'No Pagado',
+  };
+}
+
+function toFrontPurchaseDocument(d: ApiDocument): PurchaseDocument {
+  return {
+    id: String(d.id),
+    number: `${d.type} ${d.series}-${String(d.number).padStart(4, '0')}`,
+    type: d.type,
+    date: new Date(d.date).toLocaleDateString(),
+    supplier: d.supplier?.name ?? '',
+    total: Number(d.total),
+    status: d.status,
+    items: d.items.map((i) => ({
+      productId: i.productId != null ? String(i.productId) : '',
+      name: i.description,
+      sku: '',
+      ordered: Number(i.quantity),
+      received: 0,
+      unitPrice: Number(i.unitPrice ?? 0),
+    })),
+  };
+}
+
 export default function App() {
   const { user, logout } = useAuth();
   const [currentView, setCurrentView] = useState<ViewPath>(user ? 'dashboard' : 'auth-login');
@@ -87,8 +144,10 @@ export default function App() {
 
   // Global State Collections
   const [products, setProducts] = useState<Product[]>([]);
-  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>(INITIAL_PURCHASE_ORDERS);
-  const [suppliers] = useState<Supplier[]>(INITIAL_SUPPLIERS);
+  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [openOrders, setOpenOrders] = useState<PurchaseDocument[]>([]);
+  const [warehouses, setWarehouses] = useState<WarehouseOption[]>([]);
   const [sales, setSales] = useState<SaleTransaction[]>(INITIAL_SALES);
   const [publicOrders] = useState<PublicOrder[]>(INITIAL_PUBLIC_ORDERS);
   const [users, setUsers] = useState<User[]>(INITIAL_USERS);
@@ -114,14 +173,53 @@ export default function App() {
     }
   }, []);
 
+  const loadPurchases = useCallback(async () => {
+    try {
+      const [ocs, compras, sups, whs] = await Promise.all([
+        apiFetch<ApiDocument[]>('/api/documents?type=OC'),
+        apiFetch<ApiDocument[]>('/api/documents?type=COMPRA'),
+        apiFetch<{ id: number; name: string; contact: string | null }[]>('/api/suppliers'),
+        apiFetch<{ id: number; name: string }[]>('/api/stock/warehouses'),
+      ]);
+      setSuppliers(
+        sups.map((s) => ({
+          id: String(s.id),
+          name: s.name,
+          email: '',
+          phone: '',
+          taxId: '',
+          contactPerson: s.contact ?? '',
+        })),
+      );
+      setWarehouses(whs);
+      setPurchaseOrders(
+        [...ocs.map(toFrontPurchaseOrder), ...compras.map(toFrontPurchaseOrder)].sort((a, b) =>
+          b.id.localeCompare(a.id),
+        ),
+      );
+      setOpenOrders(ocs.filter((o) => o.status !== 'Recibido').map(toFrontPurchaseDocument));
+    } catch (err) {
+      console.error('No se pudieron cargar las compras', err);
+    }
+  }, []);
+
+  const loadAll = useCallback(() => {
+    void loadProducts();
+    void loadPurchases();
+  }, [loadProducts, loadPurchases]);
+
   useEffect(() => {
     if (user) {
-      void loadProducts();
+      loadAll();
     } else {
       setProducts([]);
       setProductWarehouseIds({});
+      setPurchaseOrders([]);
+      setSuppliers([]);
+      setOpenOrders([]);
+      setWarehouses([]);
     }
-  }, [user, loadProducts]);
+  }, [user, loadAll]);
 
   // Keep the view consistent with the session state.
   useEffect(() => {
@@ -237,6 +335,51 @@ export default function App() {
     setUsers((prev) => [...prev, newUser]);
   };
 
+  interface CreatePurchaseOrderPayload {
+    supplierId: number;
+    items: { productId: number; quantity: number; unitPrice: number }[];
+    warehouseId?: number;
+    notes?: string;
+  }
+
+  const handleCreatePurchaseOrder = async (payload: CreatePurchaseOrderPayload) => {
+    try {
+      await apiFetch('/api/documents', {
+        method: 'POST',
+        body: {
+          type: 'OC',
+          series: 'A',
+          supplierId: payload.supplierId,
+          warehouseId: payload.warehouseId,
+          notes: payload.notes,
+          items: payload.items,
+        },
+      });
+      await loadPurchases();
+    } catch (err) {
+      console.error('No se pudo crear la orden de compra', err);
+      throw err;
+    }
+  };
+
+  const handleReceivePurchaseOrder = async (
+    orderId: string,
+    items: { productId: number; quantity: number }[],
+    warehouseId: number,
+    notes?: string,
+  ) => {
+    try {
+      await apiFetch(`/api/documents/${orderId}/receive`, {
+        method: 'POST',
+        body: { items, warehouseId, notes },
+      });
+      await loadAll();
+    } catch (err) {
+      console.error('No se pudo registrar la recepción', err);
+      throw err;
+    }
+  };
+
   const handleLogout = () => {
     logout();
     setCurrentView('auth-login');
@@ -305,10 +448,22 @@ export default function App() {
               <PurchasesView orders={purchaseOrders} suppliers={suppliers} onNavigate={setCurrentView} />
             )}
             {currentView === 'nueva-orden-compra' && (
-              <NewPurchaseOrderView suppliers={suppliers} onNavigate={setCurrentView} />
+              <NewPurchaseOrderView
+                suppliers={suppliers}
+                products={products}
+                warehouses={warehouses}
+                onCreateOrder={handleCreatePurchaseOrder}
+                onNavigate={setCurrentView}
+              />
             )}
             {currentView === 'registrar-remito' && (
-              <GoodsReceiptView orders={purchaseOrders} onNavigate={setCurrentView} />
+              <GoodsReceiptView
+                orders={openOrders}
+                warehouses={warehouses}
+                products={products}
+                onReceive={handleReceivePurchaseOrder}
+                onNavigate={setCurrentView}
+              />
             )}
             {currentView === 'finanzas' && <FinanceView transactions={financeTxs} onNavigate={setCurrentView} />}
             {currentView === 'reportes' && (

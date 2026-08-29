@@ -70,6 +70,34 @@ export function tenantWhere(req: Request): { companyId: number } {
 }
 
 /**
+ * Loads the current user's permission names as a set.
+ * Shared by requirePermission/requireAnyPermission and inline permission checks.
+ */
+export async function getUserPermissions(req: Request): Promise<Set<string>> {
+  const auth = req.authUser;
+  if (!auth) return new Set();
+  const user = await prisma.user.findUnique({
+    where: { id: auth.userId },
+    select: {
+      roles: {
+        select: {
+          role: {
+            select: {
+              permissions: { select: { permission: { select: { name: true } } } },
+            },
+          },
+        },
+      },
+    },
+  });
+  return new Set(
+    (user?.roles ?? []).flatMap((ur) =>
+      ur.role.permissions.map((rp) => rp.permission.name),
+    ),
+  );
+}
+
+/**
  * Guards routes by a single permission (e.g. 'inventario.escribir').
  * Loads the user's permissions from the DB on every request — simple, correct,
  * and cheap enough for this scale. Requires requireAuth to have run first.
@@ -82,29 +110,34 @@ export function requirePermission(permission: string) {
       return;
     }
 
-    const user = await prisma.user.findUnique({
-      where: { id: auth.userId },
-      select: {
-        roles: {
-          select: {
-            role: {
-              select: {
-                permissions: { select: { permission: { select: { name: true } } } },
-              },
-            },
-          },
-        },
-      },
-    });
-
-    const permissions = new Set(
-      (user?.roles ?? []).flatMap((ur) =>
-        ur.role.permissions.map((rp) => rp.permission.name),
-      ),
-    );
+    const permissions = await getUserPermissions(req);
 
     if (!permissions.has(permission)) {
       res.status(403).json({ error: `Permiso requerido: ${permission}` });
+      return;
+    }
+
+    next();
+  };
+}
+
+/**
+ * Guards routes by ANY of the given permissions, e.g.
+ * requireAnyPermission('ventas.leer', 'compras.leer') for the unified
+ * documents list, which contains both sales and purchase documents.
+ */
+export function requireAnyPermission(...permissions: string[]) {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    const auth = req.authUser;
+    if (!auth) {
+      res.status(401).json({ error: 'Autenticación requerida' });
+      return;
+    }
+
+    const userPermissions = await getUserPermissions(req);
+
+    if (!permissions.some((p) => userPermissions.has(p))) {
+      res.status(403).json({ error: `Permiso requerido: ${permissions.join(' o ')}` });
       return;
     }
 
