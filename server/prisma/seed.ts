@@ -1,10 +1,11 @@
-import { PrismaClient, DocumentType } from '@prisma/client';
+﻿import { PrismaClient, DocumentType } from '@prisma/client';
 import bcrypt from 'bcryptjs';
-import { INITIAL_PRODUCTS, INITIAL_SUPPLIERS } from '../../src/data/mockData';
+import { SEED_PRODUCTS, SEED_SUPPLIERS } from './seed-data.js';
 
 const prisma = new PrismaClient();
 
-const PASSWORD = 'password123';
+// Production: set ADMIN_PASSWORD in the environment. Dev fallback keeps the demo password.
+const PASSWORD = process.env.ADMIN_PASSWORD ?? 'password123';
 const COMPANY = {
   name: 'Nexus Enterprise Corp',
   legalName: 'Nexus Enterprise Corp SpA',
@@ -85,8 +86,8 @@ async function main() {
   // ---------- Users ----------
   const userData = [
     { firstName: 'Ana', lastName: 'Silva', email: 'ana.silva@empresa.com', role: 'Super Admin' },
-    { firstName: 'Carlos', lastName: 'Pérez', email: 'c.perez@empresa.com', role: 'Gerente Ventas' },
-    { firstName: 'María', lastName: 'Rodríguez', email: 'm.rodriguez@empresa.com', role: 'Analista Inventario' },
+    { firstName: 'Carlos', lastName: 'PÃ©rez', email: 'c.perez@empresa.com', role: 'Gerente Ventas' },
+    { firstName: 'MarÃ­a', lastName: 'RodrÃ­guez', email: 'm.rodriguez@empresa.com', role: 'Analista Inventario' },
   ];
   const hash = await bcrypt.hash(PASSWORD, 10);
   const users: Record<string, number> = {};
@@ -111,13 +112,13 @@ async function main() {
     data: { companyId: company.id, name: 'Sucursal Principal', address: 'Av. Providencia 1234, Santiago' },
   });
   const warehouseCentral = await prisma.warehouse.create({
-    data: { companyId: company.id, branchId: branch.id, name: 'Depósito Central' },
+    data: { companyId: company.id, branchId: branch.id, name: 'DepÃ³sito Central' },
   });
   const warehouseNorth = await prisma.warehouse.create({
     data: { companyId: company.id, branchId: branch.id, name: 'Tienda Norte' },
   });
   const warehousesByName: Record<string, number> = {
-    'Depósito Central': warehouseCentral.id,
+    'DepÃ³sito Central': warehouseCentral.id,
     'Tienda Norte': warehouseNorth.id,
   };
   console.log('  structure: 1 branch, 2 warehouses');
@@ -130,12 +131,12 @@ async function main() {
 
   // ---------- Categories / Taxes ----------
   const categories: Record<string, number> = {};
-  for (const name of ['Electrónica', 'Muebles', 'Ropa', 'Bebidas', 'Snacks']) {
+  for (const name of ['ElectrÃ³nica', 'Muebles', 'Ropa', 'Bebidas', 'Snacks']) {
     const c = await prisma.category.create({ data: { companyId: company.id, name } });
     categories[name] = c.id;
   }
   const taxData = [
-    { name: 'IVA Electrónica 16%', rate: 16 },
+    { name: 'IVA ElectrÃ³nica 16%', rate: 16 },
     { name: 'IVA Reducido 12%', rate: 12 },
     { name: 'IVA General 19%', rate: 19 },
     { name: 'Exento 0%', rate: 0 },
@@ -149,7 +150,7 @@ async function main() {
 
   // ---------- Products / Stock (from front mock data) ----------
   const productIdsBySku: Record<string, number> = {};
-  for (const p of INITIAL_PRODUCTS) {
+  for (const p of SEED_PRODUCTS) {
     const product = await prisma.product.create({
       data: {
         companyId: company.id,
@@ -173,7 +174,7 @@ async function main() {
       },
     });
   }
-  console.log(`  products: ${INITIAL_PRODUCTS.length} with initial stock`);
+  console.log(`  products: ${SEED_PRODUCTS.length} with initial stock`);
 
   // ---------- Clients ----------
   const clientData = [
@@ -184,7 +185,7 @@ async function main() {
     { name: 'Delta Logistics', type: 'Enterprise', email: 'supply@deltalog.com', taxId: 'E-33445566' },
     { name: 'Consumidor Final', type: 'Persona', taxId: '0' },
     { name: 'Carlos Aranda', type: 'B2C Retail', email: 'carlos.aranda@gmail.com' },
-    { name: 'María López', type: 'B2B Wholesale', email: 'maria.lopez@gmail.com' },
+    { name: 'MarÃ­a LÃ³pez', type: 'B2B Wholesale', email: 'maria.lopez@gmail.com' },
   ];
   const clients: Record<string, number> = {};
   for (const c of clientData) {
@@ -194,12 +195,12 @@ async function main() {
   console.log(`  clients: ${clientData.length}`);
 
   // ---------- Suppliers ----------
-  for (const s of INITIAL_SUPPLIERS) {
+  for (const s of SEED_SUPPLIERS) {
     await prisma.supplier.create({
       data: { companyId: company.id, name: s.name, taxId: s.taxId, email: s.email, phone: s.phone, contact: s.contactPerson },
     });
   }
-  console.log(`  suppliers: ${INITIAL_SUPPLIERS.length}`);
+  console.log(`  suppliers: ${SEED_SUPPLIERS.length}`);
 
   // ---------- Demo document: VENTA ----------
   const demoItems = [
@@ -257,9 +258,9 @@ async function main() {
   // ---------- Audit logs ----------
   await prisma.auditLog.createMany({
     data: [
-      { companyId: company.id, userId: users['Ana Silva'], action: 'Inicio de sesión', module: 'Seguridad', details: 'Acceso exitoso desde Chrome/Windows', ip: '192.168.1.45' },
-      { companyId: company.id, userId: users['Carlos Pérez'], action: 'Modificación de Stock', module: 'Inventario', entity: 'Stock', entityId: productIdsBySku['EL-LP-001'], details: 'Ajuste de inventario en SKU: EL-LP-001 (+50 unidades)', ip: '192.168.1.22' },
-      { companyId: company.id, userId: users['María Rodríguez'], action: 'Creación de Factura', module: 'Ventas', entity: 'Document', entityId: demoDoc.id, details: `Factura generada #A-0001 por $${(subtotal + totalTax).toFixed(2)}`, ip: '192.168.1.15' },
+      { companyId: company.id, userId: users['Ana Silva'], action: 'Inicio de sesiÃ³n', module: 'Seguridad', details: 'Acceso exitoso desde Chrome/Windows', ip: '192.168.1.45' },
+      { companyId: company.id, userId: users['Carlos PÃ©rez'], action: 'ModificaciÃ³n de Stock', module: 'Inventario', entity: 'Stock', entityId: productIdsBySku['EL-LP-001'], details: 'Ajuste de inventario en SKU: EL-LP-001 (+50 unidades)', ip: '192.168.1.22' },
+      { companyId: company.id, userId: users['MarÃ­a RodrÃ­guez'], action: 'CreaciÃ³n de Factura', module: 'Ventas', entity: 'Document', entityId: demoDoc.id, details: `Factura generada #A-0001 por $${(subtotal + totalTax).toFixed(2)}`, ip: '192.168.1.15' },
     ],
   });
   console.log('  audit logs: 3');
