@@ -9,6 +9,16 @@ interface SalesViewProps {
 export const SalesView: React.FC<SalesViewProps> = ({ sales, onNavigate }) => {
   const [selectedSale, setSelectedSale] = useState<SaleTransaction | null>(sales[0] || null);
 
+  const now = new Date();
+  const monthSales = sales.filter((s) => {
+    const d = s.createdAt ? new Date(s.createdAt) : new Date(0);
+    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+  });
+  const totalMonth = monthSales.reduce((acc, s) => acc + s.amount, 0);
+  const receivables = sales.filter((s) => s.paymentStatus !== 'Pagado').reduce((acc, s) => acc + s.amount, 0);
+  const receivablesCount = sales.filter((s) => s.paymentStatus !== 'Pagado').length;
+  const fulfillmentRate = sales.length > 0 ? Math.round((sales.filter((s) => s.fulfillmentStatus === 'Entregado').length / sales.length) * 1000) / 10 : 0;
+
   return (
     <div className="flex flex-col w-full h-full relative" id="sales-root">
       {/* Metrics Summary Section */}
@@ -19,17 +29,14 @@ export const SalesView: React.FC<SalesViewProps> = ({ sales, onNavigate }) => {
           <div className="flex justify-between items-start z-10">
             <div className="flex flex-col">
               <span className="font-label-md text-label-md text-on-surface-variant uppercase tracking-widest">Ingresos Totales (Mes)</span>
-              <span className="font-display-lg text-display-lg text-on-surface mt-sm">$124,500.00</span>
+              <span className="font-display-lg text-display-lg text-on-surface mt-sm">${totalMonth.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
             </div>
             <div className="w-10 h-10 rounded-full bg-tertiary-container text-on-tertiary-container flex items-center justify-center shrink-0">
               <span className="material-symbols-outlined text-[20px]" style={{ fontVariationSettings: "'FILL' 1" }}>trending_up</span>
             </div>
           </div>
           <div className="flex items-center gap-sm mt-auto z-10">
-            <span className="font-body-md text-body-md text-tertiary-fixed-dim bg-tertiary-fixed-dim/10 px-sm py-xs rounded flex items-center gap-xs font-bold">
-              <span className="material-symbols-outlined text-[14px]">arrow_upward</span> +15.2%
-            </span>
-            <span className="font-body-md text-body-md text-on-surface-variant">vs. mes anterior</span>
+            <span className="font-body-md text-body-md text-on-surface-variant">{monthSales.length} {monthSales.length === 1 ? 'transacción' : 'transacciones'} en el mes</span>
           </div>
         </div>
 
@@ -38,15 +45,15 @@ export const SalesView: React.FC<SalesViewProps> = ({ sales, onNavigate }) => {
           <div className="flex justify-between items-start">
             <div className="flex flex-col">
               <span className="font-label-md text-label-md text-on-error-container uppercase tracking-widest">Cuentas por Cobrar</span>
-              <span className="font-display-lg text-display-lg text-on-surface mt-sm">$18,230.50</span>
+              <span className="font-display-lg text-display-lg text-on-surface mt-sm">${receivables.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
             </div>
             <div className="w-10 h-10 rounded-full bg-error-container text-on-error-container flex items-center justify-center shrink-0">
               <span className="material-symbols-outlined text-[20px]">schedule</span>
             </div>
           </div>
           <div className="flex items-center gap-sm mt-auto">
-            <span className="font-body-md text-body-md text-on-error-container font-semibold">12</span>
-            <span className="font-body-md text-body-md text-on-surface-variant">facturas pendientes o vencidas</span>
+            <span className="font-body-md text-body-md text-on-error-container font-semibold">{receivablesCount}</span>
+            <span className="font-body-md text-body-md text-on-surface-variant">comprobantes sin pago registrado</span>
           </div>
         </div>
 
@@ -55,14 +62,14 @@ export const SalesView: React.FC<SalesViewProps> = ({ sales, onNavigate }) => {
           <div className="flex justify-between items-start">
             <div className="flex flex-col">
               <span className="font-label-md text-label-md text-on-surface-variant uppercase tracking-widest">Tasa de Cumplimiento</span>
-              <span className="font-display-lg text-display-lg text-on-surface mt-sm">98.5%</span>
+              <span className="font-display-lg text-display-lg text-on-surface mt-sm">{fulfillmentRate}%</span>
             </div>
             <div className="w-10 h-10 rounded-full bg-secondary-container text-on-secondary-container flex items-center justify-center shrink-0">
               <span className="material-symbols-outlined text-[20px]" style={{ fontVariationSettings: "'FILL' 1" }}>local_shipping</span>
             </div>
           </div>
           <div className="w-full h-2 bg-surface-variant rounded-full overflow-hidden mt-auto">
-            <div className="h-full bg-secondary w-[98.5%] rounded-full"></div>
+            <div className="h-full bg-secondary rounded-full" style={{ width: `${fulfillmentRate}%` }}></div>
           </div>
         </div>
       </div>
@@ -206,26 +213,24 @@ export const SalesView: React.FC<SalesViewProps> = ({ sales, onNavigate }) => {
                       </tr>
                     </thead>
                     <tbody className="font-body-md text-body-md text-on-surface divide-y divide-surface-variant/50 bg-surface-container-lowest">
-                      <tr>
-                        <td className="py-2 px-sm">
-                          <div className="flex flex-col">
-                            <span className="truncate w-36 font-medium">Servidor Edge X-100</span>
-                            <span className="font-mono-sm text-mono-sm text-on-surface-variant">SKU: HW-EX100</span>
-                          </div>
-                        </td>
-                        <td className="py-2 px-sm text-right">2</td>
-                        <td className="py-2 px-sm text-right font-mono-sm">$8,000.00</td>
-                      </tr>
-                      <tr>
-                        <td className="py-2 px-sm">
-                          <div className="flex flex-col">
-                            <span className="truncate w-36 font-medium">Licencia Enterprise</span>
-                            <span className="font-mono-sm text-mono-sm text-on-surface-variant">SKU: SW-ENT-1Y</span>
-                          </div>
-                        </td>
-                        <td className="py-2 px-sm text-right">1</td>
-                        <td className="py-2 px-sm text-right font-mono-sm">$4,200.00</td>
-                      </tr>
+                      {(selectedSale.items ?? []).map((item, idx) => (
+                        <tr key={idx}>
+                          <td className="py-2 px-sm">
+                            <div className="flex flex-col">
+                              <span className="truncate w-36 font-medium">{item.description}</span>
+                            </div>
+                          </td>
+                          <td className="py-2 px-sm text-right">{item.quantity}</td>
+                          <td className="py-2 px-sm text-right font-mono-sm">${(item.quantity * item.unitPrice).toFixed(2)}</td>
+                        </tr>
+                      ))}
+                      {selectedSale.itemsCount > 0 && (!selectedSale.items || selectedSale.items.length === 0) && (
+                        <tr>
+                          <td colSpan={3} className="py-2 px-sm text-on-surface-variant text-center">
+                            {selectedSale.itemsCount} ítem{selectedSale.itemsCount > 1 ? 's' : ''} sin detalle cargado.
+                          </td>
+                        </tr>
+                      )}
                     </tbody>
                   </table>
                 </div>

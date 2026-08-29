@@ -1,13 +1,11 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
-  ViewPath, Product, PurchaseOrder, Supplier, SaleTransaction, PublicOrder, User, AuditLog, FinanceTransaction, PurchaseDocument, WarehouseOption,
+  ViewPath, Product, PurchaseOrder, Supplier, SaleTransaction, PublicOrder, User, AuditLog, FinanceTransaction, PurchaseDocument, WarehouseOption, DashboardData,
 } from './types';
 import {
-  INITIAL_SALES,
   INITIAL_PUBLIC_ORDERS,
   INITIAL_USERS,
   INITIAL_AUDIT_LOGS,
-  INITIAL_FINANCE_TXS,
 } from './data/mockData';
 import { useAuth } from './lib/auth';
 import { apiFetch } from './lib/api';
@@ -89,7 +87,8 @@ interface ApiDocument {
   totalTax: string | number;
   total: string | number;
   supplier: { id: number; name: string } | null;
-  client: { id: number; name: string } | null;
+  client: { id: number; name: string; type: string | null } | null;
+  payments?: { id: number; method: string; status: string }[];
   items: {
     id: number;
     productId: number | null;
@@ -137,6 +136,28 @@ function toFrontPurchaseDocument(d: ApiDocument): PurchaseDocument {
   };
 }
 
+function toFrontSale(d: ApiDocument): SaleTransaction {
+  const payment = d.payments?.[0];
+  return {
+    id: String(d.id),
+    type: 'Venta',
+    date: new Date(d.date).toLocaleString(),
+    createdAt: d.date,
+    clientName: d.client?.name ?? d.supplier?.name ?? 'Sin entidad',
+    clientType: d.client?.type ?? 'Retail',
+    amount: Number(d.total),
+    paymentStatus: d.status === 'Pagado' ? 'Pagado' : 'Pendiente',
+    fulfillmentStatus: d.status === 'Pagado' ? 'Entregado' : 'Nuevo',
+    paymentMethod: payment?.method ?? '—',
+    itemsCount: d.items.reduce((acc, i) => acc + Number(i.quantity), 0),
+    items: d.items.map((i) => ({
+      description: i.description,
+      quantity: Number(i.quantity),
+      unitPrice: Number(i.unitPrice ?? 0),
+    })),
+  };
+}
+
 export default function App() {
   const { user, logout } = useAuth();
   const [currentView, setCurrentView] = useState<ViewPath>(user ? 'dashboard' : 'auth-login');
@@ -148,11 +169,12 @@ export default function App() {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [openOrders, setOpenOrders] = useState<PurchaseDocument[]>([]);
   const [warehouses, setWarehouses] = useState<WarehouseOption[]>([]);
-  const [sales, setSales] = useState<SaleTransaction[]>(INITIAL_SALES);
+  const [sales, setSales] = useState<SaleTransaction[]>([]);
+  const [dashboard, setDashboard] = useState<DashboardData | null>(null);
+  const [financeTxs, setFinanceTxs] = useState<FinanceTransaction[]>([]);
   const [publicOrders] = useState<PublicOrder[]>(INITIAL_PUBLIC_ORDERS);
   const [users, setUsers] = useState<User[]>(INITIAL_USERS);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>(INITIAL_AUDIT_LOGS);
-  const [financeTxs] = useState<FinanceTransaction[]>(INITIAL_FINANCE_TXS);
 
   // Maps front product id -> first warehouse id (used for stock adjustments).
   const [productWarehouseIds, setProductWarehouseIds] = useState<Record<string, number>>({});
@@ -203,10 +225,51 @@ export default function App() {
     }
   }, []);
 
+  const loadSales = useCallback(async () => {
+    try {
+      const data = await apiFetch<ApiDocument[]>('/api/documents?type=VENTA');
+      setSales(data.map(toFrontSale));
+    } catch (err) {
+      console.error('No se pudieron cargar las ventas', err);
+    }
+  }, []);
+
+  const loadFinance = useCallback(async () => {
+    try {
+      const data = await apiFetch<
+        { id: string; date: string; concept: string; method: string; amount: number; type: 'Ingreso' | 'Egreso'; status: string }[]
+      >('/api/finance');
+      setFinanceTxs(
+        data.map((t) => ({
+          id: t.id,
+          date: new Date(t.date).toLocaleString('es-ES', { dateStyle: 'medium', timeStyle: 'short' }),
+          concept: t.concept,
+          method: t.method,
+          amount: t.amount,
+          type: t.type,
+          status: t.status === 'Conciliado' ? 'Conciliado' : 'Completado',
+        })),
+      );
+    } catch (err) {
+      console.error('No se pudieron cargar las finanzas', err);
+    }
+  }, []);
+
+  const loadDashboard = useCallback(async () => {
+    try {
+      setDashboard(await apiFetch<DashboardData>('/api/dashboard'));
+    } catch (err) {
+      console.error('No se pudo cargar el dashboard', err);
+    }
+  }, []);
+
   const loadAll = useCallback(() => {
     void loadProducts();
     void loadPurchases();
-  }, [loadProducts, loadPurchases]);
+    void loadSales();
+    void loadFinance();
+    void loadDashboard();
+  }, [loadProducts, loadPurchases, loadSales, loadFinance, loadDashboard]);
 
   useEffect(() => {
     if (user) {
@@ -218,6 +281,9 @@ export default function App() {
       setSuppliers([]);
       setOpenOrders([]);
       setWarehouses([]);
+      setSales([]);
+      setFinanceTxs([]);
+      setDashboard(null);
     }
   }, [user, loadAll]);
 
@@ -318,16 +384,22 @@ export default function App() {
       id: String(doc.id),
       type: 'Venta',
       date: new Date().toLocaleString(),
+      createdAt: new Date().toISOString(),
       clientName: payload.clientName,
       clientType: 'Retail',
       amount: Number(doc.total),
       paymentStatus: 'Pagado',
-      fulfillmentStatus: 'Nuevo',
+      fulfillmentStatus: 'Entregado',
       paymentMethod: payload.method,
       itemsCount: totalItems,
+      items: payload.items.map((i) => ({
+        description: i.product.name,
+        quantity: i.quantity,
+        unitPrice: i.product.price,
+      })),
     };
     setSales((prev) => [sale, ...prev]);
-    await loadProducts();
+    await loadAll();
     return sale;
   };
 
@@ -425,7 +497,7 @@ export default function App() {
 
           {/* View Container */}
           <main className="pt-20 p-lg flex-1 flex flex-col max-w-[1600px] w-full mx-auto">
-            {currentView === 'dashboard' && <DashboardView onNavigate={setCurrentView} />}
+            {currentView === 'dashboard' && <DashboardView dashboard={dashboard} onNavigate={setCurrentView} />}
             {currentView === 'inventario' && <InventoryView products={products} onNavigate={setCurrentView} />}
             {currentView === 'inventario-ajuste' && (
               <StockAdjustmentView products={products} onNavigate={setCurrentView} onApplyAdjustment={handleApplyAdjustment} />

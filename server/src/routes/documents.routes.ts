@@ -73,9 +73,10 @@ router.get('/', requireAnyPermission('ventas.leer', 'compras.leer'), async (req,
       ...(typeof type === 'string' ? { type: type as DocumentType } : {}),
     },
     include: {
-      client: { select: { id: true, name: true } },
+      client: { select: { id: true, name: true, type: true } },
       supplier: { select: { id: true, name: true } },
       warehouse: { select: { name: true } },
+      payments: { select: { id: true, method: true, status: true } },
       items: {
         select: {
           id: true,

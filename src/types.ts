@@ -60,6 +60,7 @@ export interface SaleTransaction {
   id: string;
   type: string;
   date: string;
+  createdAt?: string;
   clientName: string;
   clientType: string;
   amount: number;
@@ -67,6 +68,36 @@ export interface SaleTransaction {
   fulfillmentStatus: 'Entregado' | 'En Preparación' | 'Nuevo';
   paymentMethod: string;
   itemsCount: number;
+  items?: { description: string; quantity: number; unitPrice: number }[];
+}
+
+export interface DashboardRecent {
+  id: number;
+  type: string;
+  label: string;
+  date: string;
+  amount: number;
+  status: string;
+  partyName: string;
+}
+
+export interface DashboardData {
+  month: string;
+  totalSalesMonth: number;
+  totalExpensesMonth: number;
+  netCashFlow: number;
+  pendingOrders: number;
+  lowStockCount: number;
+  lowStockProducts: {
+    productId: number;
+    sku: string;
+    name: string;
+    stock: number;
+    minStock: number;
+    warehouse: string;
+  }[];
+  recent: DashboardRecent[];
+  topProducts: { name: string; sku: string; units: number }[];
 }
 
 export interface PublicOrder {
