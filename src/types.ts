@@ -115,10 +115,25 @@ export interface User {
   id: string;
   name: string;
   email: string;
-  role: 'Super Admin' | 'Gerente Ventas' | 'Analista Inventario' | 'Cajero POS' | 'Gerente Sucursal';
+  role: string;
+  roleId?: number;
+  roles?: string[];
   lastAccess: string;
   status: 'Activo' | 'Pendiente' | 'Inactivo';
   username?: string;
+}
+
+export interface RoleOption {
+  id: number;
+  name: string;
+  description?: string;
+}
+
+export interface TaxRate {
+  id: number;
+  name: string;
+  rate: number;
+  active: boolean;
 }
 
 export interface AuditLog {

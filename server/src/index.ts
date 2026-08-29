@@ -9,6 +9,9 @@ import suppliersRoutes from './routes/suppliers.routes.js';
 import documentsRoutes from './routes/documents.routes.js';
 import dashboardRoutes from './routes/dashboard.routes.js';
 import financeRoutes from './routes/finance.routes.js';
+import usersRoutes from './routes/users.routes.js';
+import auditRoutes from './routes/audit.routes.js';
+import companyRoutes from './routes/company.routes.js';
 
 const app = express();
 
@@ -29,6 +32,9 @@ app.use('/api/suppliers', suppliersRoutes);
 app.use('/api/documents', documentsRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/finance', financeRoutes);
+app.use('/api/users', usersRoutes);
+app.use('/api/audit-logs', auditRoutes);
+app.use('/api/company', companyRoutes);
 
 // Central error handler: converts rejected handlers (Express 5) into JSON.
 // Business errors carry a `status` property; anything else is a 500.

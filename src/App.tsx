@@ -1,11 +1,9 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
-  ViewPath, Product, PurchaseOrder, Supplier, SaleTransaction, PublicOrder, User, AuditLog, FinanceTransaction, PurchaseDocument, WarehouseOption, DashboardData,
+  ViewPath, Product, PurchaseOrder, Supplier, SaleTransaction, PublicOrder, User, AuditLog, FinanceTransaction, PurchaseDocument, WarehouseOption, DashboardData, RoleOption, TaxRate,
 } from './types';
 import {
   INITIAL_PUBLIC_ORDERS,
-  INITIAL_USERS,
-  INITIAL_AUDIT_LOGS,
 } from './data/mockData';
 import { useAuth } from './lib/auth';
 import { apiFetch } from './lib/api';
@@ -173,8 +171,10 @@ export default function App() {
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [financeTxs, setFinanceTxs] = useState<FinanceTransaction[]>([]);
   const [publicOrders] = useState<PublicOrder[]>(INITIAL_PUBLIC_ORDERS);
-  const [users, setUsers] = useState<User[]>(INITIAL_USERS);
-  const [auditLogs, setAuditLogs] = useState<AuditLog[]>(INITIAL_AUDIT_LOGS);
+  const [users, setUsers] = useState<User[]>([]);
+  const [userRoles, setUserRoles] = useState<RoleOption[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [taxes, setTaxes] = useState<TaxRate[]>([]);
 
   // Maps front product id -> first warehouse id (used for stock adjustments).
   const [productWarehouseIds, setProductWarehouseIds] = useState<Record<string, number>>({});
@@ -263,13 +263,90 @@ export default function App() {
     }
   }, []);
 
+  const loadUsers = useCallback(async () => {
+    try {
+      const [userList, roles] = await Promise.all([
+        apiFetch<{
+          id: number;
+          name: string;
+          email: string;
+          status: string;
+          lastAccess: string | null;
+          roles: string[];
+        }[]>('/api/users'),
+        apiFetch<RoleOption[]>('/api/users/roles'),
+      ]);
+      setUsers(
+        userList.map((u) => ({
+          id: String(u.id),
+          name: u.name,
+          email: u.email,
+          role: u.roles[0] ?? 'Sin rol',
+          roles: u.roles,
+          lastAccess: u.lastAccess ? new Date(u.lastAccess).toLocaleString('es-ES') : 'Nunca',
+          status: u.status === 'Activo' ? 'Activo' : u.status === 'Inactivo' ? 'Inactivo' : 'Pendiente',
+        })),
+      );
+      setUserRoles(roles);
+    } catch (err) {
+      console.error('No se pudieron cargar los usuarios', err);
+    }
+  }, []);
+
+  const loadAudit = useCallback(async () => {
+    try {
+      const data = await apiFetch<
+        {
+          id: number;
+          timestamp: string;
+          user: string;
+          action: string;
+          module: string;
+          ip: string | null;
+          details: string | null;
+        }[]
+      >('/api/audit-logs');
+      setAuditLogs(
+        data.map((l) => ({
+          id: String(l.id),
+          timestamp: new Date(l.timestamp).toLocaleString('es-ES', { dateStyle: 'medium', timeStyle: 'short' }),
+          user: l.user,
+          userInitials: l.user
+            .split(/\s+/)
+            .map((p) => p[0])
+            .join('')
+            .slice(0, 2)
+            .toUpperCase(),
+          action: l.action,
+          module: (l.module as AuditLog['module']) ?? 'Configuración',
+          ip: l.ip ?? '—',
+          details: l.details ?? '',
+        })),
+      );
+    } catch (err) {
+      console.error('No se pudo cargar el log de auditoría', err);
+    }
+  }, []);
+
+  const loadTaxes = useCallback(async () => {
+    try {
+      const data = await apiFetch<TaxRate[]>('/api/products/taxes');
+      setTaxes(data);
+    } catch (err) {
+      console.error('No se pudieron cargar los impuestos', err);
+    }
+  }, []);
+
   const loadAll = useCallback(() => {
     void loadProducts();
     void loadPurchases();
     void loadSales();
     void loadFinance();
     void loadDashboard();
-  }, [loadProducts, loadPurchases, loadSales, loadFinance, loadDashboard]);
+    void loadUsers();
+    void loadAudit();
+    void loadTaxes();
+  }, [loadProducts, loadPurchases, loadSales, loadFinance, loadDashboard, loadUsers, loadAudit, loadTaxes]);
 
   useEffect(() => {
     if (user) {
@@ -284,6 +361,10 @@ export default function App() {
       setSales([]);
       setFinanceTxs([]);
       setDashboard(null);
+      setUsers([]);
+      setUserRoles([]);
+      setAuditLogs([]);
+      setTaxes([]);
     }
   }, [user, loadAll]);
 
@@ -403,8 +484,65 @@ export default function App() {
     return sale;
   };
 
-  const handleAddUser = (newUser: User) => {
-    setUsers((prev) => [...prev, newUser]);
+  interface AddUserPayload {
+    name: string;
+    email: string;
+    password: string;
+    roleId: number;
+  }
+
+  const handleAddUser = async (payload: AddUserPayload) => {
+    const parts = payload.name.trim().split(/\s+/);
+    const firstName = parts[0] ?? '';
+    const lastName = parts.slice(1).join(' ') || firstName;
+    try {
+      await apiFetch('/api/users', {
+        method: 'POST',
+        body: { firstName, lastName, email: payload.email, password: payload.password, roleId: payload.roleId },
+      });
+      await loadUsers();
+    } catch (err) {
+      console.error('No se pudo crear el usuario', err);
+      throw err;
+    }
+  };
+
+  const handleAddTax = async (name: string, rate: number) => {
+    try {
+      await apiFetch('/api/products/taxes', { method: 'POST', body: { name, rate } });
+      await loadTaxes();
+    } catch (err) {
+      console.error('No se pudo crear el impuesto', err);
+      throw err;
+    }
+  };
+
+  const handleToggleTax = async (id: number, active: boolean) => {
+    try {
+      await apiFetch(`/api/products/taxes/${id}`, { method: 'PATCH', body: { active } });
+      await loadTaxes();
+    } catch (err) {
+      console.error('No se pudo actualizar el impuesto', err);
+      throw err;
+    }
+  };
+
+  interface TransferStockPayload {
+    productId: number;
+    fromWarehouseId: number;
+    toWarehouseId: number;
+    quantity: number;
+    reason?: string;
+  }
+
+  const handleTransferStock = async (payload: TransferStockPayload) => {
+    try {
+      await apiFetch('/api/stock/transfer', { method: 'POST', body: payload });
+      await loadProducts();
+    } catch (err) {
+      console.error('No se pudo transferir el stock', err);
+      throw err;
+    }
   };
 
   interface CreatePurchaseOrderPayload {
@@ -503,7 +641,12 @@ export default function App() {
               <StockAdjustmentView products={products} onNavigate={setCurrentView} onApplyAdjustment={handleApplyAdjustment} />
             )}
             {currentView === 'inventario-transferencia' && (
-              <StockTransferView products={products} onNavigate={setCurrentView} />
+              <StockTransferView
+                products={products}
+                warehouses={warehouses}
+                onTransfer={handleTransferStock}
+                onNavigate={setCurrentView}
+              />
             )}
             {currentView === 'inventario-nuevo-producto' && (
               <AddProductView onAddProduct={handleAddProduct} onNavigate={setCurrentView} />
@@ -541,9 +684,21 @@ export default function App() {
             {currentView === 'reportes' && (
               <ReportsView products={products} sales={sales} onNavigate={setCurrentView} />
             )}
-            {currentView === 'configuracion' && <SettingsView users={users} onNavigate={setCurrentView} />}
+            {currentView === 'configuracion' && (
+              <SettingsView
+                users={users}
+                taxes={taxes}
+                onAddTax={handleAddTax}
+                onToggleTax={handleToggleTax}
+                onNavigate={setCurrentView}
+              />
+            )}
             {currentView === 'nuevo-usuario' && (
-              <NewUserView onAddUser={handleAddUser} onNavigate={setCurrentView} />
+              <NewUserView
+                roles={userRoles}
+                onAddUser={handleAddUser}
+                onNavigate={setCurrentView}
+              />
             )}
             {currentView === 'log-auditoria' && <AuditLogView logs={auditLogs} onNavigate={setCurrentView} />}
           </main>

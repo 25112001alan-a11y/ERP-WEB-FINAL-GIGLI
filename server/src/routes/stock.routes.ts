@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { requireAuth, requirePermission, tenantWhere } from '../middleware/auth.js';
+import { logAudit, clientIp } from '../lib/audit.js';
 
 const router = Router();
 
@@ -101,10 +102,143 @@ router.post('/adjust', requirePermission('inventario.escribir'), async (req, res
       },
     });
 
+    await logAudit(
+      tx,
+      req.authUser!.companyId,
+      req.authUser!.userId,
+      {
+        action: 'Ajuste de Stock',
+        module: 'Inventario',
+        entity: 'Product',
+        entityId: product.id,
+        details: `Ajuste de ${delta > 0 ? '+' : ''}${delta} en ${warehouse.name} (${product.name})`,
+      },
+      clientIp(req),
+    );
+
     return { stock: updated, productName: product.name };
   });
 
   res.json({ ok: true, ...result });
+});
+
+const transferSchema = z.object({
+  productId: z.number().int().positive(),
+  fromWarehouseId: z.number().int().positive(),
+  toWarehouseId: z.number().int().positive(),
+  quantity: z.number().positive(),
+  reason: z.string().max(500).optional(),
+});
+
+/**
+ * POST /api/stock/transfer — moves stock between two warehouses of the same
+ * company. Validates availability in the source, applies both stock rows
+ * atomically and writes a TRANSFERENCIA movement with both sides.
+ */
+router.post('/transfer', requirePermission('inventario.escribir'), async (req, res) => {
+  const parsed = transferSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
+    return;
+  }
+  const { productId, fromWarehouseId, toWarehouseId, quantity, reason } = parsed.data;
+
+  if (fromWarehouseId === toWarehouseId) {
+    res.status(400).json({ error: 'Los depósitos de origen y destino deben ser distintos' });
+    return;
+  }
+
+  const result = await prisma.$transaction(async (tx) => {
+    const product = await tx.product.findFirst({
+      where: { id: productId, ...tenantWhere(req) },
+    });
+    if (!product) {
+      throw Object.assign(new Error('Producto no encontrado'), { status: 404 });
+    }
+
+    const fromWarehouse = await tx.warehouse.findFirst({
+      where: { id: fromWarehouseId, ...tenantWhere(req) },
+    });
+    const toWarehouse = await tx.warehouse.findFirst({
+      where: { id: toWarehouseId, ...tenantWhere(req) },
+    });
+    if (!fromWarehouse) {
+      throw Object.assign(new Error('Depósito de origen no válido'), { status: 400 });
+    }
+    if (!toWarehouse) {
+      throw Object.assign(new Error('Depósito de destino no válido'), { status: 400 });
+    }
+
+    const fromStock = await tx.stock.findUnique({
+      where: { productId_warehouseId: { productId, warehouseId: fromWarehouseId } },
+    });
+    if (!fromStock) {
+      throw Object.assign(new Error('No existe stock para ese producto en el depósito de origen'), {
+        status: 404,
+      });
+    }
+    const currentFrom = Number(fromStock.quantity);
+    if (currentFrom < quantity) {
+      throw Object.assign(
+        new Error(`Stock insuficiente en origen (disponible: ${currentFrom})`),
+        { status: 409 },
+      );
+    }
+
+    await tx.stock.update({
+      where: { id: fromStock.id },
+      data: { quantity: { decrement: quantity } },
+    });
+
+    const toStock = await tx.stock.findUnique({
+      where: { productId_warehouseId: { productId, warehouseId: toWarehouseId } },
+    });
+    if (toStock) {
+      await tx.stock.update({
+        where: { id: toStock.id },
+        data: { quantity: { increment: quantity } },
+      });
+    } else {
+      await tx.stock.create({
+        data: {
+          productId,
+          warehouseId: toWarehouseId,
+          quantity,
+          minStock: 0,
+        },
+      });
+    }
+
+    await tx.stockMovement.create({
+      data: {
+        productId,
+        warehouseFromId: fromWarehouseId,
+        warehouseToId: toWarehouseId,
+        quantity,
+        type: 'TRANSFERENCIA',
+        reason: reason ?? `${fromWarehouse.name} → ${toWarehouse.name}`,
+        userId: req.authUser!.userId,
+      },
+    });
+
+    await logAudit(
+      tx,
+      req.authUser!.companyId,
+      req.authUser!.userId,
+      {
+        action: 'Transferencia de Stock',
+        module: 'Inventario',
+        entity: 'Product',
+        entityId: product.id,
+        details: `${quantity} × ${product.name}: ${fromWarehouse.name} → ${toWarehouse.name}`,
+      },
+      clientIp(req),
+    );
+
+    return { productName: product.name, quantity, fromWarehouse: fromWarehouse.name, toWarehouse: toWarehouse.name };
+  });
+
+  res.status(201).json({ ok: true, ...result });
 });
 
 export default router;

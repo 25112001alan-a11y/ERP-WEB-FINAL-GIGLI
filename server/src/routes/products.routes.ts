@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { requireAuth, requirePermission, tenantWhere } from '../middleware/auth.js';
+import { logAudit, clientIp } from '../lib/audit.js';
 
 const router = Router();
 
@@ -21,6 +22,85 @@ router.get('/categories', async (req, res) => {
 router.get('/taxes', async (_req, res) => {
   const taxes = await prisma.tax.findMany({ where: { active: true }, orderBy: { rate: 'desc' } });
   res.json(taxes);
+});
+
+const taxCreateSchema = z.object({ name: z.string().min(1).max(80), rate: z.number().nonnegative() });
+const taxUpdateSchema = z.object({
+  name: z.string().min(1).max(80).optional(),
+  rate: z.number().nonnegative().optional(),
+  active: z.boolean().optional(),
+});
+
+/** POST /api/products/taxes — create a tax rate (before :id routes) */
+router.post('/taxes', requirePermission('inventario.escribir'), async (req, res) => {
+  const parsed = taxCreateSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
+    return;
+  }
+  const tax = await prisma.tax.create({ data: parsed.data });
+  res.status(201).json(tax);
+});
+
+/** PATCH /api/products/taxes/:id — update a tax rate */
+router.patch('/taxes/:id', requirePermission('inventario.escribir'), async (req, res) => {
+  const id = Number(req.params.id);
+  const parsed = taxUpdateSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
+    return;
+  }
+  const existing = await prisma.tax.findUnique({ where: { id } });
+  if (!existing) {
+    res.status(404).json({ error: 'Impuesto no encontrado' });
+    return;
+  }
+  const tax = await prisma.tax.update({ where: { id }, data: parsed.data });
+  res.json(tax);
+});
+
+const categorySchema = z.object({
+  name: z.string().min(1).max(80),
+  parentId: z.number().int().positive().optional().nullable(),
+});
+
+/** POST /api/products/categories — create a tenant category */
+router.post('/categories', requirePermission('inventario.escribir'), async (req, res) => {
+  const parsed = categorySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
+    return;
+  }
+  if (parsed.data.parentId) {
+    const parent = await prisma.category.findFirst({
+      where: { id: parsed.data.parentId, ...tenantWhere(req) },
+    });
+    if (!parent) {
+      res.status(400).json({ error: 'Categoría padre inválida' });
+      return;
+    }
+  }
+  const category = await prisma.category.create({
+    data: { ...tenantWhere(req), name: parsed.data.name },
+  });
+  res.status(201).json(category);
+});
+
+/** PATCH /api/products/categories/:id — rename a tenant category */
+router.patch('/categories/:id', requirePermission('inventario.escribir'), async (req, res) => {
+  const id = Number(req.params.id);
+  const parsed = z.object({ name: z.string().min(1).max(80) }).safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
+    return;
+  }
+  const existing = await prisma.category.findFirst({ where: { id, ...tenantWhere(req) } });
+  if (!existing) {
+    res.status(404).json({ error: 'Categoría no encontrada' });
+    return;
+  }
+  const category = await prisma.category.update({ where: { id }, data: { name: parsed.data.name } });
+  res.json(category);
 });
 
 const productSchema = z.object({
@@ -101,9 +181,27 @@ router.post('/', requirePermission('inventario.escribir'), async (req, res) => {
     }
   }
 
-  const product = await prisma.product.create({
-    data: { ...tenantWhere(req), ...data },
-    include: { category: true, tax: true },
+  const product = await prisma.$transaction(async (tx) => {
+    const created = await tx.product.create({
+      data: { ...tenantWhere(req), ...data },
+      include: { category: true, tax: true },
+    });
+
+    await logAudit(
+      tx,
+      req.authUser!.companyId,
+      req.authUser!.userId,
+      {
+        action: 'Creación de Producto',
+        module: 'Inventario',
+        entity: 'Product',
+        entityId: created.id,
+        details: `Producto ${created.name} (${created.internalCode ?? 'sin código'}) creado`,
+      },
+      clientIp(req),
+    );
+
+    return created;
   });
   res.status(201).json(product);
 });

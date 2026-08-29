@@ -132,6 +132,20 @@ router.post('/login', async (req, res) => {
   // Touch last access for audit purposes.
   await prisma.user.update({ where: { id: user.id }, data: { lastAccess: new Date() } });
 
+  // Audit trail: successful login.
+  await prisma.auditLog.create({
+    data: {
+      companyId: user.companyId,
+      userId: user.id,
+      action: 'Inicio de sesión',
+      module: 'Seguridad',
+      details: `Acceso exitoso (${email})`,
+      ip: typeof req.headers['x-forwarded-for'] === 'string'
+        ? req.headers['x-forwarded-for'].split(',')[0].trim()
+        : req.socket?.remoteAddress ?? null,
+    },
+  });
+
   const token = signToken({ sub: user.id, companyId: user.companyId, email: user.email });
 
   res.json({

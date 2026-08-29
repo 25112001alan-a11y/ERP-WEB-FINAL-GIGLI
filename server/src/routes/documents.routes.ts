@@ -9,6 +9,7 @@ import {
   tenantWhere,
   getUserPermissions,
 } from '../middleware/auth.js';
+import { logAudit, clientIp } from '../lib/audit.js';
 
 const router = Router();
 
@@ -365,6 +366,21 @@ router.post('/', requirePermission('ventas.escribir'), async (req, res) => {
       }
     }
 
+    // Audit trail inside the same transaction as the document creation.
+    await logAudit(
+      tx,
+      req.authUser!.companyId,
+      req.authUser!.userId,
+      {
+        action: 'Creación de Comprobante',
+        module: type === DocumentType.COMPRA || type === DocumentType.OC ? 'Compras' : 'Ventas',
+        entity: 'Document',
+        entityId: document.id,
+        details: `${type} ${data.series}-${String(document.number).padStart(4, '0')} por $${total.toFixed(2)}`,
+      },
+      clientIp(req),
+    );
+
     return document;
   });
 
@@ -567,6 +583,21 @@ router.post('/:id/receive', requirePermission('compras.escribir'), async (req, r
     });
     const ocStatus = allComplete ? 'Recibido' : 'Parcial';
     await tx.document.update({ where: { id: oc.id }, data: { status: ocStatus } });
+
+    // Audit trail inside the receipt transaction.
+    await logAudit(
+      tx,
+      companyId,
+      req.authUser!.userId,
+      {
+        action: 'Recepción de Compra',
+        module: 'Compras',
+        entity: 'Document',
+        entityId: compra.id,
+        details: `COMPRA A-${String(compra.number).padStart(4, '0')} por $${total.toFixed(2)} (recepción OC A-${String(oc.number).padStart(4, '0')})`,
+      },
+      clientIp(req),
+    );
 
     return { document: compra, ocStatus };
   });

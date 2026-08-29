@@ -1,12 +1,15 @@
 import React, { useState } from 'react';
-import { ViewPath, User } from '../../types';
+import { ViewPath, User, TaxRate } from '../../types';
 
 interface SettingsViewProps {
   users: User[];
+  taxes: TaxRate[];
+  onAddTax: (name: string, rate: number) => Promise<void>;
+  onToggleTax: (id: number, active: boolean) => Promise<void>;
   onNavigate: (view: ViewPath) => void;
 }
 
-export const SettingsView: React.FC<SettingsViewProps> = ({ users, onNavigate }) => {
+export const SettingsView: React.FC<SettingsViewProps> = ({ users, taxes, onAddTax, onToggleTax, onNavigate }) => {
   const [activeTab, setActiveTab] = useState<'empresa' | 'impuestos' | 'usuarios' | 'roles'>('empresa');
 
   // Company state
@@ -16,10 +19,27 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ users, onNavigate })
   const [timezone, setTimezone] = useState('America/Santiago (UTC-3)');
   const [savedMsg, setSavedMsg] = useState(false);
 
+  // Tax form state
+  const [taxName, setTaxName] = useState('');
+  const [taxRate, setTaxRate] = useState('');
+  const [taxError, setTaxError] = useState('');
+
   const handleSaveCompany = (e: React.FormEvent) => {
     e.preventDefault();
     setSavedMsg(true);
     setTimeout(() => setSavedMsg(false), 2000);
+  };
+
+  const handleAddTax = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!taxName.trim() || taxRate === '') return;
+    try {
+      await onAddTax(taxName.trim(), Number(taxRate));
+      setTaxName('');
+      setTaxRate('');
+    } catch (err) {
+      setTaxError(err instanceof Error ? err.message : 'No se pudo crear el impuesto');
+    }
   };
 
   return (
@@ -158,30 +178,68 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ users, onNavigate })
 
           {activeTab === 'impuestos' && (
             <div className="space-y-md max-w-2xl">
-              <h3 className="font-headline-md text-headline-md text-on-surface">Tasas de Impuesto Predeterminadas</h3>
+              <h3 className="font-headline-md text-headline-md text-on-surface">Tasas de Impuesto</h3>
               <div className="space-y-sm">
-                <div className="flex items-center justify-between p-md bg-surface-container-low rounded-lg border border-outline-variant/30">
-                  <div>
-                    <p className="font-semibold text-on-surface">IVA General (Chile / LatAm)</p>
-                    <p className="text-xs text-on-surface-variant">Impuesto al valor agregado estándar</p>
+                {taxes.map((t) => (
+                  <div key={t.id} className="flex items-center justify-between p-md bg-surface-container-low rounded-lg border border-outline-variant/30">
+                    <div>
+                      <p className="font-semibold text-on-surface">{t.name}</p>
+                      <p className="text-xs text-on-surface-variant">{t.active ? 'Tasa activa' : 'Desactivada'}</p>
+                    </div>
+                    <div className="flex items-center gap-md">
+                      <span className="font-mono-sm font-bold text-primary text-headline-md">{Number(t.rate).toFixed(1)}%</span>
+                      <button
+                        onClick={() => onToggleTax(t.id, !t.active)}
+                        className={`px-2 py-1 rounded-full text-xs font-semibold cursor-pointer ${
+                          t.active ? 'bg-tertiary-container/20 text-on-tertiary-container' : 'bg-surface-container-high text-on-surface-variant'
+                        }`}
+                      >
+                        {t.active ? 'Activa' : 'Inactiva'}
+                      </button>
+                    </div>
                   </div>
-                  <span className="font-mono-sm font-bold text-primary text-headline-md">19.0%</span>
-                </div>
-                <div className="flex items-center justify-between p-md bg-surface-container-low rounded-lg border border-outline-variant/30">
-                  <div>
-                    <p className="font-semibold text-on-surface">IVA Reducido (Bebidas / Alimentos)</p>
-                    <p className="text-xs text-on-surface-variant">Tasa preferencial para insumos básicos</p>
-                  </div>
-                  <span className="font-mono-sm font-bold text-primary text-headline-md">12.0%</span>
-                </div>
-                <div className="flex items-center justify-between p-md bg-surface-container-low rounded-lg border border-outline-variant/30">
-                  <div>
-                    <p className="font-semibold text-on-surface">Exento de Impuesto</p>
-                    <p className="text-xs text-on-surface-variant">Servicios exentos y exportaciones</p>
-                  </div>
-                  <span className="font-mono-sm font-bold text-on-surface-variant text-headline-md">0.0%</span>
-                </div>
+                ))}
+                {taxes.length === 0 && (
+                  <p className="text-on-surface-variant text-sm">No hay tasas de impuesto configuradas.</p>
+                )}
               </div>
+
+              <form onSubmit={handleAddTax} className="flex flex-wrap items-end gap-md p-md rounded-xl border border-outline-variant/30 bg-surface-container-low max-w-xl">
+                <div className="flex flex-col gap-xs flex-1 min-w-40">
+                  <label className="font-label-md text-label-md uppercase text-on-surface-variant">Nueva Tasa</label>
+                  <input
+                    type="text"
+                    value={taxName}
+                    onChange={(e) => setTaxName(e.target.value)}
+                    placeholder="Ej. IVA 22%"
+                    className="bg-surface border border-outline-variant/50 rounded-lg p-sm outline-none focus:border-primary font-body-md"
+                  />
+                </div>
+                <div className="flex flex-col gap-xs w-28">
+                  <label className="font-label-md text-label-md uppercase text-on-surface-variant">Porcentaje</label>
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      value={taxRate}
+                      onChange={(e) => setTaxRate(e.target.value)}
+                      placeholder="19.0"
+                      className="bg-surface border border-outline-variant/50 rounded-lg p-sm outline-none focus:border-primary font-mono-sm w-full"
+                    />
+                    <span className="text-on-surface-variant">%</span>
+                  </div>
+                </div>
+                <button
+                  type="submit"
+                  className="px-lg py-sm bg-primary text-on-primary font-label-md text-label-md rounded-lg shadow-sm hover:shadow-md transition-shadow cursor-pointer"
+                >
+                  Agregar
+                </button>
+              </form>
+              {taxError && (
+                <p className="text-sm text-on-error-container bg-error-container/20 rounded-lg p-sm">{taxError}</p>
+              )}
             </div>
           )}
 
