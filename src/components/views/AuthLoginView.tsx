@@ -31,7 +31,7 @@ export const AuthLoginView: React.FC<AuthLoginViewProps> = ({ onNavigate, onLogi
       <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-primary/10 rounded-full blur-3xl pointer-events-none"></div>
       <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-secondary/10 rounded-full blur-3xl pointer-events-none"></div>
 
-      <div className="bg-surface-container-lowest rounded-2xl shadow-2xl border border-outline-variant/30 max-w-md w-full p-xl relative z-10 flex flex-col gap-lg">
+      <div className="bg-surface-container-lowest rounded-2xl shadow-2xl border border-outline-variant/30 w-full max-w-[min(520px,90vw)] p-xl relative z-10 flex flex-col gap-lg">
         {/* Logo Header */}
         <div className="flex flex-col items-center text-center gap-xs">
           <div className="w-12 h-12 rounded-xl bg-primary flex items-center justify-center text-on-primary font-bold text-headline-lg shadow-md mb-xs">
