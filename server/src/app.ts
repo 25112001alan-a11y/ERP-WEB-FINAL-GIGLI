@@ -38,6 +38,10 @@ app.use(
 );
 app.use(express.json());
 
+app.get('/', (_req, res) => {
+  res.json({ status: 'ok', service: 'nexus-erp-api' });
+});
+
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', service: 'nexus-erp-api' });
 });
