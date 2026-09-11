@@ -2,7 +2,8 @@
 # directory when connecting the repo (deploy root = server/).
 [build]
 builder = "nixpacks"
-buildCommand = "npm ci && npx prisma generate && npm run build"
+# --include=dev: NODE_ENV=production would otherwise skip typescript and break `npm run build`.
+buildCommand = "npm ci --include=dev && npx prisma generate && npm run build"
 
 [deploy]
 startCommand = "node dist/index.js"
