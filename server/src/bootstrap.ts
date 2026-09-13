@@ -41,3 +41,17 @@ export async function ensureSeeded(): Promise<void> {
   execFileSync(process.execPath, [TSX_CLI, 'prisma/seed.ts'], { stdio: 'inherit', cwd: CWD });
   console.log('[bootstrap] seed complete');
 }
+
+/**
+ * Optional incremental demo-data seeder for databases that already hold real
+ * data (the regular seed wipes everything). Enabled only when the
+ * RUN_DEMO_SEED env flag is set; idempotent, safe to run at every boot.
+ */
+export function runDemoSeed(): void {
+  if (process.env.RUN_DEMO_SEED !== 'true') {
+    return;
+  }
+  console.log('[bootstrap] RUN_DEMO_SEED=true — running incremental demo seed...');
+  execFileSync(process.execPath, [TSX_CLI, 'prisma/seed-demo-incremental.ts'], { stdio: 'inherit', cwd: CWD });
+  console.log('[bootstrap] demo seed complete');
+}
