@@ -19,6 +19,7 @@ async function clean() {
   await prisma.documentItem.deleteMany();
   await prisma.payment.deleteMany();
   await prisma.stockMovement.deleteMany();
+  await prisma.invoiceData.deleteMany();
   await prisma.document.deleteMany();
   await prisma.auditLog.deleteMany();
   await prisma.userRole.deleteMany();
@@ -31,8 +32,8 @@ async function clean() {
   await prisma.product.deleteMany();
   await prisma.category.deleteMany();
   await prisma.warehouse.deleteMany();
-  await prisma.branch.deleteMany();
   await prisma.cashBox.deleteMany();
+  await prisma.branch.deleteMany();
   await prisma.tax.deleteMany();
   await prisma.permission.deleteMany();
   await prisma.company.deleteMany();
@@ -86,8 +87,8 @@ async function main() {
   // ---------- Users ----------
   const userData = [
     { firstName: 'Ana', lastName: 'Silva', email: 'ana.silva@empresa.com', role: 'Super Admin' },
-    { firstName: 'Carlos', lastName: 'PÃ©rez', email: 'c.perez@empresa.com', role: 'Gerente Ventas' },
-    { firstName: 'MarÃ­a', lastName: 'RodrÃ­guez', email: 'm.rodriguez@empresa.com', role: 'Analista Inventario' },
+    { firstName: 'Carlos', lastName: 'Pérez', email: 'c.perez@empresa.com', role: 'Gerente Ventas' },
+    { firstName: 'María', lastName: 'Rodríguez', email: 'm.rodriguez@empresa.com', role: 'Analista Inventario' },
   ];
   const hash = await bcrypt.hash(PASSWORD, 10);
   const users: Record<string, number> = {};
@@ -112,13 +113,13 @@ async function main() {
     data: { companyId: company.id, name: 'Sucursal Principal', address: 'Av. Providencia 1234, Santiago' },
   });
   const warehouseCentral = await prisma.warehouse.create({
-    data: { companyId: company.id, branchId: branch.id, name: 'DepÃ³sito Central' },
+    data: { companyId: company.id, branchId: branch.id, name: 'Depósito Central' },
   });
   const warehouseNorth = await prisma.warehouse.create({
     data: { companyId: company.id, branchId: branch.id, name: 'Tienda Norte' },
   });
   const warehousesByName: Record<string, number> = {
-    'DepÃ³sito Central': warehouseCentral.id,
+    'Depósito Central': warehouseCentral.id,
     'Tienda Norte': warehouseNorth.id,
   };
   console.log('  structure: 1 branch, 2 warehouses');
@@ -131,12 +132,12 @@ async function main() {
 
   // ---------- Categories / Taxes ----------
   const categories: Record<string, number> = {};
-  for (const name of ['ElectrÃ³nica', 'Muebles', 'Ropa', 'Bebidas', 'Snacks']) {
+  for (const name of ['Electrónica', 'Muebles', 'Ropa', 'Bebidas', 'Snacks']) {
     const c = await prisma.category.create({ data: { companyId: company.id, name } });
     categories[name] = c.id;
   }
   const taxData = [
-    { name: 'IVA ElectrÃ³nica 16%', rate: 16 },
+    { name: 'IVA Electrónica 16%', rate: 16 },
     { name: 'IVA Reducido 12%', rate: 12 },
     { name: 'IVA General 19%', rate: 19 },
     { name: 'Exento 0%', rate: 0 },
@@ -185,7 +186,7 @@ async function main() {
     { name: 'Delta Logistics', type: 'Enterprise', email: 'supply@deltalog.com', taxId: 'E-33445566' },
     { name: 'Consumidor Final', type: 'Persona', taxId: '0' },
     { name: 'Carlos Aranda', type: 'B2C Retail', email: 'carlos.aranda@gmail.com' },
-    { name: 'MarÃ­a LÃ³pez', type: 'B2B Wholesale', email: 'maria.lopez@gmail.com' },
+    { name: 'María López', type: 'B2B Wholesale', email: 'maria.lopez@gmail.com' },
   ];
   const clients: Record<string, number> = {};
   for (const c of clientData) {
@@ -255,12 +256,163 @@ async function main() {
   });
   console.log(`  demo document: VENTA A-0001 (total ${subtotal + totalTax})`);
 
+  // ---------- Demo chain: OC -> REMITO (ingreso) -> FACTURA ----------
+  // Mirrors the production flow: the supplier delivers goods against the OC,
+  // the receipt moves stock (ENTRADA) and the supplier invoice is registered.
+  const suppliers = await prisma.supplier.findMany({ select: { id: true, name: true } });
+  const demoSupplier = suppliers[0];
+  const ocItems = [
+    { sku: 'EL-LP-001', quantity: 5, unitPrice: 850.0 },
+    { sku: 'CL-TS-001', quantity: 3, unitPrice: 8.0 },
+  ];
+  const ocSubtotal = ocItems.reduce((acc, i) => acc + i.quantity * i.unitPrice, 0);
+  const ocTotalTax = ocItems.reduce((acc, i) => acc + i.quantity * i.unitPrice * (16 / 100), 0);
+
+  const oc = await prisma.document.create({
+    data: {
+      companyId: company.id,
+      type: DocumentType.OC,
+      series: 'A',
+      number: 1,
+      date: new Date(Date.now() - 7 * 86400000),
+      supplierId: demoSupplier?.id ?? null,
+      userId: users['Ana Silva'],
+      branchId: branch.id,
+      status: 'Recibido',
+      subtotal: ocSubtotal,
+      totalTax: ocTotalTax,
+      total: ocSubtotal + ocTotalTax,
+      currency: 'USD',
+      exchangeRate: 1,
+      externalNumber: 'PRESUP-2026-071',
+      notes: 'Presupuesto del proveedor registrado como referencia',
+    },
+  });
+  for (const i of ocItems) {
+    await prisma.documentItem.create({
+      data: {
+        documentId: oc.id,
+        productId: productIdsBySku[i.sku],
+        description: `Producto SKU ${i.sku}`,
+        quantity: i.quantity,
+        unitPrice: i.unitPrice,
+        taxRate: 16,
+        lineTotal: i.quantity * i.unitPrice,
+      },
+    });
+  }
+
+  const remito = await prisma.document.create({
+    data: {
+      companyId: company.id,
+      type: DocumentType.REMITO,
+      series: 'A',
+      number: 1,
+      date: new Date(Date.now() - 3 * 86400000),
+      supplierId: demoSupplier?.id ?? null,
+      userId: users['Ana Silva'],
+      branchId: branch.id,
+      warehouseId: warehouseCentral.id,
+      sourceDocumentId: oc.id,
+      externalNumber: 'R-000123',
+      status: 'Recibido',
+      subtotal: ocSubtotal,
+      totalTax: ocTotalTax,
+      total: ocSubtotal + ocTotalTax,
+      currency: 'USD',
+      exchangeRate: 1,
+      notes: 'Remito de ingreso del proveedor (demo)',
+    },
+  });
+  for (const i of ocItems) {
+    await prisma.documentItem.create({
+      data: {
+        documentId: remito.id,
+        productId: productIdsBySku[i.sku],
+        description: `Producto SKU ${i.sku}`,
+        quantity: i.quantity,
+        unitPrice: i.unitPrice,
+        taxRate: 16,
+        lineTotal: i.quantity * i.unitPrice,
+      },
+    });
+    await prisma.stock.update({
+      where: { id: (await prisma.stock.findFirst({ where: { productId: productIdsBySku[i.sku], warehouseId: warehouseCentral.id } }))!.id },
+      data: { quantity: { increment: i.quantity } },
+    });
+    await prisma.stockMovement.create({
+      data: {
+        productId: productIdsBySku[i.sku],
+        warehouseToId: warehouseCentral.id,
+        quantity: i.quantity,
+        type: 'ENTRADA',
+        reason: `REMITO A-0001 (recepción OC A-0001)`,
+        userId: users['Ana Silva'],
+        documentId: remito.id,
+      },
+    });
+  }
+
+  const facturaCompra = await prisma.document.create({
+    data: {
+      companyId: company.id,
+      type: DocumentType.FACTURA,
+      series: 'A',
+      number: 1,
+      date: new Date(Date.now() - 2 * 86400000),
+      supplierId: demoSupplier?.id ?? null,
+      userId: users['Ana Silva'],
+      branchId: branch.id,
+      sourceDocumentId: remito.id,
+      externalNumber: '0004-00001234',
+      status: 'Pagado',
+      subtotal: ocSubtotal,
+      totalTax: ocTotalTax,
+      total: ocSubtotal + ocTotalTax,
+      currency: 'USD',
+      exchangeRate: 1,
+      notes: 'Factura de compra del proveedor (demo)',
+      invoiceData: {
+        create: {
+          invoiceType: 'A',
+          cae: '70123456789654',
+          caeDueDate: new Date(Date.now() + 10 * 86400000),
+          puntoVenta: 4,
+        },
+      },
+    },
+  });
+  for (const i of ocItems) {
+    await prisma.documentItem.create({
+      data: {
+        documentId: facturaCompra.id,
+        productId: productIdsBySku[i.sku],
+        description: `Producto SKU ${i.sku}`,
+        quantity: i.quantity,
+        unitPrice: i.unitPrice,
+        taxRate: 16,
+        lineTotal: i.quantity * i.unitPrice,
+      },
+    });
+  }
+  await prisma.payment.create({
+    data: {
+      companyId: company.id,
+      documentId: facturaCompra.id,
+      cashBoxId: cashBox.id,
+      amount: ocSubtotal + ocTotalTax,
+      method: 'Transferencia',
+      status: 'Pagado',
+    },
+  });
+  console.log(`  demo chain: OC A-0001 -> REMITO A-0001 -> FACTURA A-0001 (total ${ocSubtotal + ocTotalTax})`);
+
   // ---------- Audit logs ----------
   await prisma.auditLog.createMany({
     data: [
-      { companyId: company.id, userId: users['Ana Silva'], action: 'Inicio de sesiÃ³n', module: 'Seguridad', details: 'Acceso exitoso desde Chrome/Windows', ip: '192.168.1.45' },
-      { companyId: company.id, userId: users['Carlos PÃ©rez'], action: 'ModificaciÃ³n de Stock', module: 'Inventario', entity: 'Stock', entityId: productIdsBySku['EL-LP-001'], details: 'Ajuste de inventario en SKU: EL-LP-001 (+50 unidades)', ip: '192.168.1.22' },
-      { companyId: company.id, userId: users['MarÃ­a RodrÃ­guez'], action: 'CreaciÃ³n de Factura', module: 'Ventas', entity: 'Document', entityId: demoDoc.id, details: `Factura generada #A-0001 por $${(subtotal + totalTax).toFixed(2)}`, ip: '192.168.1.15' },
+      { companyId: company.id, userId: users['Ana Silva'], action: 'Inicio de sesión', module: 'Seguridad', details: 'Acceso exitoso desde Chrome/Windows', ip: '192.168.1.45' },
+      { companyId: company.id, userId: users['Carlos Pérez'], action: 'Modificación de Stock', module: 'Inventario', entity: 'Stock', entityId: productIdsBySku['EL-LP-001'], details: 'Ajuste de inventario en SKU: EL-LP-001 (+50 unidades)', ip: '192.168.1.22' },
+      { companyId: company.id, userId: users['María Rodríguez'], action: 'Creación de Factura', module: 'Ventas', entity: 'Document', entityId: demoDoc.id, details: `Factura generada #A-0001 por $${(subtotal + totalTax).toFixed(2)}`, ip: '192.168.1.15' },
     ],
   });
   console.log('  audit logs: 3');

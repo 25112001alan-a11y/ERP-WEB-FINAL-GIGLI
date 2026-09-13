@@ -25,6 +25,8 @@ import { PublicClientStoreView } from './components/views/PublicClientStoreView'
 import { PurchasesView } from './components/views/PurchasesView';
 import { NewPurchaseOrderView } from './components/views/NewPurchaseOrderView';
 import { GoodsReceiptView } from './components/views/GoodsReceiptView';
+import { RegistrarFacturaView } from './components/views/RegistrarFacturaView';
+import { RemitoSalidaView } from './components/views/RemitoSalidaView';
 import { FinanceView } from './components/views/FinanceView';
 import { ReportsView } from './components/views/ReportsView';
 import { SettingsView } from './components/views/SettingsView';
@@ -48,6 +50,9 @@ export default function App() {
   const [openOrders, setOpenOrders] = useState<PurchaseDocument[]>([]);
   const [warehouses, setWarehouses] = useState<WarehouseOption[]>([]);
   const [sales, setSales] = useState<SaleTransaction[]>([]);
+  // Raw documents used as source/copy bases for facturas and remitos de salida.
+  const [salesDocs, setSalesDocs] = useState<ApiDocument[]>([]);
+  const [remitoDocs, setRemitoDocs] = useState<ApiDocument[]>([]);
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [financeTxs, setFinanceTxs] = useState<FinanceTransaction[]>([]);
   const [publicOrders, setPublicOrders] = useState<PublicOrder[]>([]);
@@ -77,9 +82,11 @@ export default function App() {
 
   const loadPurchases = useCallback(async () => {
     try {
-      const [ocs, compras, sups, whs] = await Promise.all([
+      const [ocs, compras, remitos, facturas, sups, whs] = await Promise.all([
         apiFetch<ApiDocument[]>('/api/documents?type=OC'),
         apiFetch<ApiDocument[]>('/api/documents?type=COMPRA'),
+        apiFetch<ApiDocument[]>('/api/documents?type=REMITO'),
+        apiFetch<ApiDocument[]>('/api/documents?type=FACTURA'),
         apiFetch<{ id: number; name: string; contact: string | null }[]>('/api/suppliers'),
         apiFetch<{ id: number; name: string }[]>('/api/stock/warehouses'),
       ]);
@@ -94,10 +101,11 @@ export default function App() {
         })),
       );
       setWarehouses(whs);
+      setRemitoDocs(remitos);
       setPurchaseOrders(
-        [...ocs.map(toFrontPurchaseOrder), ...compras.map(toFrontPurchaseOrder)].sort((a, b) =>
-          b.id.localeCompare(a.id),
-        ),
+        [...ocs, ...compras, ...remitos, ...facturas]
+          .map(toFrontPurchaseOrder)
+          .sort((a, b) => b.id.localeCompare(a.id)),
       );
       setOpenOrders(ocs.filter((o) => o.status !== 'Recibido').map(toFrontPurchaseDocument));
     } catch (err) {
@@ -107,8 +115,12 @@ export default function App() {
 
   const loadSales = useCallback(async () => {
     try {
-      const data = await apiFetch<ApiDocument[]>('/api/documents?type=VENTA');
-      setSales(data.map(toFrontSale));
+      const [ventas, remitos] = await Promise.all([
+        apiFetch<ApiDocument[]>('/api/documents?type=VENTA'),
+        apiFetch<ApiDocument[]>('/api/documents?type=REMITO'),
+      ]);
+      setSalesDocs([...ventas, ...remitos]);
+      setSales(ventas.map(toFrontSale));
     } catch (err) {
       console.error('No se pudieron cargar las ventas', err);
     }
@@ -478,16 +490,103 @@ export default function App() {
     orderId: string,
     items: { productId: number; quantity: number }[],
     warehouseId: number,
+    externalNumber?: string,
+    date?: string,
     notes?: string,
   ) => {
     try {
       await apiFetch(`/api/documents/${orderId}/receive`, {
         method: 'POST',
-        body: { items, warehouseId, notes },
+        body: { items, warehouseId, externalNumber, date, notes },
       });
       await loadAll();
     } catch (err) {
       console.error('No se pudo registrar la recepción', err);
+      throw err;
+    }
+  };
+
+  interface InvoiceInput {
+    invoiceType: string;
+    cae?: string;
+    caeDueDate?: string;
+    puntoVenta?: number;
+  }
+
+  interface CreateFacturaPayload {
+    direction: 'ingreso' | 'egreso';
+    sourceDocumentId?: number;
+    supplierId?: number;
+    clientId?: number;
+    clientName?: string;
+    items: { productId: number; quantity: number; unitPrice: number }[];
+    invoice: InvoiceInput;
+    externalNumber?: string;
+    paymentMethod?: string;
+    notes?: string;
+  }
+
+  const handleCreateFactura = async (payload: CreateFacturaPayload) => {
+    try {
+      const body: Record<string, unknown> = {
+        type: 'FACTURA',
+        series: 'A',
+        items: payload.items,
+        invoice: {
+          invoiceType: payload.invoice.invoiceType,
+          cae: payload.invoice.cae || undefined,
+          caeDueDate: payload.invoice.caeDueDate || undefined,
+          puntoVenta: payload.invoice.puntoVenta || undefined,
+        },
+        externalNumber: payload.externalNumber,
+        paymentMethod: payload.paymentMethod,
+        notes: payload.notes,
+      };
+      if (payload.direction === 'ingreso') {
+        if (!payload.supplierId) throw new Error('Seleccione el proveedor de la factura.');
+        body.supplierId = payload.supplierId;
+        body.sourceDocumentId = payload.sourceDocumentId;
+      } else {
+        if (!payload.clientId && !payload.clientName) {
+          throw new Error('Seleccione el cliente o documento origen.');
+        }
+        body.clientId = payload.clientId;
+        body.clientName = payload.clientName;
+        body.sourceDocumentId = payload.sourceDocumentId;
+      }
+      await apiFetch('/api/documents', { method: 'POST', body });
+      await loadAll();
+    } catch (err) {
+      console.error('No se pudo registrar la factura', err);
+      throw err;
+    }
+  };
+
+  interface RegisterRemitoSalidaPayload {
+    sourceDocumentId: number;
+    clientId: number;
+    items: { productId: number; quantity: number; unitPrice: number }[];
+    externalNumber?: string;
+    notes?: string;
+  }
+
+  const handleRegisterRemitoSalida = async (payload: RegisterRemitoSalidaPayload) => {
+    try {
+      await apiFetch('/api/documents', {
+        method: 'POST',
+        body: {
+          type: 'REMITO',
+          series: 'A',
+          sourceDocumentId: payload.sourceDocumentId,
+          clientId: payload.clientId,
+          items: payload.items,
+          externalNumber: payload.externalNumber,
+          notes: payload.notes,
+        },
+      });
+      await loadAll();
+    } catch (err) {
+      console.error('No se pudo registrar el remito de salida', err);
       throw err;
     }
   };
@@ -579,6 +678,24 @@ export default function App() {
                 warehouses={warehouses}
                 products={products}
                 onReceive={handleReceivePurchaseOrder}
+                onNavigate={setCurrentView}
+              />
+            )}
+            {currentView === 'registrar-factura' && (
+              <RegistrarFacturaView
+                suppliers={suppliers}
+                salesDocs={salesDocs}
+                remitoDocs={remitoDocs}
+                products={products}
+                onCreateFactura={handleCreateFactura}
+                onNavigate={setCurrentView}
+              />
+            )}
+            {currentView === 'remito-salida' && (
+              <RemitoSalidaView
+                salesDocs={salesDocs}
+                products={products}
+                onRegisterRemitoSalida={handleRegisterRemitoSalida}
                 onNavigate={setCurrentView}
               />
             )}

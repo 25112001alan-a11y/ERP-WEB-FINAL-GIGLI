@@ -16,7 +16,8 @@ const router = Router();
 router.use(requireAuth);
 
 // Document types map to their owning module. VENTA/PEDIDO/COTIZACION belong to
-// sales; OC/COMPRA/REMITO belong to purchases.
+// sales; OC/COMPRA/REMITO belong to purchases. FACTURA depends on direction:
+// supplier => purchases, client => sales (resolved inline in the handler).
 const DOCUMENT_PERMISSION: Record<DocumentType, string> = {
   [DocumentType.OC]: 'compras.escribir',
   [DocumentType.COMPRA]: 'compras.escribir',
@@ -24,6 +25,7 @@ const DOCUMENT_PERMISSION: Record<DocumentType, string> = {
   [DocumentType.COTIZACION]: 'ventas.escribir',
   [DocumentType.VENTA]: 'ventas.escribir',
   [DocumentType.PEDIDO]: 'ventas.escribir',
+  [DocumentType.FACTURA]: 'compras.escribir', // overridden inline for client sales invoices
 };
 
 const itemSchema = z.object({
@@ -33,8 +35,15 @@ const itemSchema = z.object({
   discount: z.number().nonnegative().optional().default(0),
 });
 
+const invoiceSchema = z.object({
+  invoiceType: z.enum(['A', 'B', 'C', 'X']),
+  cae: z.string().max(14).optional(),
+  caeDueDate: z.string().datetime().optional(),
+  puntoVenta: z.number().int().positive().optional(),
+});
+
 const documentSchema = z.object({
-  type: z.enum(['OC', 'COMPRA', 'VENTA', 'COTIZACION', 'REMITO', 'PEDIDO']),
+  type: z.enum(['OC', 'COMPRA', 'VENTA', 'COTIZACION', 'REMITO', 'PEDIDO', 'FACTURA']),
   series: z.string().max(10).optional().default('A'),
   date: z.string().datetime().optional(),
   clientId: z.number().int().positive().optional(),
@@ -44,7 +53,10 @@ const documentSchema = z.object({
   branchId: z.number().int().positive().optional(),
   warehouseId: z.number().int().positive().optional(),
   destinationWarehouseId: z.number().int().positive().optional(),
+  sourceDocumentId: z.number().int().positive().optional(),
+  externalNumber: z.string().max(50).optional(),
   paymentMethod: z.string().max(30).optional(),
+  invoice: invoiceSchema.optional(),
   notes: z.string().optional(),
 });
 
@@ -110,6 +122,7 @@ router.get('/:id', requireAnyPermission('ventas.leer', 'compras.leer'), async (r
       items: { include: { product: { select: { id: true, name: true, internalCode: true } } } },
       payments: true,
       stockMovements: true,
+      invoiceData: true,
     },
   });
   if (!document) {
@@ -121,13 +134,18 @@ router.get('/:id', requireAnyPermission('ventas.leer', 'compras.leer'), async (r
 
 /**
  * POST /api/documents
- * Creates a document with its items. VENTA and COMPRA move stock atomically:
- *   - VENTA  : decrements warehouse stock, writes SALIDA movements
- *   - COMPRA : increments warehouse stock, writes ENTRADA movements
+ * Creates a document with its items. Stock side effects by type:
+ *   - VENTA           : decrements warehouse stock, writes SALIDA movements
+ *   - COMPRA          : increments warehouse stock, writes ENTRADA movements
+ *   - REMITO (ingreso): increments warehouse stock, writes ENTRADA movements
+ *                       (supplier delivers goods; the movement mirrors /receive)
+ *   - REMITO (egreso) : no stock effect (the chained VENTA already moved it)
+ *   - FACTURA         : no stock effect; optionally creates a Payment and
+ *                       persists fiscal data (invoiceType, CAE) in InvoiceData
  * Other types are created without stock side effects.
  * Fiscal numbering is auto-incremented per (companyId, type, series).
  */
-router.post('/', requirePermission('ventas.escribir'), async (req, res) => {
+router.post('/', requireAnyPermission('ventas.escribir', 'compras.escribir'), async (req, res) => {
   const bodyParsed = documentSchema.safeParse(req.body);
   if (!bodyParsed.success) {
     res.status(400).json({ error: 'Datos inválidos', details: bodyParsed.error.flatten() });
@@ -141,8 +159,16 @@ router.post('/', requirePermission('ventas.escribir'), async (req, res) => {
   const data = bodyParsed.data;
   const type = data.type as DocumentType;
 
+  const hasClient = Boolean(data.clientId || data.clientName);
+  const hasSupplier = Boolean(data.supplierId || data.supplierName);
+
   // Permission depends on the document's owning module (sales vs purchases).
-  const requiredPermission = DOCUMENT_PERMISSION[type];
+  // A sales FACTURA (clientId) belongs to Ventas; every other direction follows
+  // the static map.
+  const requiredPermission =
+    type === DocumentType.FACTURA && hasClient && !hasSupplier
+      ? 'ventas.escribir'
+      : DOCUMENT_PERMISSION[type];
   const userPermissions = await getUserPermissions(req);
   if (!userPermissions.has(requiredPermission)) {
     res.status(403).json({ error: `Permiso requerido: ${requiredPermission}` });
@@ -150,18 +176,42 @@ router.post('/', requirePermission('ventas.escribir'), async (req, res) => {
   }
 
   const isStockType = type === DocumentType.VENTA || type === DocumentType.COMPRA;
-  if (isStockType && !data.warehouseId) {
+  // Physical receipt from a supplier: stock ENTRADA even without an OC chain.
+  const isRemitoIngreso = type === DocumentType.REMITO && hasSupplier;
+
+  if ((isStockType || isRemitoIngreso) && !data.warehouseId) {
     res.status(400).json({ error: `Los comprobantes ${type} requieren warehouseId` });
     return;
   }
-  if (type === DocumentType.VENTA && !data.clientId && !data.clientName) {
+  if (type === DocumentType.VENTA && !hasClient) {
     res.status(400).json({ error: 'Los comprobantes VENTA requieren clientId o clientName' });
     return;
   }
-  if (type === DocumentType.COMPRA && !data.supplierId && !data.supplierName) {
+  if (type === DocumentType.COMPRA && !hasSupplier) {
     res.status(400).json({ error: 'Los comprobantes COMPRA requieren supplierId o supplierName' });
     return;
   }
+  if (type === DocumentType.REMITO && (hasClient === hasSupplier)) {
+    res.status(400).json({
+      error: 'Los comprobantes REMITO requieren exactamente un cliente (egreso) o proveedor (ingreso)',
+    });
+    return;
+  }
+  if (type === DocumentType.FACTURA && (hasClient === hasSupplier)) {
+    res.status(400).json({
+      error: 'Los comprobantes FACTURA requieren exactamente un cliente o proveedor',
+    });
+    return;
+  }
+  if (type === DocumentType.FACTURA && !data.invoice) {
+    res.status(400).json({ error: 'Los comprobantes FACTURA requieren datos fiscales (invoice)' });
+    return;
+  }
+
+  // Valid chaining: a REMITO de ingreso evolves from an OC/COMPRA; a REMITO de
+  // egreso dispatches a VENTA/PEDIDO; a FACTURA references its business doc.
+  const ALLOWED_SOURCE_IN: DocumentType[] = [DocumentType.OC, DocumentType.COMPRA];
+  const ALLOWED_SOURCE_OUT: DocumentType[] = [DocumentType.VENTA, DocumentType.PEDIDO];
 
   const result = await prisma.$transaction(async (tx) => {
     // Tenancy + existence checks for referenced entities.
@@ -212,6 +262,33 @@ router.post('/', requirePermission('ventas.escribir'), async (req, res) => {
       if (!warehouse) throw Object.assign(new Error('Depósito no válido'), { status: 400 });
     }
 
+    // Source-document chaining validation (when provided).
+    let sourceStatus: string | null = null;
+    if (data.sourceDocumentId) {
+      const source = await tx.document.findFirst({
+        where: { id: data.sourceDocumentId, ...tenantWhere(req) },
+        select: { type: true, status: true },
+      });
+      if (!source) {
+        throw Object.assign(new Error('Documento origen no válido'), { status: 400 });
+      }
+      if (type === DocumentType.REMITO) {
+        const allowed = hasSupplier ? ALLOWED_SOURCE_IN : ALLOWED_SOURCE_OUT;
+        if (!allowed.includes(source.type)) {
+          throw Object.assign(new Error(`Origen ${source.type} no válido para un REMITO ${hasSupplier ? 'de ingreso' : 'de egreso'}`), { status: 400 });
+        }
+      }
+      if (type === DocumentType.FACTURA) {
+        const allowed = hasSupplier
+          ? [...ALLOWED_SOURCE_IN, DocumentType.REMITO]
+          : [...ALLOWED_SOURCE_OUT, DocumentType.REMITO];
+        if (!allowed.includes(source.type)) {
+          throw Object.assign(new Error(`Origen ${source.type} no válido para la FACTURA`), { status: 400 });
+        }
+      }
+      sourceStatus = source.status;
+    }
+
     // Resolve product lines: price/tax from catalog unless overridden.
     const lines: {
       productId: number;
@@ -252,8 +329,8 @@ router.post('/', requirePermission('ventas.escribir'), async (req, res) => {
       });
     }
 
-    // Stock availability + mutation for stock types.
-    if (isStockType) {
+    // Stock availability for sales (REMITO ingreso uses upsert, no pre-check).
+    if (type === DocumentType.VENTA || type === DocumentType.COMPRA) {
       for (const line of lines) {
         const stock = await tx.stock.findUnique({
           where: {
@@ -282,6 +359,15 @@ router.post('/', requirePermission('ventas.escribir'), async (req, res) => {
     const totalTax = lines.reduce((acc, l) => acc + l.taxAmount, 0);
     const total = subtotal + totalTax;
 
+    let status = data.paymentMethod ? 'Pagado' : 'Abierto';
+    if (type === DocumentType.COMPRA) status = 'Recibido';
+    if (type === DocumentType.REMITO) status = hasSupplier ? 'Recibido' : 'Entregado';
+    if (type === DocumentType.FACTURA && !data.paymentMethod) status = 'Pendiente';
+
+    // A FACTURA never issues a second payment when its source is already paid.
+    const canCreatePayment =
+      !(type === DocumentType.FACTURA && data.sourceDocumentId && sourceStatus === 'Pagado');
+
     const document = await tx.document.create({
       data: {
         companyId: req.authUser!.companyId,
@@ -295,11 +381,9 @@ router.post('/', requirePermission('ventas.escribir'), async (req, res) => {
         branchId: data.branchId,
         warehouseId: data.warehouseId,
         destinationWarehouseId: data.destinationWarehouseId,
-        status: data.paymentMethod
-          ? 'Pagado'
-          : type === DocumentType.COMPRA
-            ? 'Recibido'
-            : 'Abierto',
+        sourceDocumentId: data.sourceDocumentId,
+        externalNumber: data.externalNumber,
+        status,
         subtotal,
         totalTax,
         total,
@@ -317,7 +401,21 @@ router.post('/', requirePermission('ventas.escribir'), async (req, res) => {
             lineTotal: l.lineTotal,
           })),
         },
-        ...(data.paymentMethod
+        ...(type === DocumentType.FACTURA && data.invoice
+          ? {
+              invoiceData: {
+                create: {
+                  invoiceType: data.invoice.invoiceType,
+                  cae: data.invoice.cae,
+                  caeDueDate: data.invoice.caeDueDate
+                    ? new Date(data.invoice.caeDueDate)
+                    : null,
+                  puntoVenta: data.invoice.puntoVenta,
+                },
+              },
+            }
+          : {}),
+        ...(data.paymentMethod && canCreatePayment
           ? {
               payments: {
                 create: {
@@ -330,12 +428,34 @@ router.post('/', requirePermission('ventas.escribir'), async (req, res) => {
             }
           : {}),
       },
-      include: { items: true, payments: true },
+      include: { items: true, payments: true, invoiceData: true },
     });
 
     // Stock side effects with movements.
-    if (isStockType) {
+    if (isStockType || isRemitoIngreso) {
       for (const line of lines) {
+        if (type === DocumentType.REMITO) {
+          // Physical receipt: first arrival of a product upserts the row.
+          await tx.stock.upsert({
+            where: {
+              productId_warehouseId: { productId: line.productId, warehouseId: data.warehouseId! },
+            },
+            create: { productId: line.productId, warehouseId: data.warehouseId!, quantity: line.quantity, minStock: 0 },
+            update: { quantity: { increment: line.quantity } },
+          });
+          await tx.stockMovement.create({
+            data: {
+              productId: line.productId,
+              warehouseToId: data.warehouseId,
+              quantity: line.quantity,
+              type: 'ENTRADA',
+              reason: `REMITO ${data.series}-${String(document.number).padStart(4, '0')}`,
+              userId: req.authUser!.userId,
+              documentId: document.id,
+            },
+          });
+          continue;
+        }
         const current = await tx.stock.findUnique({
           where: {
             productId_warehouseId: { productId: line.productId, warehouseId: data.warehouseId! },
@@ -367,16 +487,24 @@ router.post('/', requirePermission('ventas.escribir'), async (req, res) => {
     }
 
     // Audit trail inside the same transaction as the document creation.
+    const auditAction =
+      type === DocumentType.REMITO
+        ? 'Registro de Remito'
+        : type === DocumentType.FACTURA
+          ? 'Registro de Factura'
+          : 'Creación de Comprobante';
+    const auditModule =
+      type === DocumentType.FACTURA && hasClient ? 'Ventas' : DOCUMENT_PERMISSION[type] === 'compras.escribir' ? 'Compras' : 'Ventas';
     await logAudit(
       tx,
       req.authUser!.companyId,
       req.authUser!.userId,
       {
-        action: 'Creación de Comprobante',
-        module: type === DocumentType.COMPRA || type === DocumentType.OC ? 'Compras' : 'Ventas',
+        action: auditAction,
+        module: auditModule,
         entity: 'Document',
         entityId: document.id,
-        details: `${type} ${data.series}-${String(document.number).padStart(4, '0')} por $${total.toFixed(2)}`,
+        details: `${type} ${data.series}-${String(document.number).padStart(4, '0')} por $${total.toFixed(2)}${data.externalNumber ? ` (ref: ${data.externalNumber})` : ''}`,
       },
       clientIp(req),
     );
@@ -397,7 +525,8 @@ const receiveSchema = z.object({
     )
     .min(1, 'Debe incluir al menos un ítem'),
   warehouseId: z.number().int().positive(),
-  paymentMethod: z.string().max(30).optional(),
+  // Structured reference to the supplier's physical delivery note.
+  externalNumber: z.string().max(50).optional(),
   date: z.string().datetime().optional(),
   notes: z.string().optional(),
 });
@@ -406,7 +535,8 @@ const receiveSchema = z.object({
  * POST /api/documents/:id/receive
  * Receives goods against an open purchase order (type OC):
  *   - validates each line against the pending quantity (ordered - already received)
- *   - creates a COMPRA chained to the OC via sourceDocumentId
+ *   - creates a REMITO (ingreso) chained to the OC via sourceDocumentId,
+ *     capturing the supplier's remito number in externalNumber
  *   - increments stock (ENTRADA movements) atomically
  *   - marks the OC as Parcial or Recibido
  */
@@ -437,9 +567,9 @@ router.post('/:id/receive', requirePermission('compras.escribir'), async (req, r
       throw Object.assign(new Error('Depósito no válido'), { status: 400 });
     }
 
-    // Already-received quantities per product, from chained COMPRA documents.
+    // Already-received quantities per product, from chained REMITO documents.
     const children = await tx.document.findMany({
-      where: { companyId, sourceDocumentId: oc.id, type: DocumentType.COMPRA },
+      where: { companyId, sourceDocumentId: oc.id, type: DocumentType.REMITO },
       include: { items: true },
     });
     const receivedByProduct = new Map<number, number>();
@@ -506,17 +636,18 @@ router.post('/:id/receive', requirePermission('compras.escribir'), async (req, r
     const totalTax = lines.reduce((acc, l) => acc + l.taxAmount, 0);
     const total = subtotal + totalTax;
 
-    const compra = await tx.document.create({
+    const remito = await tx.document.create({
       data: {
         companyId,
-        type: DocumentType.COMPRA,
+        type: DocumentType.REMITO,
         series: 'A',
-        number: await nextNumber(companyId, DocumentType.COMPRA, 'A'),
+        number: await nextNumber(companyId, DocumentType.REMITO, 'A'),
         date: data.date ? new Date(data.date) : new Date(),
         supplierId: oc.supplierId,
         userId: req.authUser!.userId,
         warehouseId: data.warehouseId,
         sourceDocumentId: oc.id,
+        externalNumber: data.externalNumber,
         status: 'Recibido',
         subtotal,
         totalTax,
@@ -534,20 +665,8 @@ router.post('/:id/receive', requirePermission('compras.escribir'), async (req, r
             lineTotal: l.lineTotal,
           })),
         },
-        ...(data.paymentMethod
-          ? {
-              payments: {
-                create: {
-                  companyId,
-                  amount: total,
-                  method: data.paymentMethod,
-                  status: 'Pagado',
-                },
-              },
-            }
-          : {}),
       },
-      include: { items: true, payments: true },
+      include: { items: true },
     });
 
     for (const line of lines) {
@@ -565,9 +684,9 @@ router.post('/:id/receive', requirePermission('compras.escribir'), async (req, r
           warehouseToId: data.warehouseId,
           quantity: line.quantity,
           type: 'ENTRADA',
-          reason: `COMPRA A-${String(compra.number).padStart(4, '0')} (recepción OC A-${String(oc.number).padStart(4, '0')})`,
+          reason: `REMITO A-${String(remito.number).padStart(4, '0')} (recepción OC A-${String(oc.number).padStart(4, '0')})`,
           userId: req.authUser!.userId,
-          documentId: compra.id,
+          documentId: remito.id,
         },
       });
     }
@@ -590,16 +709,16 @@ router.post('/:id/receive', requirePermission('compras.escribir'), async (req, r
       companyId,
       req.authUser!.userId,
       {
-        action: 'Recepción de Compra',
+        action: 'Registro de Remito',
         module: 'Compras',
         entity: 'Document',
-        entityId: compra.id,
-        details: `COMPRA A-${String(compra.number).padStart(4, '0')} por $${total.toFixed(2)} (recepción OC A-${String(oc.number).padStart(4, '0')})`,
+        entityId: remito.id,
+        details: `REMITO A-${String(remito.number).padStart(4, '0')} por $${total.toFixed(2)} (recepción OC A-${String(oc.number).padStart(4, '0')})${data.externalNumber ? ` | remito proveedor: ${data.externalNumber}` : ''}`,
       },
       clientIp(req),
     );
 
-    return { document: compra, ocStatus };
+    return { document: remito, ocStatus };
   });
 
   res.status(201).json({ ok: true, ...result });

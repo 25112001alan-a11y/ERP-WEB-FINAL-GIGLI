@@ -91,6 +91,17 @@ describe('toFrontPurchaseDocument', () => {
     expect(d.items[0].productId).toBe('4');
     expect(d.items[1].productId).toBe('');
   });
+
+  it('passes the counterpart external number when present', () => {
+    const d = toFrontPurchaseDocument({ ...sampleDocument, externalNumber: 'R-000123' });
+    expect(d.externalNumber).toBe('R-000123');
+    expect(toFrontPurchaseDocument(sampleDocument).externalNumber).toBeUndefined();
+  });
+
+  it('falls back to the client name as supplier for egreso documents', () => {
+    const d = toFrontPurchaseDocument(sampleDocument);
+    expect(d.supplier).toBe('Lucas Fernandez');
+  });
 });
 
 describe('toFrontSale', () => {
@@ -103,10 +114,30 @@ describe('toFrontSale', () => {
     expect(s.itemsCount).toBe(3);
   });
 
+  it('exposes the client id for chained documents (remito/factura)', () => {
+    const s = toFrontSale(sampleDocument);
+    expect(s.clientId).toBe(1);
+  });
+
   it('derives New/Pendiente for unpaid documents', () => {
     const s = toFrontSale({ ...sampleDocument, status: 'Abierto', payments: undefined });
     expect(s.paymentStatus).toBe('Pendiente');
     expect(s.fulfillmentStatus).toBe('Nuevo');
     expect(s.paymentMethod).toBe('—');
+  });
+});
+
+describe('ApiDocument invoiceData passthrough', () => {
+  it('types invoice data without breaking mappers', () => {
+    const d: ApiDocument = {
+      ...sampleDocument,
+      type: 'FACTURA',
+      invoiceData: { invoiceType: 'A', cae: '70123456789654', caeDueDate: '2026-09-01T00:00:00.000Z', puntoVenta: 4 },
+      externalNumber: '0004-00001234',
+    };
+    expect(d.externalNumber).toBe('0004-00001234');
+    expect(d.invoiceData?.invoiceType).toBe('A');
+    // The sales mapper keeps working for a FACTURA document.
+    expect(toFrontSale(d).clientId).toBe(1);
   });
 });

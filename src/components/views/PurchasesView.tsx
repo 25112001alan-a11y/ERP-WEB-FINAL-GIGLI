@@ -35,10 +35,17 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ orders, suppliers,
           </div>
           <div className="flex gap-md flex-wrap">
             <button
-              onClick={() => onNavigate('registrar-remito')}
+              onClick={() => onNavigate('registrar-factura')}
               className="flex items-center gap-sm px-md py-sm bg-surface text-on-surface font-label-md text-label-md uppercase tracking-wider rounded-lg shadow-sm hover:shadow-md transition-shadow cursor-pointer border border-outline-variant/30"
             >
               <span className="material-symbols-outlined text-[18px]">receipt_long</span>
+              Registrar Factura
+            </button>
+            <button
+              onClick={() => onNavigate('registrar-remito')}
+              className="flex items-center gap-sm px-md py-sm bg-surface text-on-surface font-label-md text-label-md uppercase tracking-wider rounded-lg shadow-sm hover:shadow-md transition-shadow cursor-pointer border border-outline-variant/30"
+            >
+              <span className="material-symbols-outlined text-[18px]">inventory_2</span>
               Registrar Remito
             </button>
             <button

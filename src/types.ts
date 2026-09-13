@@ -12,6 +12,8 @@ export type ViewPath =
   | 'compras'
   | 'nueva-orden-compra'
   | 'registrar-remito'
+  | 'registrar-factura'
+  | 'remito-salida'
   | 'finanzas'
   | 'reportes'
   | 'configuracion'
@@ -63,6 +65,7 @@ export interface SaleTransaction {
   createdAt?: string;
   clientName: string;
   clientType: string;
+  clientId?: number;
   amount: number;
   paymentStatus: 'Pagado' | 'Pendiente' | 'Vencido' | 'Conciliado';
   fulfillmentStatus: 'Entregado' | 'En Preparación' | 'Nuevo';
@@ -179,6 +182,7 @@ export interface PurchaseDocument {
   supplier: string;
   total: number;
   status: string;
+  externalNumber?: string;
   items: PurchaseItem[];
 }
 

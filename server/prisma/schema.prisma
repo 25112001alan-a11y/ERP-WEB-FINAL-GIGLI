@@ -264,6 +264,7 @@ enum DocumentType {
   COTIZACION
   REMITO
   PEDIDO
+  FACTURA
 }
 
 model Document {
@@ -280,6 +281,9 @@ model Document {
   warehouseId   Int?
   destinationWarehouseId Int?
   sourceDocumentId Int?
+  // Reference number of the counterpart's physical document (supplier remito,
+  // supplier invoice number, etc.). Structured replacement for free-text notes.
+  externalNumber String?    @db.VarChar(50)
   status        String       @default("Abierto") @db.VarChar(30)
   subtotal      Decimal      @db.Decimal(14, 2)
   totalTax      Decimal      @db.Decimal(14, 2)
@@ -302,6 +306,7 @@ model Document {
   items       DocumentItem[]
   stockMovements StockMovement[]
   payments    Payment[]
+  invoiceData InvoiceData?
 
   @@unique([companyId, type, series, number])
   @@index([companyId, type, date])
@@ -322,6 +327,20 @@ model DocumentItem {
   product       Product?  @relation(fields: [productId], references: [id])
 
   @@map("comprobante_items")
+}
+
+// Fiscal/AFIP data for FACTURA documents (1:1 with Document via documentId).
+// Kept separate so generic documents stay lean: only facturas carry CAE, tipo A/B/C, etc.
+model InvoiceData {
+  id          Int       @id @default(autoincrement())
+  documentId  Int       @unique
+  invoiceType String    @db.VarChar(10) // A, B, C, X, ...
+  cae         String?   @db.VarChar(14) // Código de Autorización Electrónico
+  caeDueDate  DateTime? // CAE expiration
+  puntoVenta  Int?      // Punto de venta AFIP
+  document    Document  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@map("facturas_datos")
 }
 
 // ============ PAYMENTS / CASH ============

@@ -11,8 +11,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate }) => 
     if (path === 'inventario') {
       return ['inventario', 'inventario-ajuste', 'inventario-transferencia', 'inventario-nuevo-producto'].includes(currentView);
     }
+    if (path === 'ventas') {
+      return ['ventas', 'registrar-factura', 'remito-salida'].includes(currentView);
+    }
     if (path === 'compras') {
-      return ['compras', 'nueva-orden-compra', 'registrar-remito'].includes(currentView);
+      return ['compras', 'nueva-orden-compra', 'registrar-remito', 'registrar-factura'].includes(currentView);
     }
     if (path === 'pedidos-publicos') {
       return ['pedidos-publicos', 'nuevo-pedido-manual', 'portal-clientes'].includes(currentView);

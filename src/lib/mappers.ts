@@ -24,8 +24,15 @@ export interface ApiDocument {
   subtotal: string | number;
   totalTax: string | number;
   total: string | number;
+  externalNumber?: string | null;
   supplier: { id: number; name: string } | null;
   client: { id: number; name: string; type: string | null } | null;
+  invoiceData?: {
+    invoiceType: string;
+    cae: string | null;
+    caeDueDate: string | null;
+    puntoVenta: number | null;
+  } | null;
   payments?: { id: number; method: string; status: string }[];
   items: {
     id: number;
@@ -84,9 +91,10 @@ export function toFrontPurchaseDocument(d: ApiDocument): PurchaseDocument {
     number: `${d.type} ${d.series}-${String(d.number).padStart(4, '0')}`,
     type: d.type,
     date: new Date(d.date).toLocaleDateString(),
-    supplier: d.supplier?.name ?? '',
+    supplier: d.supplier?.name ?? d.client?.name ?? '',
     total: Number(d.total),
     status: d.status,
+    externalNumber: d.externalNumber ?? undefined,
     items: d.items.map((i) => ({
       productId: i.productId != null ? String(i.productId) : '',
       name: i.description,
@@ -107,6 +115,7 @@ export function toFrontSale(d: ApiDocument): SaleTransaction {
     createdAt: d.date,
     clientName: d.client?.name ?? d.supplier?.name ?? 'Sin entidad',
     clientType: d.client?.type ?? 'Retail',
+    clientId: d.client?.id,
     amount: Number(d.total),
     paymentStatus: d.status === 'Pagado' ? 'Pagado' : 'Pendiente',
     fulfillmentStatus: d.status === 'Pagado' ? 'Entregado' : 'Nuevo',

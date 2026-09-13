@@ -248,11 +248,18 @@ export const SalesView: React.FC<SalesViewProps> = ({ sales, onNavigate }) => {
 
             <div className="p-md bg-surface-container-low border-t border-outline-variant/30 flex flex-col gap-sm">
               <button
-                onClick={() => alert(`Factura generada para ${selectedSale.id}`)}
+                onClick={() => onNavigate('registrar-factura')}
                 className="w-full py-2 bg-secondary text-on-secondary rounded font-label-md text-label-md flex items-center justify-center gap-sm hover:opacity-90 transition-opacity cursor-pointer shadow-sm"
               >
                 <span className="material-symbols-outlined text-[18px]">receipt_long</span>
-                Generar Factura (PDF)
+                Registrar Factura (AFIP)
+              </button>
+              <button
+                onClick={() => onNavigate('remito-salida')}
+                className="w-full py-2 bg-transparent text-on-surface border border-outline-variant rounded font-label-md text-label-md flex items-center justify-center gap-sm hover:bg-surface-variant transition-colors cursor-pointer"
+              >
+                <span className="material-symbols-outlined text-[18px]">local_shipping</span>
+                Registrar Remito de Salida
               </button>
               <div className="flex gap-sm">
                 <button onClick={() => window.print()} className="flex-1 py-2 bg-transparent text-on-surface border border-outline-variant rounded font-label-md text-label-md flex items-center justify-center gap-xs hover:bg-surface-variant transition-colors cursor-pointer">

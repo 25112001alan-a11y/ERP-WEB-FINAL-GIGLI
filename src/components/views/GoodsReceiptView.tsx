@@ -9,6 +9,8 @@ interface GoodsReceiptViewProps {
     orderId: string,
     items: { productId: number; quantity: number }[],
     warehouseId: number,
+    externalNumber?: string,
+    date?: string,
     notes?: string,
   ) => Promise<void>;
   onNavigate: (view: ViewPath) => void;
@@ -83,14 +85,13 @@ export const GoodsReceiptView: React.FC<GoodsReceiptViewProps> = ({
     }
     setSaving(true);
     try {
-      const combinedNotes = [remitoNum ? `Remito: ${remitoNum}` : '', notes]
-        .filter(Boolean)
-        .join(' | ');
       await onReceive(
         selectedOrder.id,
         payload,
         Number(warehouse),
-        combinedNotes || undefined,
+        remitoNum || undefined,
+        receivedDate ? new Date(receivedDate).toISOString() : undefined,
+        notes || undefined,
       );
       setSaved(true);
       setTimeout(() => {
