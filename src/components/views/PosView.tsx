@@ -16,10 +16,7 @@ interface PosViewProps {
 export const PosView: React.FC<PosViewProps> = ({ products, onCompleteSale, onNavigate }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('Todos');
-  const [cart, setCart] = useState<CartItem[]>([
-    { product: products[4] || products[0], quantity: 2 },
-    { product: products[3] || products[1], quantity: 1 },
-  ]);
+  const [cart, setCart] = useState<CartItem[]>([]);
   const [clientName, setClientName] = useState('Consumidor Final');
   const [saleCompleted, setSaleCompleted] = useState(false);
   const [saleError, setSaleError] = useState<string | null>(null);
