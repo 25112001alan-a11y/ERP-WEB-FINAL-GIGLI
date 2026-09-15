@@ -108,7 +108,10 @@ export const SupplierVoucherModal: React.FC<SupplierVoucherModalProps> = ({
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="bg-surface-container-lowest rounded-2xl shadow-xl w-full max-w-lg mx-4 overflow-hidden border border-outline-variant/30 flex-shrink-0">
+      <div
+        className="bg-surface-container-lowest rounded-2xl shadow-xl overflow-hidden border border-outline-variant/30"
+        style={{ width: 'min(90vw, 32rem)' }}
+      >
         {/* Header */}
         <div className="flex items-center justify-between px-lg py-md border-b border-surface-container-high">
           <h2 className="font-headline-md text-headline-md text-on-surface truncate">
