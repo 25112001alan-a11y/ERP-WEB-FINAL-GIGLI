@@ -21,7 +21,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate }) => 
       return ['pedidos-publicos', 'nuevo-pedido-manual', 'portal-clientes'].includes(currentView);
     }
     if (path === 'configuracion') {
-      return ['configuracion', 'nuevo-usuario', 'log-auditoria'].includes(currentView);
+      return ['configuracion'].includes(currentView);
+    }
+    if (path === 'administracion') {
+      return ['administracion', 'nuevo-usuario', 'log-auditoria'].includes(currentView);
     }
     return currentView === path;
   };
@@ -36,6 +39,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate }) => 
     { path: 'finanzas', label: 'Finanzas', icon: 'account_balance_wallet' },
     { path: 'reportes', label: 'Reportes', icon: 'bar_chart' },
     { path: 'configuracion', label: 'Configuración', icon: 'settings' },
+  ];
+
+  const adminItems: { path: ViewPath; label: string; icon: string }[] = [
+    { path: 'administracion', label: 'Administración', icon: 'admin_panel_settings' },
   ];
 
   return (
@@ -59,6 +66,27 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate }) => 
       {/* Navigation */}
       <nav className="flex-1 py-lg space-y-1.5 px-md overflow-y-auto">
         {navItems.map((item) => {
+          const active = getIsActive(item.path);
+          return (
+            <button
+              key={item.path}
+              onClick={() => onNavigate(item.path)}
+              className={`w-full flex items-center gap-md px-md py-2.5 rounded-lg transition-all text-left font-body-md cursor-pointer ${
+                active
+                  ? 'bg-blue-600 text-white font-semibold shadow-lg shadow-blue-600/25'
+                  : 'text-slate-300 hover:bg-slate-800/60 hover:text-white'
+              }`}
+            >
+              <span className="material-symbols-outlined text-[20px]">{item.icon}</span>
+              <span>{item.label}</span>
+            </button>
+          );
+        })}
+
+        <div className="pt-md mt-md border-t border-slate-800/40 px-sm text-[10px] font-mono uppercase tracking-wider text-slate-500">
+          Sistema
+        </div>
+        {adminItems.map((item) => {
           const active = getIsActive(item.path);
           return (
             <button

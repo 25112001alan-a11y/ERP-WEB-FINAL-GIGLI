@@ -30,6 +30,7 @@ import { RemitoSalidaView } from './components/views/RemitoSalidaView';
 import { FinanceView } from './components/views/FinanceView';
 import { ReportsView } from './components/views/ReportsView';
 import { SettingsView } from './components/views/SettingsView';
+import { AdminView } from './components/views/AdminView';
 import { NewUserView } from './components/views/NewUserView';
 import { AuditLogView } from './components/views/AuditLogView';
 import { AuthLoginView } from './components/views/AuthLoginView';
@@ -705,12 +706,14 @@ export default function App() {
             )}
             {currentView === 'configuracion' && (
               <SettingsView
-                users={users}
                 taxes={taxes}
                 onAddTax={handleAddTax}
                 onToggleTax={handleToggleTax}
                 onNavigate={setCurrentView}
               />
+            )}
+            {currentView === 'administracion' && (
+              <AdminView users={users} roles={userRoles} onNavigate={setCurrentView} />
             )}
             {currentView === 'nuevo-usuario' && (
               <NewUserView

@@ -17,6 +17,7 @@ export type ViewPath =
   | 'finanzas'
   | 'reportes'
   | 'configuracion'
+  | 'administracion'
   | 'nuevo-usuario'
   | 'log-auditoria'
   | 'auth-login'
