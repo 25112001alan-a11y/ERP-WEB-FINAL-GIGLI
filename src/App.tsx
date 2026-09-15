@@ -298,9 +298,9 @@ export default function App() {
   const handleAddProduct = async (newProduct: Omit<Product, 'id'>) => {
     try {
       const categories = await apiFetch<{ id: number; name: string }[]>('/api/products/categories');
-      const taxes = await apiFetch<{ id: number; rate: number }[]>('/api/products/taxes');
+      const taxes = await apiFetch<{ id: number; rate: number; active: boolean }[]>('/api/products/taxes');
       const categoryId = categories.find((c) => c.name === newProduct.category)?.id;
-      const tax = taxes.find((t) => t.rate === newProduct.taxRate);
+      const tax = taxes.find((t) => t.active && t.rate === newProduct.taxRate);
       await apiFetch('/api/products', {
         method: 'POST',
         body: {

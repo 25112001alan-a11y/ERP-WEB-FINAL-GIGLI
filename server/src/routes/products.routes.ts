@@ -18,9 +18,9 @@ router.get('/categories', async (req, res) => {
   res.json(categories);
 });
 
-/** GET /api/products/taxes — global tax catalog */
+/** GET /api/products/taxes — full tax catalog (active and inactive) */
 router.get('/taxes', async (_req, res) => {
-  const taxes = await prisma.tax.findMany({ where: { active: true }, orderBy: { rate: 'desc' } });
+  const taxes = await prisma.tax.findMany({ orderBy: [{ active: 'desc' }, { rate: 'desc' }] });
   res.json(taxes);
 });
 
