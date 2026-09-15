@@ -125,7 +125,7 @@ export const PublicClientStoreView: React.FC<PublicClientStoreViewProps> = ({ on
           <div className="relative z-10 text-center px-md max-w-3xl mx-auto pt-8">
             <span className="font-label-md text-label-md text-tertiary-fixed tracking-widest uppercase mb-sm block">Portal de Clientes Online</span>
             <h1 className="font-display-lg text-display-lg text-on-primary mb-md">Hacé tu pedido online</h1>
-            <p className="font-body-lg text-body-lg text-inverse-primary max-w-xl mx-auto">
+            <p className="font-body-lg text-body-lg text-inverse-primary max-w-[576px] mx-auto">
               Navegá nuestro catálogo, seleccioná tus productos favoritos y recibilos directo en tu puerta. Rápido, fácil y seguro.
             </p>
           </div>

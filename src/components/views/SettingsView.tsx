@@ -160,7 +160,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ taxes, onAddTax, onT
           )}
 
           {activeTab === 'empresa' && (
-            <form onSubmit={handleSaveCompany} className="max-w-2xl space-y-md">
+            <form onSubmit={handleSaveCompany} className="max-w-[672px] space-y-md">
               {companyError && (
                 <p className="text-sm text-on-error-container bg-error-container/20 rounded-lg p-sm">{companyError}</p>
               )}
@@ -249,7 +249,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ taxes, onAddTax, onT
           )}
 
           {activeTab === 'impuestos' && (
-            <div className="space-y-md max-w-2xl">
+            <div className="space-y-md max-w-[672px]">
               <h3 className="font-headline-md text-headline-md text-on-surface">Tasas de Impuesto</h3>
               <div className="space-y-sm">
                 {taxes.map((t) => (
@@ -276,7 +276,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ taxes, onAddTax, onT
                 )}
               </div>
 
-              <form onSubmit={handleAddTax} className="flex flex-wrap items-end gap-md p-md rounded-xl border border-outline-variant/30 bg-surface-container-low max-w-xl">
+              <form onSubmit={handleAddTax} className="flex flex-wrap items-end gap-md p-md rounded-xl border border-outline-variant/30 bg-surface-container-low max-w-[576px]">
                 <div className="flex flex-col gap-xs flex-1 min-w-40">
                   <label className="font-label-md text-label-md uppercase text-on-surface-variant">Nueva Tasa</label>
                   <input

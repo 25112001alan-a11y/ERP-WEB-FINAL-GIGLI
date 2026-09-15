@@ -26,7 +26,7 @@ export const PublicOrdersView: React.FC<PublicOrdersViewProps> = ({ orders, onNa
         <div className="flex flex-col gap-sm">
           <p className="font-label-md text-label-md text-primary tracking-widest uppercase">Operaciones</p>
           <h1 className="font-display-lg text-display-lg text-on-surface">Gestión de Pedidos Públicos</h1>
-          <p className="font-body-lg text-body-lg text-on-surface-variant max-w-2xl">Administre y procese las órdenes entrantes desde la plataforma pública de clientes.</p>
+          <p className="font-body-lg text-body-lg text-on-surface-variant max-w-[672px]">Administre y procese las órdenes entrantes desde la plataforma pública de clientes.</p>
         </div>
         <div className="flex gap-md flex-wrap">
           <button

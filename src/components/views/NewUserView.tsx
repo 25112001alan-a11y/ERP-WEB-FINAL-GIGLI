@@ -50,7 +50,7 @@ export const NewUserView: React.FC<NewUserViewProps> = ({ roles, onAddUser, onNa
       </header>
 
       {saved ? (
-        <div className="p-xl text-center py-20 bg-surface-container-lowest rounded-xl shadow-md border border-outline-variant/30 flex flex-col items-center gap-md max-w-xl mx-auto">
+        <div className="p-xl text-center py-20 bg-surface-container-lowest rounded-xl shadow-md border border-outline-variant/30 flex flex-col items-center gap-md max-w-[576px] mx-auto">
           <div className="w-16 h-16 rounded-full bg-tertiary-container text-on-tertiary-container flex items-center justify-center">
             <span className="material-symbols-outlined text-[36px]">person_add</span>
           </div>
@@ -58,7 +58,7 @@ export const NewUserView: React.FC<NewUserViewProps> = ({ roles, onAddUser, onNa
           <p className="font-body-lg text-body-lg text-on-surface-variant">El usuario ya puede iniciar sesión con las credenciales configuradas.</p>
         </div>
       ) : (
-        <form onSubmit={handleSubmit} className="bg-surface-container-lowest p-xl rounded-xl shadow-sm border border-outline-variant/20 max-w-2xl mx-auto w-full space-y-md">
+        <form onSubmit={handleSubmit} className="bg-surface-container-lowest p-xl rounded-xl shadow-sm border border-outline-variant/20 max-w-[672px] mx-auto w-full space-y-md">
           <h2 className="font-headline-md text-headline-md text-primary flex items-center gap-xs">
             <span className="material-symbols-outlined">badge</span> Credenciales del Usuario
           </h2>
