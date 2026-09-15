@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { apiFetch, apiUpload, API_BASE } from '../lib/api';
 
 export interface SupplierVoucherData {
@@ -12,6 +12,21 @@ export interface SupplierVoucherData {
   ingestionMethod?: 'manual' | 'lector' | 'ocr';
   attachmentUrl?: string | null;
   verifiedByName?: string;
+}
+
+interface SupplierVoucherDetail {
+  externalNumber?: string | null;
+  invoiceData?: {
+    supplierCuit?: string | null;
+    supplierName?: string | null;
+    emissionDate?: string | null;
+    externalSubtotal?: string | number | null;
+    externalTax?: string | number | null;
+    externalTotal?: string | number | null;
+    ingestionMethod?: 'manual' | 'lector' | 'ocr' | null;
+    attachmentUrl?: string | null;
+    verifiedBy?: { firstName: string; lastName: string } | null;
+  } | null;
 }
 
 interface SupplierVoucherModalProps {
@@ -62,6 +77,37 @@ export const SupplierVoucherModal: React.FC<SupplierVoucherModalProps> = ({
   const [externalTotal, setExternalTotal] = useState(data.externalTotal?.toString() ?? '');
   const [ingestionMethod, setIngestionMethod] = useState<'manual' | 'lector' | 'ocr'>(data.ingestionMethod ?? 'manual');
   const [attachmentUrl, setAttachmentUrl] = useState<string | null>(data.attachmentUrl ?? null);
+  const [verifiedByName, setVerifiedByName] = useState<string | undefined>(data.verifiedByName);
+
+  // Load the persisted detail (invoiceData + externalNumber) when the modal opens
+  // so fields reflect the current server state, not just the list summary.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const doc = await apiFetch<SupplierVoucherDetail>(`/api/documents/${documentId}`);
+        if (cancelled) return;
+        const iv = doc.invoiceData;
+        setExternalNumber(doc.externalNumber ?? '');
+        setSupplierCuit(iv?.supplierCuit ?? '');
+        setSupplierName(iv?.supplierName ?? '');
+        setEmissionDate(toInputDate(iv?.emissionDate ?? undefined));
+        setExternalSubtotal(iv?.externalSubtotal?.toString() ?? '');
+        setExternalTax(iv?.externalTax?.toString() ?? '');
+        setExternalTotal(iv?.externalTotal?.toString() ?? '');
+        setIngestionMethod(iv?.ingestionMethod ?? 'manual');
+        setAttachmentUrl(iv?.attachmentUrl ?? null);
+        setVerifiedByName(
+          iv?.verifiedBy ? `${iv.verifiedBy.firstName} ${iv.verifiedBy.lastName}`.trim() : undefined,
+        );
+      } catch {
+        // Keep the initial list data; the user can still edit and save.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [documentId]);
 
   const handleSave = async () => {
     setSaving(true);
