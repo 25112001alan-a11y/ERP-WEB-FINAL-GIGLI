@@ -32,6 +32,12 @@ export interface ApiDocument {
     cae: string | null;
     caeDueDate: string | null;
     puntoVenta: number | null;
+    // Supplier voucher capture (fase A)
+    supplierCuit?: string | null;
+    supplierName?: string | null;
+    externalTotal?: string | number | null;
+    ingestionMethod?: string | null;
+    attachmentUrl?: string | null;
   } | null;
   payments?: { id: number; method: string; status: string }[];
   items: {
@@ -75,13 +81,23 @@ const RECEIPT_STATUS: Record<string, PurchaseOrder['receiptStatus']> = {
 };
 
 export function toFrontPurchaseOrder(d: ApiDocument): PurchaseOrder {
+  const hasExternalVoucher = Boolean(
+    d.invoiceData?.supplierCuit ||
+      d.invoiceData?.supplierName ||
+      d.invoiceData?.attachmentUrl ||
+      d.externalNumber,
+  );
   return {
     id: `${d.type}-${d.series}-${String(d.number).padStart(4, '0')}`,
+    documentId: d.id,
+    type: d.type,
     date: new Date(d.date).toLocaleDateString(),
     supplier: d.supplier?.name ?? d.client?.name ?? 'Sin entidad',
     total: Number(d.total),
     receiptStatus: RECEIPT_STATUS[d.status] ?? 'Pendiente',
     paymentStatus: d.status === 'Pagado' ? 'Pagado' : 'No Pagado',
+    hasExternalVoucher,
+    externalNumber: d.externalNumber ?? undefined,
   };
 }
 

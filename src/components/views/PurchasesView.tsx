@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { ViewPath, PurchaseOrder, Supplier } from '../../types';
+import { SupplierVoucherModal, SupplierVoucherData } from '../SupplierVoucherModal';
 
 interface PurchasesViewProps {
   orders: PurchaseOrder[];
@@ -11,6 +12,8 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ orders, suppliers,
   const [activeTab, setActiveTab] = useState<'po' | 'suppliers'>('po');
   const [poSearch, setPoSearch] = useState('');
   const [supplierSearch, setSupplierSearch] = useState('');
+  const [voucherOverrides, setVoucherOverrides] = useState<Record<number, Partial<PurchaseOrder>>>({});
+  const [editingDoc, setEditingDoc] = useState<{ documentId: number; label: string; data: SupplierVoucherData } | null>(null);
 
   const filteredOrders = orders.filter(
     (o) =>
@@ -113,43 +116,78 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ orders, suppliers,
                     </tr>
                   </thead>
                   <tbody className="font-body-md text-body-md text-on-surface divide-y divide-surface-container-high">
-                    {filteredOrders.map((ord) => (
+                    {filteredOrders.map((ord) => {
+                      const ov = voucherOverrides[ord.documentId] ?? {};
+                      const merged: PurchaseOrder = { ...ord, ...ov };
+                      return (
                       <tr key={ord.id} className="hover:bg-surface-container-low transition-colors cursor-pointer group">
-                        <td className="py-sm px-xs font-mono-sm text-mono-sm font-bold text-primary">{ord.id}</td>
-                        <td className="py-sm px-xs text-on-surface-variant">{ord.date}</td>
-                        <td className="py-sm px-xs font-medium">{ord.supplier}</td>
-                        <td className="py-sm px-xs text-right font-mono-sm text-mono-sm">${ord.total.toFixed(2)}</td>
+                        <td className="py-sm px-xs font-mono-sm text-mono-sm font-bold text-primary">{merged.id}</td>
+                        <td className="py-sm px-xs text-on-surface-variant">{merged.date}</td>
+                        <td className="py-sm px-xs font-medium">
+                          {merged.supplier}
+                          {merged.externalNumber && (
+                            <span className="ml-1 text-xs text-on-surface-variant">({merged.externalNumber})</span>
+                          )}
+                        </td>
+                        <td className="py-sm px-xs text-right font-mono-sm text-mono-sm">${merged.total.toFixed(2)}</td>
                         <td className="py-sm px-xs text-center">
                           <span
                             className={`inline-flex items-center px-2 py-1 rounded-full text-label-md font-label-md text-[10px] uppercase tracking-wider ${
-                              ord.receiptStatus === 'Recibido'
+                              merged.receiptStatus === 'Recibido'
                                 ? 'bg-tertiary-container text-on-tertiary-container'
-                                : ord.receiptStatus === 'Parcial'
+                                : merged.receiptStatus === 'Parcial'
                                 ? 'bg-secondary-container/20 text-secondary-container'
                                 : 'bg-surface-container-high text-on-surface-variant'
                             }`}
                           >
-                            {ord.receiptStatus}
+                            {merged.receiptStatus}
                           </span>
                         </td>
                         <td className="py-sm px-xs text-center">
                           <span
                             className={`inline-flex items-center px-2 py-1 rounded-full text-label-md font-label-md text-[10px] uppercase tracking-wider ${
-                              ord.paymentStatus === 'Pagado'
+                              merged.paymentStatus === 'Pagado'
                                 ? 'bg-tertiary-container text-on-tertiary-container'
                                 : 'bg-error-container text-on-error-container'
                             }`}
                           >
-                            {ord.paymentStatus}
+                            {merged.paymentStatus}
                           </span>
                         </td>
                         <td className="py-sm px-xs text-right">
-                          <button className="text-outline hover:text-primary opacity-80 group-hover:opacity-100 transition-opacity">
-                            <span className="material-symbols-outlined text-[18px]">more_vert</span>
-                          </button>
+                          <div className="flex items-center justify-end gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
+                            {merged.hasExternalVoucher && (
+                              <span
+                                title="Documento proveedor registrado"
+                                className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-tertiary-container/30 text-tertiary text-[10px] font-bold uppercase"
+                              >
+                                <span className="material-symbols-outlined text-[12px]">check_circle</span>
+                                Doc prov.
+                              </span>
+                            )}
+                            <button
+                              title="Documento del proveedor"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEditingDoc({
+                                  documentId: merged.documentId,
+                                  label: merged.id,
+                                  data: {
+                                    externalNumber: merged.externalNumber,
+                                  },
+                                });
+                              }}
+                              className="text-outline hover:text-primary cursor-pointer"
+                            >
+                              <span className="material-symbols-outlined text-[18px]">document_scanner</span>
+                            </button>
+                            <button className="text-outline hover:text-primary cursor-pointer">
+                              <span className="material-symbols-outlined text-[18px]">more_vert</span>
+                            </button>
+                          </div>
                         </td>
                       </tr>
-                    ))}
+                    );})}
                   </tbody>
                 </table>
               </div>
@@ -233,6 +271,17 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ orders, suppliers,
           </div>
         </div>
       </div>
+
+      {/* Supplier Voucher Modal */}
+      {editingDoc && (
+        <SupplierVoucherModal
+          documentId={editingDoc.documentId}
+          documentLabel={editingDoc.label}
+          data={editingDoc.data}
+          onClose={() => setEditingDoc(null)}
+          onSaved={(patch) => setVoucherOverrides((prev) => ({ ...prev, [editingDoc.documentId]: patch }))}
+        />
+      )}
     </div>
   );
 };

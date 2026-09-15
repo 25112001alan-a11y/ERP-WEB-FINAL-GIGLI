@@ -42,11 +42,15 @@ export interface Product {
 
 export interface PurchaseOrder {
   id: string;
+  documentId: number;
+  type: string;
   date: string;
   supplier: string;
   total: number;
   receiptStatus: 'Pendiente' | 'Parcial' | 'Recibido';
   paymentStatus: 'Pagado' | 'No Pagado';
+  hasExternalVoucher?: boolean;
+  externalNumber?: string;
 }
 
 export interface Supplier {

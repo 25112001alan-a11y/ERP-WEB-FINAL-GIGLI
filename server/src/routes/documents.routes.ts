@@ -1,5 +1,9 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import multer from 'multer';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { DocumentType } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import {
@@ -14,6 +18,34 @@ import { logAudit, clientIp } from '../lib/audit.js';
 const router = Router();
 
 router.use(requireAuth);
+
+// Uploads for supplier voucher attachments live in server/uploads. In dev they are
+// served statically from /uploads; production should move to object storage (S3/R2)
+// later — the URL is opaque, only attachmentUrl is stored.
+const uploadsDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../uploads');
+fs.mkdirSync(uploadsDir, { recursive: true });
+
+const ALLOWED_MIME = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
+
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: uploadsDir,
+    filename: (_req, file, cb) => {
+      const safe = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
+      cb(null, `${Date.now()}-${safe}`);
+    },
+  }),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ok = ALLOWED_MIME.includes(file.mimetype);
+    if (!ok) {
+      const err = Object.assign(new Error('Solo se permiten PDF, JPG, PNG o WEBP'), { status: 400 });
+      (cb as (error: Error, acceptFile: boolean) => void)(err, false);
+      return;
+    }
+    cb(null, true);
+  },
+});
 
 // Document types map to their owning module. VENTA/PEDIDO/COTIZACION belong to
 // sales; OC/COMPRA/REMITO belong to purchases. FACTURA depends on direction:
@@ -90,6 +122,16 @@ router.get('/', requireAnyPermission('ventas.leer', 'compras.leer'), async (req,
       supplier: { select: { id: true, name: true } },
       warehouse: { select: { name: true } },
       payments: { select: { id: true, method: true, status: true } },
+      invoiceData: {
+        select: {
+          id: true,
+          supplierCuit: true,
+          supplierName: true,
+          externalTotal: true,
+          ingestionMethod: true,
+          attachmentUrl: true,
+        },
+      },
       items: {
         select: {
           id: true,
@@ -122,7 +164,11 @@ router.get('/:id', requireAnyPermission('ventas.leer', 'compras.leer'), async (r
       items: { include: { product: { select: { id: true, name: true, internalCode: true } } } },
       payments: true,
       stockMovements: true,
-      invoiceData: true,
+      invoiceData: {
+        include: {
+          verifiedBy: { select: { id: true, firstName: true, lastName: true } },
+        },
+      },
     },
   });
   if (!document) {
@@ -723,5 +769,166 @@ router.post('/:id/receive', requirePermission('compras.escribir'), async (req, r
 
   res.status(201).json({ ok: true, ...result });
 });
+
+const externalVoucherSchema = z.object({
+  externalNumber: z.string().max(50).optional(),
+  emissionDate: z.string().datetime().optional(),
+  supplierCuit: z.string().max(20).optional(),
+  supplierName: z.string().max(150).optional(),
+  externalSubtotal: z.number().nonnegative().optional(),
+  externalTax: z.number().nonnegative().optional(),
+  externalTotal: z.number().nonnegative().optional(),
+  ingestionMethod: z.enum(['manual', 'lector', 'ocr']).optional(),
+});
+
+/**
+ * PATCH /api/documents/:id/external
+ * Captures the counterpart's physical voucher (supplier remito/factura) that must
+ * stay registered: frozen supplier identity (CUIT/razón social), external reference
+ * and amounts, and how it was ingested (manual entry, document reader, or OCR).
+ * Persisted in InvoiceData (1:1); externalNumber also mirrors Document.externalNumber.
+ */
+router.patch(
+  '/:id/external',
+  requireAnyPermission('compras.escribir', 'ventas.escribir'),
+  async (req, res) => {
+    const id = Number(req.params.id);
+    const parsed = externalVoucherSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
+      return;
+    }
+    const data = parsed.data;
+
+    const result = await prisma.$transaction(async (tx) => {
+      const document = await tx.document.findFirst({
+        where: { id, companyId: req.authUser!.companyId },
+        select: { id: true, type: true },
+      });
+      if (!document) throw Object.assign(new Error('Comprobante no encontrado'), { status: 404 });
+
+      const hasData = Boolean(
+        data.externalNumber ||
+          data.emissionDate ||
+          data.supplierCuit ||
+          data.supplierName ||
+          data.externalSubtotal != null ||
+          data.externalTax != null ||
+          data.externalTotal != null ||
+          data.ingestionMethod,
+      );
+
+      if (data.externalNumber !== undefined) {
+        await tx.document.update({
+          where: { id },
+          data: { externalNumber: data.externalNumber || null },
+        });
+      }
+
+      if (hasData) {
+        await tx.invoiceData.upsert({
+          where: { documentId: id },
+          create: {
+            documentId: id,
+            invoiceType: document.type === DocumentType.FACTURA ? 'X' : null,
+            emissionDate: data.emissionDate ? new Date(data.emissionDate) : undefined,
+            supplierCuit: data.supplierCuit,
+            supplierName: data.supplierName,
+            externalSubtotal: data.externalSubtotal,
+            externalTax: data.externalTax,
+            externalTotal: data.externalTotal,
+            ingestionMethod: data.ingestionMethod,
+            verifiedByUserId: req.authUser!.userId,
+          },
+          update: {
+            emissionDate: data.emissionDate ? new Date(data.emissionDate) : undefined,
+            supplierCuit: data.supplierCuit,
+            supplierName: data.supplierName,
+            externalSubtotal: data.externalSubtotal,
+            externalTax: data.externalTax,
+            externalTotal: data.externalTotal,
+            ingestionMethod: data.ingestionMethod,
+            // The last user to confirm the capture becomes the verifier.
+            verifiedByUserId: req.authUser!.userId,
+          },
+        });
+      }
+
+      await logAudit(
+        tx,
+        req.authUser!.companyId,
+        req.authUser!.userId,
+        {
+          action: 'Registro de documento del proveedor',
+          module: 'Compras',
+          entity: 'Document',
+          entityId: id,
+          details: `Datos del documento externo${data.externalNumber ? ` ${data.externalNumber}` : ''}${data.supplierName ? ` (${data.supplierName})` : ''}${data.ingestionMethod ? ` via ${data.ingestionMethod}` : ''}`,
+        },
+        clientIp(req),
+      );
+
+      return { ok: true, externalNumber: data.externalNumber ?? document.id };
+    });
+
+    res.json(result);
+  },
+);
+
+/**
+ * POST /api/documents/:id/external/attach
+ * Uploads the scanned/photographed counterpart voucher (PDF, JPG, PNG, WEBP up to
+ * 10 MB) and links it to the document's InvoiceData. Returns the stored URL.
+ */
+router.post(
+  '/:id/external/attach',
+  requireAnyPermission('compras.escribir', 'ventas.escribir'),
+  upload.single('file'),
+  async (req, res) => {
+    const id = Number(req.params.id);
+    if (!req.file) {
+      res.status(400).json({ error: 'No se recibió ningún archivo' });
+      return;
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      const document = await tx.document.findFirst({
+        where: { id, companyId: req.authUser!.companyId },
+        select: { id: true, type: true },
+      });
+      if (!document) throw Object.assign(new Error('Comprobante no encontrado'), { status: 404 });
+
+      const attachmentUrl = `/uploads/${req.file!.filename}`;
+      await tx.invoiceData.upsert({
+        where: { documentId: id },
+        create: {
+          documentId: id,
+          invoiceType: document.type === DocumentType.FACTURA ? 'X' : null,
+          attachmentUrl,
+          verifiedByUserId: req.authUser!.userId,
+        },
+        update: { attachmentUrl, verifiedByUserId: req.authUser!.userId },
+      });
+
+      await logAudit(
+        tx,
+        req.authUser!.companyId,
+        req.authUser!.userId,
+        {
+          action: 'Adjunto de documento del proveedor',
+          module: 'Compras',
+          entity: 'Document',
+          entityId: id,
+          details: `Adjunto ${req.file!.originalname} → ${attachmentUrl}`,
+        },
+        clientIp(req),
+      );
+
+      return { ok: true, attachmentUrl };
+    });
+
+    res.json(result);
+  },
+);
 
 export default router;

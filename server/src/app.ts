@@ -1,5 +1,8 @@
 import 'dotenv/config';
 import express from 'express';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import cors from 'cors';
 import authRoutes from './routes/auth.routes.js';
 import productsRoutes from './routes/products.routes.js';
@@ -37,6 +40,13 @@ app.use(
   }),
 );
 app.use(express.json());
+
+// Voucher attachments (supplier documents) stored locally in server/uploads.
+// Production should use object storage; the route stays the same because the UI
+// only consumes the stored URL.
+const uploadsDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../uploads');
+fs.mkdirSync(uploadsDir, { recursive: true });
+app.use('/uploads', express.static(uploadsDir));
 
 app.get('/', (_req, res) => {
   res.json({ status: 'ok', service: 'nexus-erp-api' });

@@ -57,6 +57,7 @@ model User {
   auditLogs      AuditLog[]
   documents      Document[]
   stockMovements StockMovement[]
+  verifiedInvoices InvoiceData[] @relation("InvoiceDataVerifiedBy")
 
   @@map("usuarios")
 }
@@ -331,14 +332,29 @@ model DocumentItem {
 
 // Fiscal/AFIP data for FACTURA documents (1:1 with Document via documentId).
 // Kept separate so generic documents stay lean: only facturas carry CAE, tipo A/B/C, etc.
+// Also captures the counterpart's physical voucher (supplier remito/factura) when
+// goods arrive: frozen supplier identity + amounts, ingestion method (manual /
+// lector / ocr) and the attachment. invoiceType is nullable because non-FACTURA
+// documents (OC, REMITO, COMPRA) can carry voucher capture data without fiscal info.
 model InvoiceData {
-  id          Int       @id @default(autoincrement())
-  documentId  Int       @unique
-  invoiceType String    @db.VarChar(10) // A, B, C, X, ...
-  cae         String?   @db.VarChar(14) // Código de Autorización Electrónico
-  caeDueDate  DateTime? // CAE expiration
-  puntoVenta  Int?      // Punto de venta AFIP
-  document    Document  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  id                Int       @id @default(autoincrement())
+  documentId        Int       @unique
+  invoiceType       String?   @db.VarChar(10) // A, B, C, X, ... (null para no-FACTURA)
+  cae               String?   @db.VarChar(14) // Código de Autorización Electrónico
+  caeDueDate        DateTime? // CAE expiration
+  puntoVenta        Int?      // Punto de venta AFIP
+  // Supplier voucher capture (fase A): frozen data of the counterpart document.
+  emissionDate      DateTime? // Fecha de emisión del documento del proveedor
+  supplierCuit      String?   @db.VarChar(20)
+  supplierName      String?   @db.VarChar(150)
+  externalSubtotal  Decimal?  @db.Decimal(14, 2)
+  externalTax       Decimal?  @db.Decimal(14, 2)
+  externalTotal     Decimal?  @db.Decimal(14, 2)
+  ingestionMethod   String?   @db.VarChar(20) // manual | lector | ocr
+  attachmentUrl     String?   @db.VarChar(500)
+  verifiedByUserId  Int?
+  verifiedBy        User?     @relation("InvoiceDataVerifiedBy", fields: [verifiedByUserId], references: [id])
+  document          Document  @relation(fields: [documentId], references: [id], onDelete: Cascade)
 
   @@map("facturas_datos")
 }
