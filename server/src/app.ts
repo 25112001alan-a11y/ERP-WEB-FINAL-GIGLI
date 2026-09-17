@@ -1,9 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import cors from 'cors';
+import helmet from 'helmet';
 import authRoutes from './routes/auth.routes.js';
 import productsRoutes from './routes/products.routes.js';
 import stockRoutes from './routes/stock.routes.js';
@@ -16,8 +14,21 @@ import usersRoutes from './routes/users.routes.js';
 import auditRoutes from './routes/audit.routes.js';
 import companyRoutes from './routes/company.routes.js';
 import publicRoutes from './routes/public.routes.js';
+import { apiLimiter, loginLimiter, registerLimiter, publicLimiter } from './middleware/rateLimit.js';
 
 export const app = express();
+
+// Railway terminates TLS in front of the container: trust exactly one proxy hop
+// so req.ip (and therefore rate limiting) sees the real client address.
+app.set('trust proxy', 1);
+
+// Security headers. The frontend lives on another origin, so cross-origin
+// resource loading stays allowed; nosniff is what matters for uploaded files.
+app.use(
+  helmet({
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+  }),
+);
 
 // Allowed browser origins. Dev default: the Vite dev server on :3000.
 // Extend with CORS_ORIGINS (comma separated) for deployed frontends.
@@ -39,14 +50,9 @@ app.use(
     },
   }),
 );
-app.use(express.json());
 
-// Voucher attachments (supplier documents) stored locally in server/uploads.
-// Production should use object storage; the route stays the same because the UI
-// only consumes the stored URL.
-const uploadsDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../uploads');
-fs.mkdirSync(uploadsDir, { recursive: true });
-app.use('/uploads', express.static(uploadsDir));
+// 1 MB covers every JSON payload this API accepts (documents with lines).
+app.use(express.json({ limit: '1mb' }));
 
 app.get('/', (_req, res) => {
   res.json({ status: 'ok', service: 'nexus-erp-api' });
@@ -55,6 +61,14 @@ app.get('/', (_req, res) => {
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', service: 'nexus-erp-api' });
 });
+
+// Baseline limit for the whole API, with stricter windows on the sensitive
+// entry points. /api/documents/:id/external/attachment is served by its route
+// with an authenticated, tenant-checked request (no public static directory).
+app.use('/api', apiLimiter);
+app.use('/api/auth/login', loginLimiter);
+app.use('/api/auth/register', registerLimiter);
+app.use('/api/public', publicLimiter);
 
 app.use('/api/auth', authRoutes);
 app.use('/api/products', productsRoutes);
@@ -70,11 +84,37 @@ app.use('/api/company', companyRoutes);
 app.use('/api/public', publicRoutes);
 
 // Central error handler: converts rejected handlers (Express 5) into JSON.
-// Business errors carry a `status` property; anything else is a 500.
-app.use((err: { status?: number; message?: string }, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  const status = typeof err.status === 'number' ? err.status : 500;
-  if (status >= 500) {
-    console.error(err);
-  }
-  res.status(status).json({ error: err.message || 'Error interno del servidor' });
-});
+// 4xx keeps the actionable business message; 5xx is logged in full server-side
+// and answered generically so internal/database details never reach clients.
+app.use(
+  (
+    err: { status?: number; message?: string; name?: string; code?: string },
+    _req: express.Request,
+    res: express.Response,
+    _next: express.NextFunction,
+  ) => {
+    // Upload errors (multer) are client errors, not server faults.
+    if (err?.name === 'MulterError') {
+      const tooLarge = err.code === 'LIMIT_FILE_SIZE';
+      res
+        .status(tooLarge ? 413 : 400)
+        .json({ error: tooLarge ? 'El archivo supera el tamaño máximo (10 MB)' : 'Error al subir el archivo' });
+      return;
+    }
+
+    // Prisma unique-constraint violations surface as a clean conflict.
+    if (err?.code === 'P2002') {
+      res.status(409).json({ error: 'El registro ya existe' });
+      return;
+    }
+
+    const status = typeof err?.status === 'number' ? err.status : 500;
+    if (status >= 500) {
+      console.error(err);
+      res.status(500).json({ error: 'Error interno del servidor' });
+      return;
+    }
+
+    res.status(status).json({ error: err?.message || 'Error en la solicitud' });
+  },
+);

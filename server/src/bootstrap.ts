@@ -37,6 +37,14 @@ export async function ensureSeeded(): Promise<void> {
   } finally {
     await prisma.$disconnect();
   }
+  // Fail closed: the seed falls back to a well-known demo password, so it must
+  // never run on an empty production database without an explicit credential.
+  if (process.env.NODE_ENV === 'production' && !process.env.ADMIN_PASSWORD) {
+    throw new Error(
+      '[bootstrap] Empty production database requires ADMIN_PASSWORD (or SKIP_SEED=true). ' +
+        'Refusing to seed with the default demo password.',
+    );
+  }
   console.log('[bootstrap] empty database — running seed...');
   execFileSync(process.execPath, [TSX_CLI, 'prisma/seed.ts'], { stdio: 'inherit', cwd: CWD });
   console.log('[bootstrap] seed complete');

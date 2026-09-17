@@ -5,6 +5,11 @@ import { SEED_PRODUCTS, SEED_SUPPLIERS } from './seed-data.js';
 const prisma = new PrismaClient();
 
 // Production: set ADMIN_PASSWORD in the environment. Dev fallback keeps the demo password.
+if (process.env.NODE_ENV === 'production' && !process.env.ADMIN_PASSWORD) {
+  throw new Error(
+    'Refusing to seed production with the default demo password. Set ADMIN_PASSWORD.',
+  );
+}
 const PASSWORD = process.env.ADMIN_PASSWORD ?? 'password123';
 const COMPANY = {
   name: 'Nexus Enterprise Corp',
