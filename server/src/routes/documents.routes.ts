@@ -3,6 +3,7 @@ import { z } from 'zod';
 import multer from 'multer';
 import fs from 'node:fs';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { DocumentType } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
@@ -14,32 +15,72 @@ import {
   getUserPermissions,
 } from '../middleware/auth.js';
 import { logAudit, clientIp } from '../lib/audit.js';
+import { reserveNextNumber } from '../lib/numbering.js';
 
 const router = Router();
 
 router.use(requireAuth);
 
-// Uploads for supplier voucher attachments live in server/uploads. In dev they are
-// served statically from /uploads; production should move to object storage (S3/R2)
-// later — the URL is opaque, only attachmentUrl is stored.
+// Supplier voucher attachments live in server/uploads. They are NOT exposed as a
+// static directory: the only way to read them is
+// GET /api/documents/:id/external/attachment, which authenticates and scopes the
+// request to the tenant. attachmentUrl stores an opaque storage key
+// (`/uploads/<generated-name>`), not a public URL. Move to object storage later
+// without changing the API surface.
 const uploadsDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../uploads');
 fs.mkdirSync(uploadsDir, { recursive: true });
 
-const ALLOWED_MIME = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
+const ALLOWED_EXT = new Set(['.pdf', '.jpg', '.jpeg', '.png', '.webp']);
 
+type SniffedMime = 'application/pdf' | 'image/jpeg' | 'image/png' | 'image/webp';
+
+/** Identifies the real type from the leading bytes, never from the file name. */
+function sniffMime(buf: Buffer): SniffedMime | null {
+  if (buf.length >= 5 && buf.subarray(0, 5).toString('latin1') === '%PDF-') return 'application/pdf';
+  if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'image/jpeg';
+  if (
+    buf.length >= 8 &&
+    buf[0] === 0x89 &&
+    buf[1] === 0x50 &&
+    buf[2] === 0x4e &&
+    buf[3] === 0x47 &&
+    buf[4] === 0x0d &&
+    buf[5] === 0x0a &&
+    buf[6] === 0x1a &&
+    buf[7] === 0x0a
+  ) {
+    return 'image/png';
+  }
+  if (
+    buf.length >= 12 &&
+    buf.subarray(0, 4).toString('latin1') === 'RIFF' &&
+    buf.subarray(8, 12).toString('latin1') === 'WEBP'
+  ) {
+    return 'image/webp';
+  }
+  return null;
+}
+
+// The stored extension is derived from the sniffed content, so the original
+// file name can never decide what extension the server writes.
+const EXT_BY_MIME: Record<SniffedMime, string> = {
+  'application/pdf': '.pdf',
+  'image/jpeg': '.jpg',
+  'image/png': '.png',
+  'image/webp': '.webp',
+};
+
+// Memory storage: the buffer must be inspected (magic bytes) before anything
+// touches disk. 10 MB is safe to hold in memory for a single request.
 const upload = multer({
-  storage: multer.diskStorage({
-    destination: uploadsDir,
-    filename: (_req, file, cb) => {
-      const safe = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
-      cb(null, `${Date.now()}-${safe}`);
-    },
-  }),
-  limits: { fileSize: 10 * 1024 * 1024 },
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024, files: 1 },
   fileFilter: (_req, file, cb) => {
-    const ok = ALLOWED_MIME.includes(file.mimetype);
-    if (!ok) {
-      const err = Object.assign(new Error('Solo se permiten PDF, JPG, PNG o WEBP'), { status: 400 });
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (!ALLOWED_EXT.has(ext)) {
+      const err = Object.assign(new Error('Extensión no permitida. Solo .pdf, .jpg, .png o .webp'), {
+        status: 400,
+      });
       (cb as (error: Error, acceptFile: boolean) => void)(err, false);
       return;
     }
@@ -91,23 +132,6 @@ const documentSchema = z.object({
   invoice: invoiceSchema.optional(),
   notes: z.string().optional(),
 });
-
-/**
- * Returns the next fiscal number for (companyId, type, series).
- * The DB unique constraint (companyId, type, series, number) is the backstop.
- */
-async function nextNumber(
-  companyId: number,
-  type: DocumentType,
-  series: string,
-): Promise<number> {
-  const last = await prisma.document.findFirst({
-    where: { companyId, type, series },
-    orderBy: { number: 'desc' },
-    select: { number: true },
-  });
-  return last ? last.number + 1 : 1;
-}
 
 /** GET /api/documents — tenant-scoped list with totals */
 router.get('/', requireAnyPermission('ventas.leer', 'compras.leer'), async (req, res) => {
@@ -419,7 +443,7 @@ router.post('/', requireAnyPermission('ventas.escribir', 'compras.escribir'), as
         companyId: req.authUser!.companyId,
         type,
         series: data.series,
-        number: await nextNumber(req.authUser!.companyId, type, data.series),
+        number: await reserveNextNumber(tx, req.authUser!.companyId, type, data.series),
         date: data.date ? new Date(data.date) : new Date(),
         clientId,
         supplierId,
@@ -502,20 +526,53 @@ router.post('/', requireAnyPermission('ventas.escribir', 'compras.escribir'), as
           });
           continue;
         }
-        const current = await tx.stock.findUnique({
-          where: {
-            productId_warehouseId: { productId: line.productId, warehouseId: data.warehouseId! },
-          },
-        });
-        const nextQty =
-          type === DocumentType.VENTA
-            ? Number(current!.quantity) - line.quantity
-            : Number(current!.quantity) + line.quantity;
-
-        await tx.stock.update({
-          where: { id: current!.id },
-          data: { quantity: nextQty },
-        });
+        if (type === DocumentType.VENTA) {
+          // Atomic guarded decrement: a single conditional UPDATE, so two
+          // concurrent sales can never both pass a read-then-write check and
+          // oversell the same units (lost update + negative stock).
+          const updated = await tx.stock.updateMany({
+            where: {
+              productId: line.productId,
+              warehouseId: data.warehouseId!,
+              quantity: { gte: line.quantity },
+            },
+            data: { quantity: { decrement: line.quantity } },
+          });
+          if (updated.count === 0) {
+            const current = await tx.stock.findUnique({
+              where: {
+                productId_warehouseId: {
+                  productId: line.productId,
+                  warehouseId: data.warehouseId!,
+                },
+              },
+              select: { quantity: true },
+            });
+            const err = Object.assign(
+              new Error(
+                current
+                  ? `Stock insuficiente para el producto ${line.productId}: disponible ${Number(current.quantity)}, solicitado ${line.quantity}`
+                  : `No hay stock registrado para el producto ${line.productId} en el depósito seleccionado`,
+              ),
+              { status: 400 },
+            );
+            throw err;
+          }
+        } else {
+          // COMPRA: first entry of a product creates the stock row.
+          await tx.stock.upsert({
+            where: {
+              productId_warehouseId: { productId: line.productId, warehouseId: data.warehouseId! },
+            },
+            create: {
+              productId: line.productId,
+              warehouseId: data.warehouseId!,
+              quantity: line.quantity,
+              minStock: 0,
+            },
+            update: { quantity: { increment: line.quantity } },
+          });
+        }
 
         await tx.stockMovement.create({
           data: {
@@ -687,7 +744,7 @@ router.post('/:id/receive', requirePermission('compras.escribir'), async (req, r
         companyId,
         type: DocumentType.REMITO,
         series: 'A',
-        number: await nextNumber(companyId, DocumentType.REMITO, 'A'),
+        number: await reserveNextNumber(tx, companyId, DocumentType.REMITO, 'A'),
         date: data.date ? new Date(data.date) : new Date(),
         supplierId: oc.supplierId,
         userId: req.authUser!.userId,
@@ -891,14 +948,32 @@ router.post(
       return;
     }
 
-    const result = await prisma.$transaction(async (tx) => {
+    // Content sniffing: the declared mimetype and the extension are hints only.
+    const sniffed = sniffMime(req.file.buffer);
+    if (!sniffed) {
+      res.status(400).json({ error: 'El archivo no es un PDF o una imagen válida' });
+      return;
+    }
+
+    // Name and extension are server-generated; the user's original name never
+    // reaches the filesystem.
+    const filename = `${Date.now()}-${randomUUID()}${EXT_BY_MIME[sniffed]}`;
+    const filePath = path.join(uploadsDir, filename);
+
+    // Write first, then reference: if the disk write fails the row is never
+    // created. If the transaction fails afterwards, remove the orphan file.
+    await fs.promises.writeFile(filePath, req.file.buffer);
+
+    let result: { ok: true; attachmentUrl: string };
+    try {
+      result = await prisma.$transaction(async (tx) => {
       const document = await tx.document.findFirst({
         where: { id, companyId: req.authUser!.companyId },
         select: { id: true, type: true },
       });
       if (!document) throw Object.assign(new Error('Comprobante no encontrado'), { status: 404 });
 
-      const attachmentUrl = `/uploads/${req.file!.filename}`;
+      const attachmentUrl = `/uploads/${filename}`;
       await tx.invoiceData.upsert({
         where: { documentId: id },
         create: {
@@ -924,10 +999,45 @@ router.post(
         clientIp(req),
       );
 
-      return { ok: true, attachmentUrl };
-    });
+        return { ok: true, attachmentUrl };
+      });
+    } catch (error) {
+      // The physical file must not outlive a transaction that never committed.
+      await fs.promises.unlink(filePath).catch(() => undefined);
+      throw error;
+    }
 
     res.json(result);
+  },
+);
+
+/**
+ * GET /api/documents/:id/external/attachment
+ * Streams the stored voucher. Access is authenticated and tenant-scoped: there
+ * is no public directory, so an opaque file name alone grants nothing.
+ */
+router.get(
+  '/:id/external/attachment',
+  requireAnyPermission('compras.leer', 'ventas.leer'),
+  async (req, res) => {
+    const id = Number(req.params.id);
+    const invoice = await prisma.invoiceData.findFirst({
+      where: { documentId: id, document: { companyId: req.authUser!.companyId } },
+      select: { attachmentUrl: true },
+    });
+    if (!invoice?.attachmentUrl) {
+      res.status(404).json({ error: 'Adjunto no encontrado' });
+      return;
+    }
+
+    // basename() collapses any traversal attempt to a single segment inside uploadsDir.
+    const filePath = path.join(uploadsDir, path.basename(invoice.attachmentUrl));
+    if (!fs.existsSync(filePath)) {
+      res.status(404).json({ error: 'Adjunto no encontrado' });
+      return;
+    }
+
+    res.sendFile(filePath);
   },
 );
 

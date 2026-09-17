@@ -34,6 +34,8 @@ model Company {
   documents  Document[]
   payments   Payment[]
   auditLogs  AuditLog[]
+  taxes      Tax[]
+  documentCounters DocumentCounter[]
 
   @@map("empresas")
 }
@@ -49,6 +51,9 @@ model User {
   passwordHash String    @db.VarChar(255)
   status       String    @default("Activo") @db.VarChar(20)
   lastAccess   DateTime?
+  // Brute-force protection: consecutive failed logins and the temporary lock.
+  failedAttempts Int     @default(0)
+  lockedUntil  DateTime?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
   company      Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -149,14 +154,20 @@ model Category {
   @@map("categorias")
 }
 
+// Tax catalog. companyId = null marks the system-wide default catalog (shared by
+// every tenant and read-only for them); a row with companyId belongs to that
+// company only, so one tenant can never alter another tenant's rates.
 model Tax {
-  id     Int     @id @default(autoincrement())
-  name   String  @db.VarChar(80)
-  rate   Decimal @db.Decimal(5, 2)
-  active Boolean @default(true)
+  id        Int      @id @default(autoincrement())
+  companyId Int?
+  name      String   @db.VarChar(80)
+  rate      Decimal  @db.Decimal(5, 2)
+  active    Boolean  @default(true)
+  company   Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
   products Product[]
 
+  @@index([companyId])
   @@map("impuestos")
 }
 
@@ -312,6 +323,21 @@ model Document {
   @@unique([companyId, type, series, number])
   @@index([companyId, type, date])
   @@map("comprobantes")
+}
+
+// Per-tenant, per-type, per-series fiscal counter. Rows are created lazily and
+// locked with SELECT ... FOR UPDATE inside the issuing transaction, so two
+// concurrent issuances can never take the same number.
+model DocumentCounter {
+  id         Int          @id @default(autoincrement())
+  companyId  Int
+  type       DocumentType
+  series     String       @db.VarChar(10)
+  nextNumber Int          @default(1)
+  company    Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, type, series])
+  @@map("comprobantes_contadores")
 }
 
 model DocumentItem {

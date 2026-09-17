@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { apiFetch, apiUpload, API_BASE } from '../lib/api';
+import { apiFetch, apiUpload, API_BASE, getToken } from '../lib/api';
 
 export interface SupplierVoucherData {
   externalNumber?: string;
@@ -147,7 +147,25 @@ export const SupplierVoucherModal: React.FC<SupplierVoucherModalProps> = ({
     }
   };
 
-  const downloadHref = attachmentUrl ? `${API_BASE}${attachmentUrl}` : undefined;
+  // The attachment is no longer a public URL: it must be fetched with the auth
+  // token and shown as a blob, otherwise the request comes back 401.
+  const openAttachment = async () => {
+    setError(null);
+    try {
+      const token = getToken();
+      const res = await fetch(`${API_BASE}/api/documents/${documentId}/external/attachment`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) throw new Error('No se pudo abrir el adjunto');
+      const blob = await res.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      window.open(objectUrl, '_blank', 'noopener,noreferrer');
+      // Give the new tab time to load the blob before releasing it.
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo abrir el adjunto');
+    }
+  };
 
   return (
     <div
@@ -299,15 +317,14 @@ export const SupplierVoucherModal: React.FC<SupplierVoucherModalProps> = ({
               )}
             </div>
             {attachmentUrl && !fileRef.current?.files?.[0] && (
-              <a
-                href={downloadHref}
-                target="_blank"
-                rel="noopener noreferrer"
+              <button
+                type="button"
+                onClick={openAttachment}
                 className="mt-1 inline-flex items-center gap-xs text-primary text-sm hover:underline"
               >
                 <span className="material-symbols-outlined text-[16px]">visibility</span>
                 Ver adjunto actual
-              </a>
+              </button>
             )}
             {data.verifiedByName && (
               <p className="text-xs text-on-surface-variant mt-1">

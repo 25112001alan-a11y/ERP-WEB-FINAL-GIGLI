@@ -18,9 +18,14 @@ router.get('/categories', async (req, res) => {
   res.json(categories);
 });
 
-/** GET /api/products/taxes — full tax catalog (active and inactive) */
-router.get('/taxes', async (_req, res) => {
-  const taxes = await prisma.tax.findMany({ orderBy: [{ active: 'desc' }, { rate: 'desc' }] });
+/** GET /api/products/taxes — system catalog (companyId null) + tenant's own taxes */
+router.get('/taxes', async (req, res) => {
+  const taxes = await prisma.tax.findMany({
+    where: {
+      OR: [{ companyId: null }, tenantWhere(req)],
+    },
+    orderBy: [{ active: 'desc' }, { rate: 'desc' }],
+  });
   res.json(taxes);
 });
 
@@ -31,18 +36,38 @@ const taxUpdateSchema = z.object({
   active: z.boolean().optional(),
 });
 
-/** POST /api/products/taxes — create a tax rate (before :id routes) */
+/**
+ * A product may use a global (system) tax or one owned by the tenant, never a
+ * tax that belongs to another company.
+ */
+async function isValidTaxForTenant(
+  req: Parameters<typeof tenantWhere>[0],
+  taxId: number,
+): Promise<boolean> {
+  const tax = await prisma.tax.findFirst({
+    where: { id: taxId, OR: [{ companyId: null }, tenantWhere(req)] },
+    select: { id: true },
+  });
+  return Boolean(tax);
+}
+
+/** POST /api/products/taxes — create a tenant-owned tax rate */
 router.post('/taxes', requirePermission('inventario.escribir'), async (req, res) => {
   const parsed = taxCreateSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
     return;
   }
-  const tax = await prisma.tax.create({ data: parsed.data });
+  const tax = await prisma.tax.create({
+    data: { ...parsed.data, companyId: req.authUser!.companyId },
+  });
   res.status(201).json(tax);
 });
 
-/** PATCH /api/products/taxes/:id — update a tax rate */
+/**
+ * PATCH /api/products/taxes/:id — update a tenant-owned rate.
+ * The shared system catalog (companyId null) is read-only for every tenant.
+ */
 router.patch('/taxes/:id', requirePermission('inventario.escribir'), async (req, res) => {
   const id = Number(req.params.id);
   const parsed = taxUpdateSchema.safeParse(req.body);
@@ -50,8 +75,15 @@ router.patch('/taxes/:id', requirePermission('inventario.escribir'), async (req,
     res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
     return;
   }
-  const existing = await prisma.tax.findUnique({ where: { id } });
+  const existing = await prisma.tax.findFirst({
+    where: { id, ...tenantWhere(req) },
+  });
   if (!existing) {
+    const globalTax = await prisma.tax.findUnique({ where: { id }, select: { id: true } });
+    if (globalTax) {
+      res.status(403).json({ error: 'Los impuestos del sistema no se pueden modificar' });
+      return;
+    }
     res.status(404).json({ error: 'Impuesto no encontrado' });
     return;
   }
@@ -181,6 +213,11 @@ router.post('/', requirePermission('inventario.escribir'), async (req, res) => {
     }
   }
 
+  if (!(await isValidTaxForTenant(req, data.taxId))) {
+    res.status(400).json({ error: 'Impuesto inválido para esta empresa' });
+    return;
+  }
+
   const product = await prisma.$transaction(async (tx) => {
     const created = await tx.product.create({
       data: { ...tenantWhere(req), ...data },
@@ -229,6 +266,11 @@ router.patch('/:id', requirePermission('inventario.escribir'), async (req, res) 
       res.status(400).json({ error: 'Categoría inválida para esta empresa' });
       return;
     }
+  }
+
+  if (parsed.data.taxId && !(await isValidTaxForTenant(req, parsed.data.taxId))) {
+    res.status(400).json({ error: 'Impuesto inválido para esta empresa' });
+    return;
   }
 
   const product = await prisma.product.update({

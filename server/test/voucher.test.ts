@@ -91,7 +91,12 @@ test('GET /api/documents/:id — invoiceData reflects captured voucher', async (
 
 test('POST /api/documents/:id/external/attach — upload file', async () => {
   const formData = new FormData();
-  formData.append('file', new Blob(['test-file-content'], { type: 'application/pdf' }), 'remito.pdf');
+  // Real PDF magic bytes: the server now validates content, not the declared type.
+  formData.append(
+    'file',
+    new Blob(['%PDF-1.4\n% test fixture\n'], { type: 'application/pdf' }),
+    'remito.pdf',
+  );
 
   const res = await fetch(`${base}/api/documents/${ocId}/external/attach`, {
     method: 'POST',
@@ -105,9 +110,50 @@ test('POST /api/documents/:id/external/attach — upload file', async () => {
   assert.ok(body.attachmentUrl.endsWith('.pdf'));
 });
 
+test('POST /api/documents/:id/external/attach — rejects spoofed content', async () => {
+  const formData = new FormData();
+  // Claims to be a PDF but has no %PDF- header: must be rejected.
+  formData.append(
+    'file',
+    new Blob(['not really a pdf'], { type: 'application/pdf' }),
+    'fake.pdf',
+  );
+
+  const res = await fetch(`${base}/api/documents/${ocId}/external/attach`, {
+    method: 'POST',
+    headers: auth(),
+    body: formData,
+  });
+  assert.equal(res.status, 400);
+});
+
+test('POST /api/documents/:id/external/attach — rejects a disallowed extension', async () => {
+  const formData = new FormData();
+  formData.append('file', new Blob(['%PDF-1.4\n'], { type: 'application/pdf' }), 'payload.exe');
+
+  const res = await fetch(`${base}/api/documents/${ocId}/external/attach`, {
+    method: 'POST',
+    headers: auth(),
+    body: formData,
+  });
+  assert.equal(res.status, 400);
+});
+
 test('GET /api/documents/:id — attachmentUrl persisted in invoiceData', async () => {
   const res = await fetch(`${base}/api/documents/${ocId}`, { headers: auth() });
   const doc = await res.json();
   assert.ok(doc.invoiceData?.attachmentUrl, 'attachmentUrl must be stored');
   assert.ok(doc.invoiceData.attachmentUrl.startsWith('/uploads/'));
+});
+
+test('GET /api/documents/:id/external/attachment — serves the file to the tenant', async () => {
+  const res = await fetch(`${base}/api/documents/${ocId}/external/attachment`, { headers: auth() });
+  assert.equal(res.status, 200);
+  const bytes = Buffer.from(await res.arrayBuffer());
+  assert.ok(bytes.subarray(0, 5).toString('latin1') === '%PDF-');
+});
+
+test('GET /api/documents/:id/external/attachment — requires authentication', async () => {
+  const res = await fetch(`${base}/api/documents/${ocId}/external/attachment`);
+  assert.equal(res.status, 401);
 });

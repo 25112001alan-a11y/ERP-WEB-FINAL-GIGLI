@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { DocumentType } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
+import { reserveNextNumber } from '../lib/numbering.js';
 
 const router = Router();
 
@@ -130,12 +132,7 @@ router.post('/orders', async (req, res) => {
       });
     }
 
-    const next = await tx.document.findFirst({
-      where: { companyId, type: 'PEDIDO', series: 'A' },
-      orderBy: { number: 'desc' },
-      select: { number: true },
-    });
-    const number = (next?.number ?? 0) + 1;
+    const number = await reserveNextNumber(tx, companyId, DocumentType.PEDIDO, 'A');
 
     const document = await tx.document.create({
       data: {
