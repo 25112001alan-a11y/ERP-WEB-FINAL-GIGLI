@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { signToken } from '../lib/jwt.js';
 import { requireAuth } from '../middleware/auth.js';
+import { generateUniqueSlug } from '../lib/slug.js';
 import { clientIp } from '../lib/audit.js';
 
 const router = Router();
@@ -76,7 +77,7 @@ router.post('/register', async (req, res) => {
   try {
     const result = await prisma.$transaction(async (tx) => {
       const company = await tx.company.create({
-        data: { name: data.companyName, currency: data.currency },
+        data: { name: data.companyName, slug: await generateUniqueSlug(tx, data.companyName), currency: data.currency },
       });
 
       // Permissions are a global catalog shared across companies (model has no companyId).
@@ -120,7 +121,7 @@ router.post('/register', async (req, res) => {
     res.status(201).json({
       token,
       user: { id: user.id, firstName: user.firstName, lastName: user.lastName, email: user.email },
-      company: { id: company.id, name: company.name, currency: company.currency },
+      company: { id: company.id, name: company.name, slug: company.slug, currency: company.currency },
     });
   } catch (error) {
     // Two concurrent registrations for the same email: the unique index wins.
@@ -228,7 +229,7 @@ router.post('/login', async (req, res) => {
   res.json({
     token,
     user: { id: user.id, firstName: user.firstName, lastName: user.lastName, email: user.email },
-    company: company ? { id: company.id, name: company.name, currency: company.currency } : null,
+    company: company ? { id: company.id, name: company.name, slug: company.slug, currency: company.currency } : null,
   });
 });
 
@@ -246,7 +247,7 @@ router.get('/me', requireAuth, async (req, res) => {
       email: true,
       status: true,
       lastAccess: true,
-      company: { select: { id: true, name: true, currency: true, timezone: true } },
+      company: { select: { id: true, name: true, slug: true, currency: true, timezone: true } },
       roles: {
         select: {
           role: {

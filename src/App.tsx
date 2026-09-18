@@ -648,9 +648,9 @@ export default function App() {
     return (
       <div className="min-h-screen bg-surface font-sans text-on-surface flex flex-col">
         <div className="w-full min-h-screen">
-          {currentView === 'portal-clientes' && (
-            <PublicClientStoreView onNavigate={setCurrentView} />
-          )}
+{currentView === 'portal-clientes' && user?.company?.slug && (
+  <PublicClientStoreView slug={user.company.slug} onNavigate={setCurrentView} />
+)}
           {currentView === 'auth-login' && !user && (
             <AuthLoginView onNavigate={setCurrentView} onLoginSuccess={() => setCurrentView('dashboard')} />
           )}

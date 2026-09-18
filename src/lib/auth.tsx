@@ -10,6 +10,7 @@ import {
 export interface AuthCompany {
   id: number;
   name: string;
+  slug: string | null;
   currency: string;
 }
 

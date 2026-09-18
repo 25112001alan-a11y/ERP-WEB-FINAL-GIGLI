@@ -16,6 +16,7 @@ datasource db {
 model Company {
   id        Int      @id @default(autoincrement())
   name      String   @db.VarChar(120)
+  slug      String?  @unique @db.VarChar(80)
   legalName String?  @db.VarChar(200)
   taxId     String?  @unique @db.VarChar(50)
   currency  String   @default("USD") @db.VarChar(3)

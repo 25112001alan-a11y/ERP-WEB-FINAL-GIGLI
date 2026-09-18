@@ -19,11 +19,13 @@ interface CartItem {
 }
 
 interface PublicClientStoreViewProps {
+  slug: string;
   onNavigate: (view: ViewPath) => void;
 }
 
-export const PublicClientStoreView: React.FC<PublicClientStoreViewProps> = ({ onNavigate }) => {
+export const PublicClientStoreView: React.FC<PublicClientStoreViewProps> = ({ slug, onNavigate }) => {
   const [products, setProducts] = useState<PublicProduct[]>([]);
+  const [companyName, setCompanyName] = useState('Portal de Clientes');
   const [loading, setLoading] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState('Todos');
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -36,11 +38,18 @@ export const PublicClientStoreView: React.FC<PublicClientStoreViewProps> = ({ on
   const [confirmedOrder, setConfirmedOrder] = useState<string | null>(null);
 
   useEffect(() => {
-    apiFetch<PublicProduct[]>('/api/public/products', { auth: false })
-      .then(setProducts)
+    setLoading(true);
+    apiFetch<{ company: { name: string; slug: string }; products: PublicProduct[] }>(
+      `/api/public/store/${slug}/products`,
+      { auth: false },
+    )
+      .then((data) => {
+        setProducts(data.products);
+        setCompanyName(data.company.name);
+      })
       .catch(() => setProducts([]))
       .finally(() => setLoading(false));
-  }, []);
+  }, [slug]);
 
   const categories = ['Todos', ...Array.from(new Set(products.map((p) => p.category)))];
 
@@ -77,17 +86,20 @@ export const PublicClientStoreView: React.FC<PublicClientStoreViewProps> = ({ on
     setSubmitting(true);
     setError('');
     try {
-      const order = await apiFetch<{ number: string; total: number }>('/api/public/orders', {
-        method: 'POST',
-        auth: false,
-        body: {
-          clientName: fullName.trim(),
-          clientEmail: email.trim() || undefined,
-          clientPhone: phone.trim() || undefined,
-          notes: deliveryMethod === 'delivery' ? 'Envío a domicilio' : 'Retiro en sucursal',
-          items: cart.map((i) => ({ productId: i.product.id, quantity: i.quantity })),
+      const order = await apiFetch<{ number: string; total: number }>(
+        `/api/public/store/${slug}/orders`,
+        {
+          method: 'POST',
+          auth: false,
+          body: {
+            clientName: fullName.trim(),
+            clientEmail: email.trim() || undefined,
+            clientPhone: phone.trim() || undefined,
+            notes: deliveryMethod === 'delivery' ? 'Envío a domicilio' : 'Retiro en sucursal',
+            items: cart.map((i) => ({ productId: i.product.id, quantity: i.quantity })),
+          },
         },
-      });
+      );
       setConfirmedOrder(order.number);
       setCart([]);
       setTimeout(() => {
@@ -107,7 +119,7 @@ export const PublicClientStoreView: React.FC<PublicClientStoreViewProps> = ({ on
       <header className="fixed top-0 left-0 right-0 h-16 bg-surface-container-lowest/90 backdrop-blur-md z-50 flex items-center justify-between px-lg border-b border-outline-variant/30">
         <div className="flex items-center gap-md">
           <div className="w-8 h-8 bg-primary rounded flex items-center justify-center text-on-primary font-bold text-headline-md">N</div>
-          <span className="font-headline-md text-headline-md text-on-surface">Portal de Clientes • Nexus ERP</span>
+          <span className="font-headline-md text-headline-md text-on-surface">{companyName} • Nexus Storefront</span>
         </div>
         <button
           onClick={() => onNavigate('pedidos-publicos')}

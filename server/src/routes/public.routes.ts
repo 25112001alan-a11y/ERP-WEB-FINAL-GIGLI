@@ -7,23 +7,23 @@ import { reserveNextNumber } from '../lib/numbering.js';
 const router = Router();
 
 /**
- * Resolves the public tenant: the first company that has products in the
- * catalog. A B2B portal would use a slug/token; the demo keeps one public shop.
+ * Resolves the public tenant from its storefront slug. Every company owns a
+ * unique slug (generated at registration) so the storefront is tenant-scoped:
+ * a client of company A can never see or order from company B's catalog.
  */
-async function publicCompany() {
-  const company = await prisma.company.findFirst({
-    where: { products: { some: {} } },
-    orderBy: { id: 'asc' },
-    select: { id: true },
+async function storeCompany(slug: string) {
+  if (!slug) return null;
+  return prisma.company.findUnique({
+    where: { slug },
+    select: { id: true, name: true, slug: true },
   });
-  return company ?? null;
 }
 
-/** GET /api/public/products — active catalog for the public storefront (no auth) */
-router.get('/products', async (_req, res) => {
-  const company = await publicCompany();
+/** GET /api/public/store/:slug — active catalog for a tenant's storefront (no auth) */
+router.get('/store/:slug/products', async (req, res) => {
+  const company = await storeCompany(req.params.slug);
   if (!company) {
-    res.json([]);
+    res.status(404).json({ error: 'Tienda no encontrada' });
     return;
   }
 
@@ -37,8 +37,9 @@ router.get('/products', async (_req, res) => {
     orderBy: { name: 'asc' },
   });
 
-  res.json(
-    products.map((p) => ({
+  res.json({
+    company: { name: company.name, slug: company.slug },
+    products: products.map((p) => ({
       id: p.id,
       name: p.name,
       description: p.description,
@@ -48,7 +49,7 @@ router.get('/products', async (_req, res) => {
       taxRate: Number(p.tax.rate),
       stock: p.stocks.reduce((acc, s) => acc + Number(s.quantity), 0),
     })),
-  );
+  });
 });
 
 const publicOrderSchema = z.object({
@@ -62,8 +63,8 @@ const publicOrderSchema = z.object({
     .min(1, 'El pedido debe tener al menos un producto'),
 });
 
-/** POST /api/public/orders — public checkout: creates a client and a PEDIDO document (no auth) */
-router.post('/orders', async (req, res) => {
+/** POST /api/public/store/:slug/orders — checkout against one tenant (no auth) */
+router.post('/store/:slug/orders', async (req, res) => {
   const parsed = publicOrderSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
@@ -71,9 +72,9 @@ router.post('/orders', async (req, res) => {
   }
   const data = parsed.data;
 
-  const company = await publicCompany();
+  const company = await storeCompany(req.params.slug);
   if (!company) {
-    res.status(503).json({ error: 'Catálogo no disponible' });
+    res.status(404).json({ error: 'Tienda no encontrada' });
     return;
   }
   const companyId = company.id;
@@ -89,7 +90,8 @@ router.post('/orders', async (req, res) => {
       throw Object.assign(new Error('Tenant sin operadores'), { status: 500 });
     }
 
-    // Validate products and compute totals with the same math as the admin API.
+    // Validate products against THIS tenant and compute totals with the same
+    // math as the admin API. A product id from another tenant 404s.
     const lines = [];
     let subtotal = 0;
     let totalTax = 0;
@@ -168,17 +170,17 @@ router.post('/orders', async (req, res) => {
   });
 });
 
-/** GET /api/public/orders?email= — order lookup for a client (no auth) */
-router.get('/orders', async (req, res) => {
+/** GET /api/public/store/:slug/orders?email= — order lookup scoped to one tenant (no auth) */
+router.get('/store/:slug/orders', async (req, res) => {
   const email = typeof req.query.email === 'string' ? req.query.email.trim() : '';
   if (!email) {
     res.status(400).json({ error: 'Se requiere el email del cliente' });
     return;
   }
 
-  const company = await publicCompany();
+  const company = await storeCompany(req.params.slug);
   if (!company) {
-    res.json([]);
+    res.status(404).json({ error: 'Tienda no encontrada' });
     return;
   }
 

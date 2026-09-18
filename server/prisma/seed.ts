@@ -13,6 +13,7 @@ if (process.env.NODE_ENV === 'production' && !process.env.ADMIN_PASSWORD) {
 const PASSWORD = process.env.ADMIN_PASSWORD ?? 'password123';
 const COMPANY = {
   name: 'Nexus Enterprise Corp',
+  slug: 'nexus-enterprise-corp',
   legalName: 'Nexus Enterprise Corp SpA',
   taxId: '76.543.210-K',
   currency: 'USD',

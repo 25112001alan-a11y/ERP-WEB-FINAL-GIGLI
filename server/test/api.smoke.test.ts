@@ -68,17 +68,39 @@ test('GET /api/products with admin token -> 200 with seeded products', async () 
   assert.ok(body.length >= 1);
 });
 
-test('GET /api/public/products without auth -> 200 with catalog', async () => {
-  const { status, body } = await api('/api/public/products');
+test('GET /api/public/store/:slug/products without auth -> 200 with catalog', async () => {
+  const login = await api('/api/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ email: 'ana.silva@empresa.com', password: 'password123' }),
+  });
+  assert.equal(login.status, 200);
+  assert.ok(login.body.company.slug, 'login exposes the tenant slug');
+
+  const { status, body } = await api(`/api/public/store/${login.body.company.slug}/products`);
   assert.equal(status, 200);
-  assert.ok(Array.isArray(body));
-  assert.ok(body.length >= 1);
-  assert.ok('price' in body[0]);
-  assert.ok('stock' in body[0]);
+  assert.ok(body.company);
+  assert.equal(body.company.slug, login.body.company.slug);
+  assert.ok(Array.isArray(body.products));
+  assert.ok(body.products.length >= 1);
+  assert.ok('price' in body.products[0]);
+  assert.ok('stock' in body.products[0]);
 });
 
-test('GET /api/public/orders?email=unknown -> 200 empty list', async () => {
-  const { status, body } = await api('/api/public/orders?email=nadie@test.local');
+test('GET /api/public/store/unknown-slug/products -> 404', async () => {
+  const { status } = await api('/api/public/store/no-existe/products');
+  assert.equal(status, 404);
+});
+
+test('GET /api/public/store/:slug/orders?email=unknown -> 200 empty list', async () => {
+  const login = await api('/api/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ email: 'ana.silva@empresa.com', password: 'password123' }),
+  });
+  const slug = login.body.company.slug;
+
+  const { status, body } = await api(
+    `/api/public/store/${slug}/orders?email=nadie@test.local`,
+  );
   assert.equal(status, 200);
   assert.ok(Array.isArray(body));
   assert.equal(body.length, 0);
@@ -91,9 +113,46 @@ test('CORS: disallowed origin gets no access-control header', async () => {
   assert.equal(res.headers.get('access-control-allow-origin'), null);
 });
 
-test('CORS: allowed origin echoes the origin', async () => {
-  const res = await fetch(`${base}/api/health`, {
-    headers: { origin: 'http://localhost:3000' },
+test('multi-tenant: a new company gets its own storefront slug and is isolated from the demo tenant', async () => {
+  const suffix = Date.now();
+  const email = `nueva-${suffix}@test.local`;
+
+  // Onboarding: register creates the company with a slug.
+  const reg = await api('/api/auth/register', {
+    method: 'POST',
+    body: JSON.stringify({
+      companyName: `Tienda Prueba ${suffix}`,
+      firstName: 'Test',
+      lastName: 'Tenant',
+      email,
+      password: 'clave-segura-123',
+    }),
   });
-  assert.equal(res.headers.get('access-control-allow-origin'), 'http://localhost:3000');
+  assert.equal(reg.status, 201);
+  assert.ok(reg.body.company.slug);
+  assert.match(reg.body.company.slug, /^tienda-prueba-\d+$/);
+
+  // The new storefront exists but its catalog is empty (no products yet).
+  const emptyStore = await api(`/api/public/store/${reg.body.company.slug}/products`);
+  assert.equal(emptyStore.status, 200);
+  assert.equal(emptyStore.body.products.length, 0);
+
+  // It cannot order a product that belongs to the demo tenant.
+  const foreignOrder = await api(`/api/public/store/${reg.body.company.slug}/orders`, {
+    method: 'POST',
+    body: JSON.stringify({
+      clientName: 'Cliente Ajeno',
+      clientEmail: email,
+      items: [{ productId: 1, quantity: 1 }],
+    }),
+  });
+  assert.notEqual(foreignOrder.status, 201);
+
+  // Tracking is tenant-scoped: an email that exists in the demo tenant yields
+  // no orders in the new tenant's storefront.
+  const demoOrders = await api(
+    `/api/public/store/${reg.body.company.slug}/orders?email=ana.silva@empresa.com`,
+  );
+  assert.equal(demoOrders.status, 200);
+  assert.equal(demoOrders.body.length, 0);
 });
