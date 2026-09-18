@@ -22,12 +22,12 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ products, onNaviga
   return (
     <div className="flex flex-col w-full gap-xl">
       {/* Header Bar */}
-      <div className="flex justify-between items-center bg-surface-container rounded-xl p-lg shadow-sm">
+      <div className="flex justify-between items-center bg-surface-container rounded-xl p-lg shadow-sm flex-wrap gap-md">
         <div className="flex flex-col gap-xs">
           <h1 className="font-display-lg text-display-lg text-on-surface">Gestión de Inventario</h1>
           <p className="font-body-lg text-body-lg text-on-surface-variant">Control general de stock y depósitos.</p>
         </div>
-        <div className="flex gap-md">
+        <div className="flex gap-md flex-wrap">
           <button
             onClick={() => onNavigate('inventario-transferencia')}
             className="bg-surface text-on-surface hover:bg-surface-container-high transition-colors px-md py-sm rounded-lg flex items-center gap-sm font-label-md text-label-md shadow-sm cursor-pointer"
@@ -116,11 +116,11 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ products, onNaviga
               className="w-full bg-surface border-none rounded-full py-sm pl-10 pr-md font-body-md text-body-md text-on-surface focus:ring-2 focus:ring-secondary-container transition-shadow outline-none"
             />
           </div>
-          <div className="flex gap-md w-full md:w-auto">
+          <div className="flex gap-md flex-wrap w-full md:w-auto">
             <select
               value={selectedCategory}
               onChange={(e) => setSelectedCategory(e.target.value)}
-              className="bg-surface text-on-surface font-body-md text-body-md py-sm px-md rounded-lg shadow-sm border-none focus:ring-2 focus:ring-secondary-container cursor-pointer"
+              className="bg-surface text-on-surface font-body-md text-body-md py-sm px-md rounded-lg shadow-sm border-none focus:ring-2 focus:ring-secondary-container cursor-pointer min-w-0"
             >
               <option value="">Todas las Categorías</option>
               <option value="Electrónica">Electrónica</option>
@@ -132,7 +132,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ products, onNaviga
             <select
               value={selectedWarehouse}
               onChange={(e) => setSelectedWarehouse(e.target.value)}
-              className="bg-surface text-on-surface font-body-md text-body-md py-sm px-md rounded-lg shadow-sm border-none focus:ring-2 focus:ring-secondary-container cursor-pointer"
+              className="bg-surface text-on-surface font-body-md text-body-md py-sm px-md rounded-lg shadow-sm border-none focus:ring-2 focus:ring-secondary-container cursor-pointer min-w-0"
             >
               <option value="">Todos los Depósitos</option>
               <option value="Depósito Central">Depósito Central</option>
@@ -166,7 +166,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ products, onNaviga
                         <span className="material-symbols-outlined text-outline">inventory_2</span>
                       )}
                     </div>
-                    <span className="font-medium text-on-surface">{product.name}</span>
+                    <span className="font-medium text-on-surface truncate max-w-[220px]">{product.name}</span>
                   </td>
                   <td className="p-md text-on-surface-variant font-mono-sm text-mono-sm">{product.sku}</td>
                   <td className="p-md">{product.category}</td>
@@ -188,7 +188,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ products, onNaviga
                     )}
                   </td>
                   <td className="p-md text-center">
-                    <button className="text-on-surface-variant hover:text-primary transition-colors p-xs rounded-full hover:bg-surface-container-high opacity-80 group-hover:opacity-100">
+                    <button className="text-on-surface-variant hover:text-primary transition-colors p-xs rounded-full hover:bg-surface-container-high opacity-100 tap-target">
                       <span className="material-symbols-outlined text-[20px]">more_vert</span>
                     </button>
                   </td>
@@ -198,13 +198,13 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ products, onNaviga
           </table>
         </div>
 
-        <div className="p-md bg-surface-container-lowest rounded-b-xl border-t border-surface-container-highest flex justify-between items-center">
+        <div className="p-md bg-surface-container-lowest rounded-b-xl border-t border-surface-container-highest flex justify-between items-center flex-wrap gap-sm">
           <span className="font-body-md text-body-md text-on-surface-variant">Mostrando 1-{filteredProducts.length} de {filteredProducts.length} productos</span>
           <div className="flex gap-sm">
-            <button className="p-sm rounded-lg hover:bg-surface-container-high text-on-surface-variant disabled:opacity-50 transition-colors" disabled>
+            <button className="p-sm rounded-lg hover:bg-surface-container-high text-on-surface-variant disabled:opacity-50 transition-colors tap-target" disabled>
               <span className="material-symbols-outlined">chevron_left</span>
             </button>
-            <button className="p-sm rounded-lg hover:bg-surface-container-high text-on-surface-variant transition-colors">
+            <button className="p-sm rounded-lg hover:bg-surface-container-high text-on-surface-variant transition-colors tap-target">
               <span className="material-symbols-outlined">chevron_right</span>
             </button>
           </div>

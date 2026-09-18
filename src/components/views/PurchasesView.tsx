@@ -68,10 +68,10 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ orders, suppliers,
         <div className="col-span-12 lg:col-span-8 flex flex-col gap-lg h-full">
           <div className="bg-surface-container-lowest rounded-xl shadow-sm flex-1 flex flex-col overflow-hidden border border-outline-variant/20">
             {/* Tabs Header */}
-            <div className="flex border-b border-surface-container-high px-md pt-sm">
+            <div className="flex border-b border-surface-container-high px-md pt-sm overflow-x-auto no-scrollbar">
               <button
                 onClick={() => setActiveTab('po')}
-                className={`px-md py-sm font-label-md text-label-md uppercase tracking-wider border-b-2 cursor-pointer transition-colors ${
+                className={`px-md py-sm font-label-md text-label-md uppercase tracking-wider border-b-2 cursor-pointer transition-colors whitespace-nowrap ${
                   activeTab === 'po' ? 'text-primary border-primary font-bold' : 'text-on-surface-variant border-transparent hover:text-on-surface'
                 }`}
               >
@@ -79,7 +79,7 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ orders, suppliers,
               </button>
               <button
                 onClick={() => setActiveTab('suppliers')}
-                className={`px-md py-sm font-label-md text-label-md uppercase tracking-wider border-b-2 cursor-pointer transition-colors ${
+                className={`px-md py-sm font-label-md text-label-md uppercase tracking-wider border-b-2 cursor-pointer transition-colors whitespace-nowrap ${
                   activeTab === 'suppliers' ? 'text-primary border-primary font-bold' : 'text-on-surface-variant border-transparent hover:text-on-surface'
                 }`}
               >
@@ -91,7 +91,7 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ orders, suppliers,
             {activeTab === 'po' && (
               <div className="flex-1 p-md overflow-auto">
                 <div className="flex justify-between items-center mb-md">
-                  <div className="relative w-64">
+                  <div className="relative w-full sm:w-64">
                     <span className="material-symbols-outlined absolute left-sm top-1/2 -translate-y-1/2 text-outline-variant text-[18px]">search</span>
                     <input
                       type="text"
@@ -155,7 +155,7 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ orders, suppliers,
                           </span>
                         </td>
                         <td className="py-sm px-xs text-right">
-                          <div className="flex items-center justify-end gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
+                          <div className="flex items-center justify-end gap-1 opacity-100 transition-opacity">
                             {merged.hasExternalVoucher && (
                               <span
                                 title="Documento proveedor registrado"
@@ -177,11 +177,11 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ orders, suppliers,
                                   },
                                 });
                               }}
-                              className="text-outline hover:text-primary cursor-pointer"
+                              className="text-outline hover:text-primary cursor-pointer tap-target"
                             >
                               <span className="material-symbols-outlined text-[18px]">document_scanner</span>
                             </button>
-                            <button className="text-outline hover:text-primary cursor-pointer">
+                            <button className="text-outline hover:text-primary cursor-pointer tap-target">
                               <span className="material-symbols-outlined text-[18px]">more_vert</span>
                             </button>
                           </div>
@@ -196,8 +196,8 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ orders, suppliers,
             {/* Suppliers Content */}
             {activeTab === 'suppliers' && (
               <div className="flex-1 p-md overflow-auto">
-                <div className="flex justify-between items-center mb-md">
-                  <div className="relative w-64">
+                <div className="flex justify-between items-center mb-md flex-wrap gap-md">
+                  <div className="relative w-full sm:w-64">
                     <span className="material-symbols-outlined absolute left-sm top-1/2 -translate-y-1/2 text-outline-variant text-[18px]">search</span>
                     <input
                       type="text"

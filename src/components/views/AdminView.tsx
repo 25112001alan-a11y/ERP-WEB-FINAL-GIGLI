@@ -46,7 +46,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, roles, permissions,
           <h1 className="font-display-lg text-display-lg text-on-surface">Panel de Administración</h1>
           <p className="font-body-lg text-body-lg text-on-surface-variant">Gestión de usuarios, roles, permisos y seguridad de la plataforma.</p>
         </div>
-        <div className="flex gap-md">
+        <div className="flex gap-md flex-wrap">
           <button
             onClick={() => onNavigate('log-auditoria')}
             className="px-md py-sm bg-surface-container-high text-on-surface font-label-md text-label-md rounded-lg shadow-sm hover:bg-surface-container-highest transition-colors flex items-center gap-sm cursor-pointer"
@@ -66,10 +66,10 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, roles, permissions,
 
       {/* Tabs Layout */}
       <div className="bg-surface-container-lowest rounded-xl shadow-sm border border-outline-variant/20 overflow-hidden flex flex-col flex-1">
-        <div className="flex border-b border-outline-variant/20 bg-surface-container-low px-lg pt-sm gap-md">
+        <div className="flex border-b border-outline-variant/20 bg-surface-container-low px-lg pt-sm gap-md overflow-x-auto no-scrollbar">
           <button
             onClick={() => setActiveTab('usuarios')}
-            className={`py-sm px-md font-label-md text-label-md uppercase tracking-wider border-b-2 cursor-pointer transition-colors ${
+            className={`py-sm px-md font-label-md text-label-md uppercase tracking-wider border-b-2 cursor-pointer transition-colors whitespace-nowrap ${
               activeTab === 'usuarios' ? 'border-primary text-primary font-bold' : 'border-transparent text-on-surface-variant hover:text-on-surface'
             }`}
           >
@@ -77,7 +77,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, roles, permissions,
           </button>
           <button
             onClick={() => setActiveTab('roles')}
-            className={`py-sm px-md font-label-md text-label-md uppercase tracking-wider border-b-2 cursor-pointer transition-colors ${
+            className={`py-sm px-md font-label-md text-label-md uppercase tracking-wider border-b-2 cursor-pointer transition-colors whitespace-nowrap ${
               activeTab === 'roles' ? 'border-primary text-primary font-bold' : 'border-transparent text-on-surface-variant hover:text-on-surface'
             }`}
           >
@@ -86,7 +86,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, roles, permissions,
           {canViewBilling && (
             <button
               onClick={() => setActiveTab('billing')}
-              className={`py-sm px-md font-label-md text-label-md uppercase tracking-wider border-b-2 cursor-pointer transition-colors ${
+              className={`py-sm px-md font-label-md text-label-md uppercase tracking-wider border-b-2 cursor-pointer transition-colors whitespace-nowrap ${
                 activeTab === 'billing' ? 'border-primary text-primary font-bold' : 'border-transparent text-on-surface-variant hover:text-on-surface'
               }`}
             >
@@ -178,7 +178,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, roles, permissions,
 
               {!overviewLoading && overview && (
                 <>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-md">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-md">
                     <div className="p-md rounded-xl bg-surface-container-low border border-outline-variant/30">
                       <p className="font-label-md text-label-md uppercase text-on-surface-variant">Empresas</p>
                       <p className="font-display-lg text-display-lg text-on-surface">{overview.totals.companies}</p>
@@ -198,16 +198,17 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, roles, permissions,
                     <div className="p-md rounded-xl bg-surface-container-low border border-outline-variant/30">
                       <p className="font-label-md text-label-md uppercase text-on-surface-variant">Sin suscripción</p>
                       <p className="font-display-lg text-display-lg text-on-surface">{overview.unsubscribedCompanies.length}</p>
-                      <p className="text-xs text-on-surface-variant truncate">
+                      <p className="text-xs text-on-surface-variant line-clamp-2 break-words">
                         {overview.unsubscribedCompanies.map((c) => c.name).join(', ') || '—'}
                       </p>
                     </div>
                   </div>
 
-                  <div className="rounded-lg border border-outline-variant/20 overflow-hidden">
+                  <div className="rounded-lg border border-outline-variant/20">
                     <div className="bg-surface-container-low px-md py-sm font-label-md text-label-md text-on-surface-variant uppercase">
                       Últimos eventos de Mercado Pago
                     </div>
+                    <div className="overflow-x-auto">
                     <table className="w-full text-left border-collapse">
                       <thead>
                         <tr className="bg-surface-container-low border-b border-outline-variant/20 font-label-md text-label-md text-on-surface-variant uppercase">
@@ -239,6 +240,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, roles, permissions,
                         )}
                       </tbody>
                     </table>
+                    </div>
                   </div>
                 </>
               )}

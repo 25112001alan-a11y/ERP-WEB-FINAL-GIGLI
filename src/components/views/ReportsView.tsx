@@ -35,7 +35,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ products, sales }) => 
           <p className="font-body-lg text-body-lg text-on-surface-variant">Indicadores clave de ventas, margen de rentabilidad y rotación de inventarios.</p>
         </div>
         <div className="flex gap-sm flex-wrap items-center">
-          <div className="bg-surface p-xs rounded-lg border border-outline-variant/50 flex gap-xs">
+          <div className="bg-surface p-xs rounded-lg border border-outline-variant/50 flex gap-xs flex-wrap">
             {(['7d', '30d', '90d', 'year'] as const).map((p) => (
               <button
                 key={p}

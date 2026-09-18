@@ -75,11 +75,11 @@ export const SalesView: React.FC<SalesViewProps> = ({ sales, onNavigate }) => {
       </div>
 
       {/* Split View Content */}
-      <div className="flex gap-lg w-full h-[calc(100vh-280px)] min-h-[500px]">
+      <div className="flex flex-col 2xl:flex-row gap-lg w-full">
         {/* Table Panel */}
-        <div className="flex-1 bg-surface-container-lowest rounded-xl shadow-sm flex flex-col overflow-hidden relative border border-outline-variant/30">
+        <div className="flex-1 bg-surface-container-lowest rounded-xl shadow-sm flex flex-col overflow-hidden relative border border-outline-variant/30 min-h-0">
           {/* Toolbar */}
-          <div className="flex items-center justify-between p-md bg-surface-container-lowest z-10 border-b border-surface-container-high">
+          <div className="flex items-center justify-between p-md bg-surface-container-lowest z-10 border-b border-surface-container-high flex-wrap gap-sm">
             <div className="flex items-center gap-sm">
               <span className="font-headline-md text-headline-md text-on-surface">Historial de Ventas</span>
               <span className="font-mono-sm text-mono-sm text-on-surface-variant bg-surface-container-low px-sm py-xs rounded-full ml-sm">
@@ -132,7 +132,7 @@ export const SalesView: React.FC<SalesViewProps> = ({ sales, onNavigate }) => {
                             {sale.clientName.substring(0, 2).toUpperCase()}
                           </div>
                           <div className="flex flex-col">
-                            <span className="font-semibold truncate w-44">{sale.clientName}</span>
+                            <span className="font-semibold truncate min-w-0">{sale.clientName}</span>
                             <span className="text-mono-sm text-on-surface-variant">{sale.clientType}</span>
                           </div>
                         </div>
@@ -175,7 +175,7 @@ export const SalesView: React.FC<SalesViewProps> = ({ sales, onNavigate }) => {
 
         {/* Right Details Panel */}
         {selectedSale && (
-          <div className="w-[400px] bg-surface-container-lowest rounded-xl shadow-md flex flex-col overflow-hidden shrink-0 border border-outline-variant/30 relative">
+          <div className="w-full 2xl:w-[400px] bg-surface-container-lowest rounded-xl shadow-md flex flex-col overflow-hidden shrink-0 border border-outline-variant/30 relative">
             <div className="h-20 bg-gradient-to-br from-primary-container to-primary relative overflow-hidden flex items-end p-md">
               <div className="z-10 flex justify-between items-end w-full">
                 <div className="flex flex-col text-on-primary">
@@ -192,7 +192,7 @@ export const SalesView: React.FC<SalesViewProps> = ({ sales, onNavigate }) => {
               <div className="flex justify-between items-center p-sm bg-surface-container-low rounded-lg shadow-sm">
                 <div className="flex flex-col">
                   <span className="font-label-md text-label-md text-on-surface-variant">Cliente</span>
-                  <span className="font-body-md text-body-md text-on-surface font-semibold truncate w-32">{selectedSale.clientName}</span>
+                  <span className="font-body-md text-body-md text-on-surface font-semibold truncate min-w-0">{selectedSale.clientName}</span>
                 </div>
                 <div className="h-8 w-px bg-outline-variant/30"></div>
                 <div className="flex flex-col text-right">
@@ -203,36 +203,38 @@ export const SalesView: React.FC<SalesViewProps> = ({ sales, onNavigate }) => {
 
               <div className="flex flex-col gap-xs">
                 <h3 className="font-headline-md text-headline-md text-on-surface">Detalle de Líneas</h3>
-                <div className="border border-outline-variant/30 rounded-lg overflow-hidden mt-sm">
-                  <table className="w-full text-left">
-                    <thead className="bg-surface-container font-label-md text-label-md text-on-surface-variant uppercase">
-                      <tr>
-                        <th className="py-2 px-sm">Descripción</th>
-                        <th className="py-2 px-sm text-right w-16">Cant</th>
-                        <th className="py-2 px-sm text-right w-24">Subtotal</th>
-                      </tr>
-                    </thead>
-                    <tbody className="font-body-md text-body-md text-on-surface divide-y divide-surface-variant/50 bg-surface-container-lowest">
-                      {(selectedSale.items ?? []).map((item, idx) => (
-                        <tr key={idx}>
-                          <td className="py-2 px-sm">
-                            <div className="flex flex-col">
-                              <span className="truncate w-36 font-medium">{item.description}</span>
-                            </div>
-                          </td>
-                          <td className="py-2 px-sm text-right">{item.quantity}</td>
-                          <td className="py-2 px-sm text-right font-mono-sm">${(item.quantity * item.unitPrice).toFixed(2)}</td>
-                        </tr>
-                      ))}
-                      {selectedSale.itemsCount > 0 && (!selectedSale.items || selectedSale.items.length === 0) && (
+                <div className="border border-outline-variant/30 rounded-lg mt-sm">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                      <thead className="bg-surface-container font-label-md text-label-md text-on-surface-variant uppercase">
                         <tr>
-                          <td colSpan={3} className="py-2 px-sm text-on-surface-variant text-center">
-                            {selectedSale.itemsCount} ítem{selectedSale.itemsCount > 1 ? 's' : ''} sin detalle cargado.
-                          </td>
+                          <th className="py-2 px-sm">Descripción</th>
+                          <th className="py-2 px-sm text-right w-16">Cant</th>
+                          <th className="py-2 px-sm text-right w-24">Subtotal</th>
                         </tr>
-                      )}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody className="font-body-md text-body-md text-on-surface divide-y divide-surface-variant/50 bg-surface-container-lowest">
+                        {(selectedSale.items ?? []).map((item, idx) => (
+                          <tr key={idx}>
+                            <td className="py-2 px-sm">
+                              <div className="flex flex-col">
+                                <span className="truncate min-w-0 font-medium">{item.description}</span>
+                              </div>
+                            </td>
+                            <td className="py-2 px-sm text-right">{item.quantity}</td>
+                            <td className="py-2 px-sm text-right font-mono-sm">${(item.quantity * item.unitPrice).toFixed(2)}</td>
+                          </tr>
+                        ))}
+                        {selectedSale.itemsCount > 0 && (!selectedSale.items || selectedSale.items.length === 0) && (
+                          <tr>
+                            <td colSpan={3} className="py-2 px-sm text-on-surface-variant text-center">
+                              {selectedSale.itemsCount} ítem{selectedSale.itemsCount > 1 ? 's' : ''} sin detalle cargado.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               </div>
 

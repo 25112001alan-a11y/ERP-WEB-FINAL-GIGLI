@@ -142,7 +142,7 @@ export const PublicOrdersView: React.FC<PublicOrdersViewProps> = ({ orders, onNa
                         {ord.client.substring(0, 2).toUpperCase()}
                       </div>
                       <div className="flex flex-col">
-                        <span className="font-medium text-on-surface truncate max-w-[150px]">{ord.client}</span>
+                        <span className="font-medium text-on-surface truncate max-w-[30vw] sm:max-w-[150px]">{ord.client}</span>
                         <span className="text-xs text-on-surface-variant">{ord.clientType}</span>
                       </div>
                     </div>
@@ -175,11 +175,11 @@ export const PublicOrdersView: React.FC<PublicOrdersViewProps> = ({ orders, onNa
                     </span>
                   </td>
                   <td className="py-sm px-md text-right">
-                    <div className="flex justify-end gap-2 opacity-80 group-hover:opacity-100 transition-opacity">
-                      <button onClick={() => alert(`Imprimiendo etiqueta para ${ord.id}`)} className="w-8 h-8 rounded flex items-center justify-center hover:bg-surface-container-high text-on-surface-variant hover:text-primary transition-colors cursor-pointer" title="Imprimir Etiqueta">
+                    <div className="flex justify-end gap-2 opacity-100 transition-opacity">
+                      <button onClick={() => alert(`Imprimiendo etiqueta para ${ord.id}`)} className="w-8 h-8 rounded flex items-center justify-center hover:bg-surface-container-high text-on-surface-variant hover:text-primary transition-colors cursor-pointer tap-target" title="Imprimir Etiqueta">
                         <span className="material-symbols-outlined text-[18px]">print</span>
                       </button>
-                      <button onClick={() => alert(`Procesando pedido ${ord.id}`)} className="w-8 h-8 rounded flex items-center justify-center hover:bg-surface-container-high text-on-surface-variant hover:text-primary transition-colors cursor-pointer" title="Procesar">
+                      <button onClick={() => alert(`Procesando pedido ${ord.id}`)} className="w-8 h-8 rounded flex items-center justify-center hover:bg-surface-container-high text-on-surface-variant hover:text-primary transition-colors cursor-pointer tap-target" title="Procesar">
                         <span className="material-symbols-outlined text-[18px]">play_arrow</span>
                       </button>
                     </div>

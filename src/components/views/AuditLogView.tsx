@@ -40,7 +40,7 @@ export const AuditLogView: React.FC<AuditLogViewProps> = ({ logs, onNavigate }) 
       <div className="bg-surface-container-lowest rounded-xl shadow-sm border border-outline-variant/20 flex flex-col overflow-hidden flex-1">
         {/* Filter Bar */}
         <div className="p-md border-b border-outline-variant/20 flex flex-col md:flex-row justify-between items-center gap-md">
-          <div className="relative w-80">
+          <div className="relative w-full sm:w-80">
             <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline text-[18px]">search</span>
             <input
               type="text"
@@ -84,7 +84,7 @@ export const AuditLogView: React.FC<AuditLogViewProps> = ({ logs, onNavigate }) 
             <tbody className="divide-y divide-outline-variant/10 text-body-md">
               {filteredLogs.map((l) => (
                 <tr key={l.id} className="hover:bg-surface-container/20">
-                  <td className="py-sm px-md text-on-surface-variant text-xs font-mono-sm whitespace-nowrap">{l.timestamp}</td>
+                  <td className="py-sm px-md text-on-surface-variant text-xs font-mono-sm">{l.timestamp}</td>
                   <td className="py-sm px-md">
                     <div className="flex items-center gap-xs">
                       <div className="w-6 h-6 rounded-full bg-primary/20 text-primary font-bold text-[10px] flex items-center justify-center">
@@ -100,7 +100,7 @@ export const AuditLogView: React.FC<AuditLogViewProps> = ({ logs, onNavigate }) 
                   </td>
                   <td className="py-sm px-md font-semibold text-primary">{l.action}</td>
                   <td className="py-sm px-md text-on-surface-variant font-mono-sm text-xs">{l.ip}</td>
-                  <td className="py-sm px-md text-on-surface-variant text-xs truncate max-w-xs">{l.details}</td>
+                  <td className="py-sm px-md text-on-surface-variant text-xs truncate max-w-[45ch]">{l.details}</td>
                 </tr>
               ))}
             </tbody>

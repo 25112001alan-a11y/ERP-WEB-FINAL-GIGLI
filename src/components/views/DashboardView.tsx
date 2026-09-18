@@ -52,9 +52,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ dashboard, onNavig
             <span className="font-label-md text-label-md uppercase tracking-wider">Ventas ({dashboard.month})</span>
             <span className="material-symbols-outlined text-[20px]">payments</span>
           </div>
-          <div className="flex items-end gap-sm">
-            <span className="font-display-lg text-display-lg text-on-surface">{formatCurrency(dashboard.totalSalesMonth)}</span>
-            <div className="flex items-center text-on-tertiary-container bg-tertiary-fixed-dim/20 px-sm py-[2px] rounded-full mb-xs">
+          <div className="flex items-end gap-sm min-w-0">
+            <span className="font-display-lg text-headline-lg md:text-display-lg text-on-surface truncate min-w-0">{formatCurrency(dashboard.totalSalesMonth)}</span>
+            <div className="flex items-center text-on-tertiary-container bg-tertiary-fixed-dim/20 px-sm py-[2px] rounded-full mb-xs shrink-0">
               <span className="material-symbols-outlined text-[14px]">trending_up</span>
               <span className="font-mono-sm text-mono-sm ml-xs">ingresos</span>
             </div>
@@ -66,11 +66,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ dashboard, onNavig
             <span className="font-label-md text-label-md uppercase tracking-wider">Flujo de Caja Neto</span>
             <span className="material-symbols-outlined text-[20px]">account_balance</span>
           </div>
-          <div className="flex items-end gap-sm">
-            <span className={`font-display-lg text-display-lg ${dashboard.netCashFlow >= 0 ? 'text-on-surface' : 'text-error'}`}>
+          <div className="flex items-end gap-sm min-w-0">
+            <span className={`font-display-lg text-headline-lg md:text-display-lg truncate min-w-0 ${dashboard.netCashFlow >= 0 ? 'text-on-surface' : 'text-error'}`}>
               {formatCurrency(dashboard.netCashFlow)}
             </span>
-            <div className="flex items-center text-on-surface-variant px-sm py-[2px] mb-xs">
+            <div className="flex items-center text-on-surface-variant px-sm py-[2px] mb-xs shrink-0">
               <span className="font-mono-sm text-mono-sm">ingresos − egresos</span>
             </div>
           </div>
@@ -81,9 +81,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ dashboard, onNavig
             <span className="font-label-md text-label-md uppercase tracking-wider">Órdenes de Compra Abiertas</span>
             <span className="material-symbols-outlined text-[20px]">local_shipping</span>
           </div>
-          <div className="flex items-end gap-sm">
-            <span className="font-display-lg text-display-lg text-on-surface">{dashboard.pendingOrders}</span>
-            <div className="flex items-center text-on-surface-variant px-sm py-[2px] mb-xs">
+          <div className="flex items-end gap-sm min-w-0">
+            <span className="font-display-lg text-headline-lg md:text-display-lg text-on-surface truncate min-w-0">{dashboard.pendingOrders}</span>
+            <div className="flex items-center text-on-surface-variant px-sm py-[2px] mb-xs shrink-0">
               <span className="font-mono-sm text-mono-sm">pendientes de recepción</span>
             </div>
           </div>
@@ -94,11 +94,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ dashboard, onNavig
             <span className="font-label-md text-label-md uppercase tracking-wider">Alertas de Stock Bajo</span>
             <span className="material-symbols-outlined text-[20px]">warning</span>
           </div>
-          <div className="flex items-end gap-sm">
-            <span className={`font-display-lg text-display-lg ${dashboard.lowStockCount > 0 ? 'text-error' : 'text-on-surface'}`}>
+          <div className="flex items-end gap-sm min-w-0">
+            <span className={`font-display-lg text-headline-lg md:text-display-lg truncate min-w-0 ${dashboard.lowStockCount > 0 ? 'text-error' : 'text-on-surface'}`}>
               {dashboard.lowStockCount}
             </span>
-            <div className="flex items-center text-on-surface-variant px-sm py-[2px] mb-xs">
+            <div className="flex items-center text-on-surface-variant px-sm py-[2px] mb-xs shrink-0">
               <span className="font-mono-sm text-mono-sm">SKUs bajo mínimo</span>
             </div>
           </div>
@@ -110,9 +110,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ dashboard, onNavig
         <div className="lg:col-span-2 flex flex-col gap-md">
           {/* Financial Overview Chart Mock */}
           <div className="bg-surface-container-lowest p-lg rounded-xl shadow-sm h-96 flex flex-col border border-outline-variant/20">
-            <div className="flex justify-between items-center mb-md">
+            <div className="flex justify-between items-center mb-md flex-wrap gap-sm">
               <h2 className="font-headline-md text-headline-md text-on-surface">Resumen Financiero — {dashboard.month}</h2>
-              <div className="flex gap-md items-center font-label-md text-label-md text-on-surface-variant">
+              <div className="flex gap-md items-center font-label-md text-label-md text-on-surface-variant shrink-0">
                 <span className="flex items-center gap-xs"><span className="w-3 h-3 rounded-full bg-secondary-container"></span> Ventas: {formatCurrency(dashboard.totalSalesMonth)}</span>
                 <span className="flex items-center gap-xs"><span className="w-3 h-3 rounded-full bg-error-container"></span> Compras: {formatCurrency(dashboard.totalExpensesMonth)}</span>
               </div>
@@ -225,7 +225,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ dashboard, onNavig
                       {String(i + 1).padStart(2, '0')}
                     </div>
                     <div>
-                      <p className="font-body-md text-body-md font-medium text-on-surface">{p.name}</p>
+                      <p className="font-body-md text-body-md font-medium text-on-surface truncate min-w-0 flex-1">{p.name}</p>
                       {p.sku && <p className="font-mono-sm text-mono-sm text-on-surface-variant">SKU: {p.sku}</p>}
                     </div>
                   </div>
@@ -248,10 +248,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ dashboard, onNavig
                 {dashboard.lowStockProducts.map((s) => (
                   <div key={s.productId} className="flex items-center justify-between py-xs border-b border-error-container/20 last:border-b-0">
                     <div>
-                      <p className="font-body-md text-body-md text-on-surface">{s.name}</p>
+                      <p className="font-body-md text-body-md text-on-surface truncate min-w-0 flex-1">{s.name}</p>
                       <p className="font-mono-sm text-mono-sm text-on-surface-variant">{s.warehouse}</p>
                     </div>
-                    <span className="font-mono-sm text-mono-sm text-error font-bold">{s.stock} / mín {s.minStock}</span>
+                    <span className="font-mono-sm text-mono-sm text-error font-bold shrink-0">{s.stock} / mín {s.minStock}</span>
                   </div>
                 ))}
               </div>

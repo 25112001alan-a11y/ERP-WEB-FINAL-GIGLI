@@ -77,7 +77,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({ transactions }) => {
       <div className="bg-surface-container-lowest rounded-xl shadow-sm border border-outline-variant/20 flex flex-col overflow-hidden flex-1">
         {/* Table Filters */}
         <div className="p-md border-b border-outline-variant/20 flex flex-col md:flex-row justify-between items-center gap-md">
-          <div className="relative w-72">
+          <div className="relative w-full sm:w-72">
             <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline text-[18px]">search</span>
             <input
               type="text"
@@ -88,7 +88,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({ transactions }) => {
             />
           </div>
 
-          <div className="flex gap-xs">
+          <div className="flex gap-xs flex-wrap">
             {(['Todos', 'Ingreso', 'Egreso'] as const).map((t) => (
               <button
                 key={t}
