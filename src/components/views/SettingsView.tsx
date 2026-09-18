@@ -197,10 +197,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ taxes, onAddTax, onT
 
       {/* Tabs Layout */}
       <div className="bg-surface-container-lowest rounded-xl shadow-sm border border-outline-variant/20 overflow-hidden flex flex-col flex-1">
-        <div className="flex border-b border-outline-variant/20 bg-surface-container-low px-lg pt-sm gap-md">
+        <div className="flex border-b border-outline-variant/20 bg-surface-container-low px-lg pt-sm gap-md overflow-x-auto no-scrollbar">
           <button
             onClick={() => setActiveTab('empresa')}
-            className={`py-sm px-md font-label-md text-label-md uppercase tracking-wider border-b-2 cursor-pointer transition-colors ${
+            className={`py-sm px-md font-label-md text-label-md uppercase tracking-wider border-b-2 cursor-pointer transition-colors whitespace-nowrap ${
               activeTab === 'empresa' ? 'border-primary text-primary font-bold' : 'border-transparent text-on-surface-variant hover:text-on-surface'
             }`}
           >
@@ -208,7 +208,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ taxes, onAddTax, onT
           </button>
           <button
             onClick={() => setActiveTab('impuestos')}
-            className={`py-sm px-md font-label-md text-label-md uppercase tracking-wider border-b-2 cursor-pointer transition-colors ${
+            className={`py-sm px-md font-label-md text-label-md uppercase tracking-wider border-b-2 cursor-pointer transition-colors whitespace-nowrap ${
               activeTab === 'impuestos' ? 'border-primary text-primary font-bold' : 'border-transparent text-on-surface-variant hover:text-on-surface'
             }`}
           >
@@ -216,7 +216,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ taxes, onAddTax, onT
           </button>
           <button
             onClick={() => setActiveTab('plan')}
-            className={`py-sm px-md font-label-md text-label-md uppercase tracking-wider border-b-2 cursor-pointer transition-colors ${
+            className={`py-sm px-md font-label-md text-label-md uppercase tracking-wider border-b-2 cursor-pointer transition-colors whitespace-nowrap ${
               activeTab === 'plan' ? 'border-primary text-primary font-bold' : 'border-transparent text-on-surface-variant hover:text-on-surface'
             }`}
           >
@@ -292,7 +292,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ taxes, onAddTax, onT
                     />
                   </div>
 
-                  <div className="grid grid-cols-2 gap-md">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-md">
                     <div className="flex flex-col gap-xs">
                       <label className="font-label-md text-label-md uppercase text-on-surface-variant">Moneda Principal</label>
                       <select
@@ -343,12 +343,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ taxes, onAddTax, onT
               <h3 className="font-headline-md text-headline-md text-on-surface">Tasas de Impuesto</h3>
               <div className="space-y-sm">
                 {taxes.map((t) => (
-                  <div key={t.id} className="flex items-center justify-between p-md bg-surface-container-low rounded-lg border border-outline-variant/30">
-                    <div>
+                  <div key={t.id} className="flex items-center justify-between p-md bg-surface-container-low rounded-lg border border-outline-variant/30 flex-wrap gap-sm">
+                    <div className="min-w-0">
                       <p className="font-semibold text-on-surface">{t.name}</p>
                       <p className="text-xs text-on-surface-variant">{t.active ? 'Tasa activa' : 'Desactivada'}</p>
                     </div>
-                    <div className="flex items-center gap-md">
+                    <div className="flex items-center gap-md shrink-0">
                       <span className="font-mono-sm font-bold text-primary text-headline-md">{Number(t.rate).toFixed(1)}%</span>
                       <button
                         onClick={() => onToggleTax(t.id, !t.active)}

@@ -50,12 +50,12 @@ export const AddProductView: React.FC<AddProductViewProps> = ({ onAddProduct, on
     <div className="flex flex-col w-full">
       <form onSubmit={handleSubmit}>
         {/* Header */}
-        <div className="flex items-center justify-between mb-xl">
+        <div className="flex items-center justify-between mb-xl flex-wrap gap-md">
           <div>
             <h1 className="font-display-lg text-display-lg text-on-surface mb-xs">Agregar Producto</h1>
             <p className="font-body-lg text-body-lg text-on-surface-variant">Crea un nuevo artículo en el catálogo de inventario.</p>
           </div>
-          <div className="flex gap-md">
+          <div className="flex gap-md flex-wrap">
             <button
               type="button"
               onClick={() => onNavigate('inventario')}
@@ -82,7 +82,7 @@ export const AddProductView: React.FC<AddProductViewProps> = ({ onAddProduct, on
                 <span className="material-symbols-outlined text-secondary">info</span>
                 Información General
               </h2>
-              <div className="grid grid-cols-2 gap-md mb-md">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-md mb-md">
                 <div className="col-span-2">
                   <label className="block font-label-md text-label-md text-on-surface-variant mb-sm">Nombre del Producto *</label>
                   <input
@@ -139,7 +139,7 @@ export const AddProductView: React.FC<AddProductViewProps> = ({ onAddProduct, on
                 <span className="material-symbols-outlined text-secondary">inventory_2</span>
                 Gestión de Inventario
               </h2>
-              <div className="grid grid-cols-3 gap-md">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-md">
                 <div className="col-span-1">
                   <label className="block font-label-md text-label-md text-on-surface-variant mb-sm">Stock Inicial</label>
                   <input
@@ -184,7 +184,7 @@ export const AddProductView: React.FC<AddProductViewProps> = ({ onAddProduct, on
                 <span className="material-symbols-outlined text-secondary">payments</span>
                 Precios e Impuestos
               </h2>
-              <div className="grid grid-cols-3 gap-md items-end">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-md items-end">
                 <div className="col-span-1">
                   <label className="block font-label-md text-label-md text-on-surface-variant mb-sm">Precio de Costo ($)</label>
                   <div className="relative">

@@ -218,7 +218,7 @@ export const SupplierVoucherModal: React.FC<SupplierVoucherModalProps> = ({
             />
           </label>
 
-          <div className="grid grid-cols-2 gap-md">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-md">
             {/* CUIT */}
             <label className="block">
               <span className="text-label-sm text-on-surface-variant uppercase">CUIT proveedor</span>
@@ -243,7 +243,7 @@ export const SupplierVoucherModal: React.FC<SupplierVoucherModalProps> = ({
           </div>
 
           {/* Amounts */}
-          <div className="grid grid-cols-3 gap-md">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-md">
             <label className="block">
               <span className="text-label-sm text-on-surface-variant uppercase">Subtotal ext.</span>
               <input
@@ -335,8 +335,8 @@ export const SupplierVoucherModal: React.FC<SupplierVoucherModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between px-lg py-md border-t border-surface-container-high">
-          {error && <p className="text-error text-sm flex-1 mr-md">{error}</p>}
+        <div className="flex items-center justify-between px-lg py-md border-t border-surface-container-high flex-wrap gap-sm">
+          {error && <p className="text-error text-sm flex-1 mr-md min-w-0">{error}</p>}
           <div className="flex gap-sm ml-auto">
             <button
               onClick={onClose}

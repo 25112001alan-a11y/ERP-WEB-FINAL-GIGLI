@@ -106,7 +106,7 @@ export const GoodsReceiptView: React.FC<GoodsReceiptViewProps> = ({
 
   return (
     <div className="flex flex-col w-full h-full p-lg gap-lg font-body-md text-on-surface">
-      <header className="flex items-center justify-between pb-sm border-b border-outline-variant/30">
+      <header className="flex items-center justify-between pb-sm border-b border-outline-variant/30 flex-wrap gap-sm">
         <div>
           <nav className="flex items-center gap-2 text-label-md text-on-surface-variant mb-xs">
             <button onClick={() => onNavigate('compras')} className="hover:text-primary transition-colors cursor-pointer">
@@ -117,7 +117,7 @@ export const GoodsReceiptView: React.FC<GoodsReceiptViewProps> = ({
           </nav>
           <h1 className="font-display-lg text-display-lg text-on-surface tracking-tight">Recepcionar Mercadería (Remito)</h1>
         </div>
-        <div className="flex gap-sm">
+        <div className="flex gap-sm flex-wrap">
           <button
             onClick={() => onNavigate('compras')}
             className="px-md py-sm rounded-lg border border-outline-variant text-on-surface font-label-md text-label-md uppercase tracking-wider hover:bg-surface-container transition-colors cursor-pointer"
@@ -239,7 +239,7 @@ export const GoodsReceiptView: React.FC<GoodsReceiptViewProps> = ({
                         return (
                           <tr key={item.productId} className="hover:bg-surface-container/20">
                             <td className="py-md px-md font-mono-sm font-bold text-primary">{item.sku}</td>
-                            <td className="py-md px-md font-medium">{item.name}</td>
+                            <td className="py-md px-md font-medium"><span className="truncate max-w-[220px]">{item.name}</span></td>
                             <td className="py-md px-md text-right font-mono-sm">{item.ordered} u.</td>
                             <td className="py-md px-md text-right">
                               <input

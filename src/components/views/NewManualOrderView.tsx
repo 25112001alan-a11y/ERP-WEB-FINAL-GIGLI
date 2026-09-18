@@ -106,7 +106,7 @@ export const NewManualOrderView: React.FC<NewManualOrderViewProps> = ({ products
   return (
     <div className="flex flex-col w-full h-full">
       {/* Top Header */}
-      <div className="px-xl py-lg flex items-center justify-between sticky top-0 bg-surface/90 backdrop-blur-md z-10 shadow-sm border-b border-outline-variant/20">
+      <div className="px-xl py-lg flex items-center justify-between sticky top-0 bg-surface/90 backdrop-blur-md z-10 shadow-sm border-b border-outline-variant/20 flex-wrap gap-md">
         <div>
           <nav className="flex items-center gap-2 text-label-md text-on-surface-variant mb-xs">
             <button onClick={() => onNavigate('pedidos-publicos')} className="hover:text-primary transition-colors cursor-pointer">
@@ -117,7 +117,7 @@ export const NewManualOrderView: React.FC<NewManualOrderViewProps> = ({ products
           </nav>
           <h1 className="text-headline-lg font-headline-lg text-on-surface tracking-tight">Nuevo Pedido Manual</h1>
         </div>
-        <div className="flex items-center gap-md">
+        <div className="flex items-center gap-md flex-wrap">
           <button
             onClick={() => onNavigate('pedidos-publicos')}
             className="px-md py-2 rounded text-body-md font-semibold text-surface-tint border border-outline-variant hover:bg-surface-container-highest transition-colors cursor-pointer"
@@ -172,7 +172,7 @@ export const NewManualOrderView: React.FC<NewManualOrderViewProps> = ({ products
 
             {/* Order Lines Section */}
             <section className="bg-surface-container-lowest rounded-xl shadow-sm p-lg border border-outline-variant/20">
-              <div className="flex items-center justify-between mb-md">
+              <div className="flex items-center justify-between mb-md flex-wrap gap-md">
                 <h2 className="text-headline-md font-headline-md text-on-surface flex items-center gap-sm">
                   <span className="material-symbols-outlined text-primary">list_alt</span>
                   Líneas de Pedido
@@ -272,7 +272,7 @@ export const NewManualOrderView: React.FC<NewManualOrderViewProps> = ({ products
                               <button
                                 type="button"
                                 onClick={() => removeLine(line.id)}
-                                className="text-error/70 hover:text-error hover:bg-error-container/50 p-xs rounded transition-colors cursor-pointer"
+                                className="text-error/70 hover:text-error hover:bg-error-container/50 p-xs rounded transition-colors cursor-pointer tap-target"
                               >
                                 <span className="material-symbols-outlined text-[20px]">delete</span>
                               </button>

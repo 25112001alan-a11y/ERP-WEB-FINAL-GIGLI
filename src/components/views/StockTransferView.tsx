@@ -55,12 +55,12 @@ export const StockTransferView: React.FC<StockTransferViewProps> = ({ products, 
 
   return (
     <div className="flex flex-col w-full gap-lg">
-      <div className="flex items-end justify-between w-full">
+      <div className="flex flex-col md:flex-row items-start md:items-end justify-between gap-md w-full">
         <div>
           <h1 className="font-display-lg text-display-lg text-on-surface">Transferencia de Stock</h1>
           <p className="font-body-lg text-body-lg text-on-surface-variant mt-sm">Mueva productos entre los depósitos habilitados de la empresa.</p>
         </div>
-        <div className="flex gap-md">
+        <div className="flex gap-md flex-wrap">
           <button
             onClick={() => onNavigate('inventario')}
             className="bg-surface-container-high hover:bg-surface-container-highest text-on-surface font-label-md text-label-md px-md py-sm rounded-full transition-colors flex items-center gap-sm cursor-pointer"
@@ -189,9 +189,9 @@ export const StockTransferView: React.FC<StockTransferViewProps> = ({ products, 
                       <span className="material-symbols-outlined text-outline">inventory_2</span>
                     )}
                   </div>
-                  <div className="flex-1">
-                    <p className="font-body-md text-body-md text-on-surface font-semibold">{selectedProduct.name}</p>
-                    <p className="font-mono-sm text-mono-sm text-on-surface-variant">{selectedProduct.sku} · {selectedProduct.category}</p>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-body-md text-body-md text-on-surface font-semibold truncate">{selectedProduct.name}</p>
+                    <p className="font-mono-sm text-mono-sm text-on-surface-variant truncate">{selectedProduct.sku} · {selectedProduct.category}</p>
                   </div>
                   <div className="text-right">
                     <p className="font-label-md text-label-md text-on-surface-variant uppercase">Stock Total</p>
@@ -226,20 +226,20 @@ export const StockTransferView: React.FC<StockTransferViewProps> = ({ products, 
             <div className="bg-surface-container-highest shadow-sm rounded-xl p-lg relative overflow-hidden border border-outline-variant/20">
               <h4 className="font-label-md text-label-md text-on-surface-variant uppercase mb-md">Resumen de Operación</h4>
               <div className="flex justify-between items-center py-sm border-b border-surface-variant/50">
-                <span className="font-body-md text-body-md text-on-surface-variant">Producto</span>
-                <span className="font-body-md text-body-md text-on-surface font-semibold">{selectedProduct?.name ?? '—'}</span>
+                <span className="font-body-md text-body-md text-on-surface-variant min-w-0 truncate">Producto</span>
+                <span className="font-body-md text-body-md text-on-surface font-semibold shrink-0">{selectedProduct?.name ?? '—'}</span>
               </div>
               <div className="flex justify-between items-center py-sm border-b border-surface-variant/50">
-                <span className="font-body-md text-body-md text-on-surface-variant">Cantidad</span>
-                <span className="font-body-lg text-body-lg text-on-surface font-semibold">{quantity} unid.</span>
+                <span className="font-body-md text-body-md text-on-surface-variant min-w-0 truncate">Cantidad</span>
+                <span className="font-body-lg text-body-lg text-on-surface font-semibold shrink-0">{quantity} unid.</span>
               </div>
               <div className="flex justify-between items-center py-sm border-b border-surface-variant/50">
-                <span className="font-body-md text-body-md text-on-surface-variant">Origen</span>
-                <span className="font-body-md text-body-md text-on-surface">{warehouses.find((w) => w.id === sourceWarehouseId)?.name ?? '—'}</span>
+                <span className="font-body-md text-body-md text-on-surface-variant min-w-0 truncate">Origen</span>
+                <span className="font-body-md text-body-md text-on-surface shrink-0">{warehouses.find((w) => w.id === sourceWarehouseId)?.name ?? '—'}</span>
               </div>
               <div className="flex justify-between items-center py-sm pt-md">
-                <span className="font-body-md text-body-md text-on-surface-variant">Destino</span>
-                <span className="font-body-md text-body-md text-on-surface">{warehouses.find((w) => w.id === targetWarehouseId)?.name ?? '—'}</span>
+                <span className="font-body-md text-body-md text-on-surface-variant min-w-0 truncate">Destino</span>
+                <span className="font-body-md text-body-md text-on-surface shrink-0">{warehouses.find((w) => w.id === targetWarehouseId)?.name ?? '—'}</span>
               </div>
             </div>
           </div>

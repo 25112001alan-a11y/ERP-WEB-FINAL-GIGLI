@@ -149,7 +149,7 @@ export const RegistrarFacturaView: React.FC<RegistrarFacturaViewProps> = ({
 
   return (
     <div className="flex flex-col w-full h-full p-lg gap-lg font-body-md text-on-surface">
-      <header className="flex items-center justify-between pb-sm border-b border-outline-variant/30">
+      <header className="flex items-center justify-between pb-sm border-b border-outline-variant/30 flex-wrap gap-sm">
         <div>
           <nav className="flex items-center gap-2 text-label-md text-on-surface-variant mb-xs">
             <button
@@ -163,7 +163,7 @@ export const RegistrarFacturaView: React.FC<RegistrarFacturaViewProps> = ({
           </nav>
           <h1 className="font-display-lg text-display-lg text-on-surface tracking-tight">Registrar Factura (AFIP)</h1>
         </div>
-        <div className="flex gap-sm">
+        <div className="flex gap-sm flex-wrap">
           <button
             onClick={() => onNavigate(direction === 'ingreso' ? 'compras' : 'ventas')}
             className="px-md py-sm rounded-lg border border-outline-variant text-on-surface font-label-md text-label-md uppercase tracking-wider hover:bg-surface-container transition-colors cursor-pointer"
@@ -201,7 +201,7 @@ export const RegistrarFacturaView: React.FC<RegistrarFacturaViewProps> = ({
           )}
 
           {/* Direction toggle */}
-          <div className="grid grid-cols-2 gap-md max-w-md">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-md max-w-md">
             <button
               onClick={() => { setDirection('ingreso'); setSourceId(''); setSupplierId(''); }}
               className={`px-md py-sm rounded-lg border font-label-md text-label-md uppercase tracking-wider cursor-pointer transition-colors ${
@@ -371,7 +371,7 @@ export const RegistrarFacturaView: React.FC<RegistrarFacturaViewProps> = ({
 
               {/* Items */}
               <section className="bg-surface-container-lowest rounded-xl shadow-sm border border-outline-variant/20 overflow-hidden">
-                <div className="p-lg border-b border-outline-variant/20 bg-surface-container/30 flex items-center justify-between gap-md">
+                <div className="p-lg border-b border-outline-variant/20 bg-surface-container/30 flex items-center justify-between gap-md flex-wrap">
                   <h2 className="font-headline-md text-headline-md flex items-center gap-sm text-primary">
                     <span className="material-symbols-outlined">rule</span>
                     Ítems de la Factura
@@ -411,7 +411,7 @@ export const RegistrarFacturaView: React.FC<RegistrarFacturaViewProps> = ({
                     <tbody className="font-body-md divide-y divide-outline-variant/10">
                       {lines.map((line, idx) => (
                         <tr key={`${line.productId}-${idx}`} className="hover:bg-surface-container/20">
-                          <td className="py-md px-md font-medium">{line.sku ? `${line.sku} — ` : ''}{line.name}</td>
+                          <td className="py-md px-md font-medium"><span className="truncate max-w-[220px]">{line.sku ? `${line.sku} — ` : ''}{line.name}</span></td>
                           <td className="py-md px-md text-right">
                             <input
                               type="number"
@@ -440,7 +440,7 @@ export const RegistrarFacturaView: React.FC<RegistrarFacturaViewProps> = ({
                           <td className="py-md px-md text-right">
                             <button
                               onClick={() => setLines((prev) => prev.filter((_, i) => i !== idx))}
-                              className="text-error/70 hover:text-error transition-colors cursor-pointer"
+                              className="text-error/70 hover:text-error transition-colors cursor-pointer tap-target"
                             >
                               <span className="material-symbols-outlined text-[18px]">delete</span>
                             </button>

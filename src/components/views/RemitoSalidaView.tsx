@@ -97,7 +97,7 @@ export const RemitoSalidaView: React.FC<RemitoSalidaViewProps> = ({
 
   return (
     <div className="flex flex-col w-full h-full p-lg gap-lg font-body-md text-on-surface">
-      <header className="flex items-center justify-between pb-sm border-b border-outline-variant/30">
+      <header className="flex items-center justify-between pb-sm border-b border-outline-variant/30 flex-wrap gap-sm">
         <div>
           <nav className="flex items-center gap-2 text-label-md text-on-surface-variant mb-xs">
             <button onClick={() => onNavigate('ventas')} className="hover:text-primary transition-colors cursor-pointer">
@@ -108,7 +108,7 @@ export const RemitoSalidaView: React.FC<RemitoSalidaViewProps> = ({
           </nav>
           <h1 className="font-display-lg text-display-lg text-on-surface tracking-tight">Despachar Mercadería (Remito de Entrega)</h1>
         </div>
-        <div className="flex gap-sm">
+        <div className="flex gap-sm flex-wrap">
           <button
             onClick={() => onNavigate('ventas')}
             className="px-md py-sm rounded-lg border border-outline-variant text-on-surface font-label-md text-label-md uppercase tracking-wider hover:bg-surface-container transition-colors cursor-pointer"
@@ -207,7 +207,7 @@ export const RemitoSalidaView: React.FC<RemitoSalidaViewProps> = ({
                     <tbody className="font-body-md divide-y divide-outline-variant/10">
                       {lines.map((line) => (
                         <tr key={line.key} className="hover:bg-surface-container/20">
-                          <td className="py-md px-md font-medium">{line.name}</td>
+                          <td className="py-md px-md font-medium"><span className="truncate max-w-[220px]">{line.name}</span></td>
                           <td className="py-md px-md text-right font-mono-sm">{line.maxQuantity} u.</td>
                           <td className="py-md px-md text-right">
                             <input

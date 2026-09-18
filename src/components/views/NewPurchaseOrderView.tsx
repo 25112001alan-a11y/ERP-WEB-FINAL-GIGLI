@@ -99,12 +99,12 @@ export const NewPurchaseOrderView: React.FC<NewPurchaseOrderViewProps> = ({
 
   return (
     <div className="flex flex-col w-full h-full p-lg gap-lg font-body-md text-on-surface">
-      <header className="flex items-center justify-between pb-sm border-b border-outline-variant/30">
+      <header className="flex items-center justify-between pb-sm border-b border-outline-variant/30 flex-wrap gap-sm">
         <div>
           <h1 className="font-display-lg text-display-lg text-on-surface tracking-tight">Nueva Orden de Compra</h1>
           <p className="font-body-lg text-body-lg text-on-surface-variant mt-sm">Módulo de Compras / Creación de PO</p>
         </div>
-        <div className="flex gap-sm">
+        <div className="flex gap-sm flex-wrap">
           <button
             onClick={() => onNavigate('compras')}
             className="px-md py-sm rounded-lg border border-outline-variant text-on-surface font-label-md text-label-md uppercase tracking-wider hover:bg-surface-container transition-colors cursor-pointer"
@@ -180,7 +180,7 @@ export const NewPurchaseOrderView: React.FC<NewPurchaseOrderViewProps> = ({
 
               {/* Product Lines */}
               <section className="bg-surface-container-lowest rounded-xl shadow-sm border border-outline-variant/20 overflow-hidden">
-                <div className="p-lg border-b border-outline-variant/20 flex items-center justify-between bg-surface-container/30">
+                <div className="p-lg border-b border-outline-variant/20 flex items-center justify-between bg-surface-container/30 flex-wrap gap-md">
                   <h2 className="font-headline-md text-headline-md flex items-center gap-sm text-primary">
                     <span className="material-symbols-outlined">inventory_2</span>
                     Líneas de Productos
@@ -260,7 +260,7 @@ export const NewPurchaseOrderView: React.FC<NewPurchaseOrderViewProps> = ({
                               <button
                                 type="button"
                                 onClick={() => removeLine(line.id)}
-                                className="text-outline-variant hover:text-error transition-colors p-xs rounded cursor-pointer"
+                                className="text-outline-variant hover:text-error transition-colors p-xs rounded cursor-pointer tap-target"
                               >
                                 <span className="material-symbols-outlined text-[18px]">delete</span>
                               </button>
