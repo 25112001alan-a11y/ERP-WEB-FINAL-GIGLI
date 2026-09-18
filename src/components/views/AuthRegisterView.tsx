@@ -9,10 +9,10 @@ interface AuthRegisterViewProps {
 
 export const AuthRegisterView: React.FC<AuthRegisterViewProps> = ({ onNavigate, onRegisterSuccess }) => {
   const { register, loading } = useAuth();
-  const [companyName, setCompanyName] = useState('Mi Empresa SaaS');
-  const [adminName, setAdminName] = useState('Juan Admin');
-  const [email, setEmail] = useState('juan@miempresa.com');
-  const [password, setPassword] = useState('Secret123!');
+  const [companyName, setCompanyName] = useState('');
+  const [adminName, setAdminName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {

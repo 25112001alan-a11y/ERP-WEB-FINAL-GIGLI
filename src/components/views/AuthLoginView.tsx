@@ -9,9 +9,8 @@ interface AuthLoginViewProps {
 
 export const AuthLoginView: React.FC<AuthLoginViewProps> = ({ onNavigate, onLoginSuccess }) => {
   const { login, loading } = useAuth();
-  const [email, setEmail] = useState('ana.silva@empresa.com');
-  const [password, setPassword] = useState('password123');
-  const [rememberMe, setRememberMe] = useState(true);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -56,12 +55,7 @@ export const AuthLoginView: React.FC<AuthLoginViewProps> = ({ onNavigate, onLogi
           </div>
 
           <div className="flex flex-col gap-xs">
-            <div className="flex justify-between items-center">
-              <label className="font-label-md text-label-md uppercase text-on-surface-variant">Contraseña</label>
-              <a href="#forgot" onClick={(e) => { e.preventDefault(); alert('Instrucciones enviadas a tu correo'); }} className="text-xs text-primary hover:underline">
-                ¿Olvidaste tu contraseña?
-              </a>
-            </div>
+            <label className="font-label-md text-label-md uppercase text-on-surface-variant">Contraseña</label>
             <input
               type="password"
               required
@@ -70,18 +64,6 @@ export const AuthLoginView: React.FC<AuthLoginViewProps> = ({ onNavigate, onLogi
               placeholder="••••••••••••"
               className="bg-surface border border-outline-variant/50 rounded-lg p-sm outline-none focus:border-primary font-mono-sm"
             />
-          </div>
-
-          <div className="flex items-center justify-between">
-            <label className="flex items-center gap-xs text-xs text-on-surface-variant cursor-pointer">
-              <input
-                type="checkbox"
-                checked={rememberMe}
-                onChange={(e) => setRememberMe(e.target.checked)}
-                className="accent-primary"
-              />
-              Recordar este dispositivo
-            </label>
           </div>
 
           {error && (
@@ -99,28 +81,8 @@ export const AuthLoginView: React.FC<AuthLoginViewProps> = ({ onNavigate, onLogi
           </button>
         </form>
 
-        {/* Demo shortcuts */}
-        <div className="border-t border-outline-variant/20 pt-md text-center flex flex-col gap-xs">
-          <p className="font-label-md text-xs text-on-surface-variant uppercase tracking-wider">Demostración Rápida</p>
-          <div className="flex gap-xs justify-center flex-wrap">
-            <button
-              type="button"
-              onClick={() => { setEmail('ana.silva@empresa.com'); }}
-              className="px-xs py-0.5 rounded bg-surface-container-high text-xs text-on-surface hover:bg-primary-container"
-            >
-              Ana (Admin)
-            </button>
-            <button
-              type="button"
-              onClick={() => { setEmail('c.perez@empresa.com'); }}
-              className="px-xs py-0.5 rounded bg-surface-container-high text-xs text-on-surface hover:bg-primary-container"
-            >
-              Carlos (Ventas)
-            </button>
-          </div>
-        </div>
-
         <div className="text-center text-xs text-on-surface-variant">
+          ¿No tenés una cuenta?{' '}
           ¿No tenés una cuenta?{' '}
           <button onClick={() => onNavigate('auth-register')} className="text-primary font-semibold hover:underline cursor-pointer">
             Registrar nueva empresa
