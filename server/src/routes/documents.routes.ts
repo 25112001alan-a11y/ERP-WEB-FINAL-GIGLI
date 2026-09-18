@@ -4,7 +4,6 @@ import multer from 'multer';
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { fileURLToPath } from 'node:url';
 import { DocumentType } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import {
@@ -21,14 +20,14 @@ const router = Router();
 
 router.use(requireAuth);
 
-// Supplier voucher attachments live in server/uploads. They are NOT exposed as a
-// static directory: the only way to read them is
-// GET /api/documents/:id/external/attachment, which authenticates and scopes the
-// request to the tenant. attachmentUrl stores an opaque storage key
-// (`/uploads/<generated-name>`), not a public URL. Move to object storage later
-// without changing the API surface.
-const uploadsDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../uploads');
-fs.mkdirSync(uploadsDir, { recursive: true });
+// Supplier voucher attachments live in UPLOADS_DIR (server/uploads by default,
+// a persistent volume in production). They are NOT exposed as a static
+// directory: the only way to read them is
+// GET /api/documents/:id/external/attachment, which authenticates and scopes
+// the request to the tenant. attachmentUrl stores an opaque storage key
+// (`/uploads/<generated-name>`), not a public URL. Swap to S3/R2 later without
+// changing the API surface.
+import { uploadsDir } from '../lib/uploads.js';
 
 const ALLOWED_EXT = new Set(['.pdf', '.jpg', '.jpeg', '.png', '.webp']);
 

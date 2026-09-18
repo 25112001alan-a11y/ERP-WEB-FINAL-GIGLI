@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { runMigrations, ensureSeeded, runDemoSeed } from './bootstrap.js';
+import { sweepOrphanAttachments } from './lib/uploads.js';
 import { app } from './app.js';
 
 const PORT = Number(process.env.PORT) || 3001;
@@ -7,6 +8,7 @@ const PORT = Number(process.env.PORT) || 3001;
 async function start() {
   runMigrations();
   await ensureSeeded();
+  await sweepOrphanAttachments();
   runDemoSeed();
   app.listen(PORT, () => {
     console.log(`nexus-erp-api listening on http://localhost:${PORT}`);
