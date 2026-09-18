@@ -21,7 +21,8 @@ export type ViewPath =
   | 'nuevo-usuario'
   | 'log-auditoria'
   | 'auth-login'
-  | 'auth-register';
+  | 'auth-register'
+  | 'pricing';
 
 export interface Product {
   id: string;

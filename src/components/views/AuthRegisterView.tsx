@@ -108,10 +108,15 @@ export const AuthRegisterView: React.FC<AuthRegisterViewProps> = ({ onNavigate, 
           </button>
         </form>
 
-        <div className="text-center text-xs text-on-surface-variant">
-          ¿Ya tenés una cuenta?{' '}
-          <button onClick={() => onNavigate('auth-login')} className="text-primary font-semibold hover:underline cursor-pointer">
-            Iniciar sesión
+        <div className="text-center text-xs text-on-surface-variant space-y-xs">
+          <p>
+            ¿Ya tenés una cuenta?{' '}
+            <button onClick={() => onNavigate('auth-login')} className="text-primary font-semibold hover:underline cursor-pointer">
+              Iniciar sesión
+            </button>
+          </p>
+          <button onClick={() => onNavigate('pricing')} className="text-primary/70 hover:text-primary hover:underline cursor-pointer">
+            Ver planes y precios
           </button>
         </div>
       </div>

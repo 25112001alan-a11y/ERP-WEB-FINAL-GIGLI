@@ -81,11 +81,15 @@ export const AuthLoginView: React.FC<AuthLoginViewProps> = ({ onNavigate, onLogi
           </button>
         </form>
 
-        <div className="text-center text-xs text-on-surface-variant">
-          ¿No tenés una cuenta?{' '}
-          ¿No tenés una cuenta?{' '}
-          <button onClick={() => onNavigate('auth-register')} className="text-primary font-semibold hover:underline cursor-pointer">
-            Registrar nueva empresa
+        <div className="text-center text-xs text-on-surface-variant space-y-xs">
+          <p>
+            ¿No tenés una cuenta?{' '}
+            <button onClick={() => onNavigate('auth-register')} className="text-primary font-semibold hover:underline cursor-pointer">
+              Registrar nueva empresa
+            </button>
+          </p>
+          <button onClick={() => onNavigate('pricing')} className="text-primary/70 hover:text-primary hover:underline cursor-pointer">
+            Ver planes y precios
           </button>
         </div>
       </div>

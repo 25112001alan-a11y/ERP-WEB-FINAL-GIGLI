@@ -22,6 +22,7 @@ import { SalesView } from './components/views/SalesView';
 import { PublicOrdersView } from './components/views/PublicOrdersView';
 import { NewManualOrderView } from './components/views/NewManualOrderView';
 import { PublicClientStoreView } from './components/views/PublicClientStoreView';
+import { PricingView } from './components/views/PricingView';
 import { PurchasesView } from './components/views/PurchasesView';
 import { NewPurchaseOrderView } from './components/views/NewPurchaseOrderView';
 import { GoodsReceiptView } from './components/views/GoodsReceiptView';
@@ -629,7 +630,7 @@ export default function App() {
   };
 
   // Views that don't display the admin shell (Sidebar + Header)
-  const isPublicOrAuth = ['portal-clientes', 'auth-login', 'auth-register'].includes(currentView);
+  const isPublicOrAuth = ['portal-clientes', 'auth-login', 'auth-register', 'pricing'].includes(currentView);
 
   // Session restore in flight: render nothing that depends on the session yet.
   if (loading) {
@@ -657,6 +658,7 @@ export default function App() {
           {currentView === 'auth-register' && (
             <AuthRegisterView onNavigate={setCurrentView} onRegisterSuccess={() => setCurrentView('dashboard')} />
           )}
+          {currentView === 'pricing' && <PricingView onNavigate={setCurrentView} />}
         </div>
       </div>
     );
