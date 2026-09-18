@@ -61,7 +61,10 @@ export const PosView: React.FC<PosViewProps> = ({ products, onCompleteSale, onNa
   const clearCart = () => setCart([]);
 
   const subtotal = cart.reduce((acc, item) => acc + item.product.price * item.quantity, 0);
-  const tax = subtotal * 0.12;
+  const tax = cart.reduce(
+    (acc, item) => acc + item.product.price * item.quantity * (item.product.taxRate / 100),
+    0,
+  );
   const total = subtotal + tax;
 
   const handleCheckout = async (method: string) => {
@@ -254,7 +257,7 @@ export const PosView: React.FC<PosViewProps> = ({ products, onCompleteSale, onNa
                 <span className="font-mono-sm text-mono-sm">-$0.00</span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="font-body-md text-body-md text-on-surface-variant">IVA (12%)</span>
+                <span className="font-body-md text-body-md text-on-surface-variant">Impuestos (IVA)</span>
                 <span className="font-mono-sm text-mono-sm text-on-surface">${tax.toFixed(2)}</span>
               </div>
             </div>

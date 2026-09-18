@@ -40,7 +40,7 @@ import { AuthRegisterView } from './components/views/AuthRegisterView';
 // Mappers live in src/lib/mappers.ts (unit-tested). Imported above.
 
 export default function App() {
-  const { user, logout } = useAuth();
+  const { user, logout, loading } = useAuth();
   const [currentView, setCurrentView] = useState<ViewPath>(user ? 'dashboard' : 'auth-login');
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -600,6 +600,19 @@ export default function App() {
   // Views that don't display the admin shell (Sidebar + Header)
   const isPublicOrAuth = ['portal-clientes', 'auth-login', 'auth-register'].includes(currentView);
 
+  // Session restore in flight: render nothing that depends on the session yet.
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-surface font-sans text-on-surface flex items-center justify-center">
+        <div
+          className="animate-spin rounded-full w-10 h-10 border-4 border-primary border-t-transparent"
+          role="status"
+          aria-label="Cargando"
+        />
+      </div>
+    );
+  }
+
   if (isPublicOrAuth) {
     return (
       <div className="min-h-screen bg-surface font-sans text-on-surface flex flex-col">
@@ -660,7 +673,7 @@ export default function App() {
             {currentView === 'pedidos-publicos' && (
               <PublicOrdersView orders={publicOrders} onNavigate={setCurrentView} />
             )}
-            {currentView === 'nuevo-pedido-manual' && <NewManualOrderView onNavigate={setCurrentView} />}
+            {currentView === 'nuevo-pedido-manual' && <NewManualOrderView products={products} onNavigate={setCurrentView} />}
             {currentView === 'compras' && (
               <PurchasesView orders={purchaseOrders} suppliers={suppliers} onNavigate={setCurrentView} />
             )}

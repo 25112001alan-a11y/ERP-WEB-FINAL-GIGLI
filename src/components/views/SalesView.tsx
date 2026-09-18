@@ -261,16 +261,10 @@ export const SalesView: React.FC<SalesViewProps> = ({ sales, onNavigate }) => {
                 <span className="material-symbols-outlined text-[18px]">local_shipping</span>
                 Registrar Remito de Salida
               </button>
-              <div className="flex gap-sm">
-                <button onClick={() => window.print()} className="flex-1 py-2 bg-transparent text-on-surface border border-outline-variant rounded font-label-md text-label-md flex items-center justify-center gap-xs hover:bg-surface-variant transition-colors cursor-pointer">
-                  <span className="material-symbols-outlined text-[16px]">print</span>
-                  Imprimir
-                </button>
-                <button onClick={() => alert('Venta anulada')} className="flex-1 py-2 bg-transparent text-error border border-error/50 rounded font-label-md text-label-md flex items-center justify-center gap-xs hover:bg-error-container transition-colors cursor-pointer">
-                  <span className="material-symbols-outlined text-[16px]">cancel</span>
-                  Anular
-                </button>
-              </div>
+              <button onClick={() => window.print()} className="w-full py-2 bg-transparent text-on-surface border border-outline-variant rounded font-label-md text-label-md flex items-center justify-center gap-xs hover:bg-surface-variant transition-colors cursor-pointer">
+                <span className="material-symbols-outlined text-[16px]">print</span>
+                Imprimir
+              </button>
             </div>
           </div>
         )}
