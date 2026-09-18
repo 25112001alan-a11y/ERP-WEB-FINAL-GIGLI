@@ -106,6 +106,13 @@ test('GET /api/public/store/:slug/orders?email=unknown -> 200 empty list', async
   assert.equal(body.length, 0);
 });
 
+test('CORS: allowed origin echoes the origin header', async () => {
+  const res = await fetch(`${base}/api/health`, {
+    headers: { origin: 'http://localhost:3000' },
+  });
+  assert.equal(res.headers.get('access-control-allow-origin'), 'http://localhost:3000');
+});
+
 test('CORS: disallowed origin gets no access-control header', async () => {
   const res = await fetch(`${base}/api/health`, {
     headers: { origin: 'https://evil.example.com' },
