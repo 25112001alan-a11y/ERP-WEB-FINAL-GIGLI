@@ -36,6 +36,7 @@ export const PublicClientStoreView: React.FC<PublicClientStoreViewProps> = ({ sl
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [confirmedOrder, setConfirmedOrder] = useState<string | null>(null);
+  const [cartOpen, setCartOpen] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -50,6 +51,14 @@ export const PublicClientStoreView: React.FC<PublicClientStoreViewProps> = ({ sl
       .catch(() => setProducts([]))
       .finally(() => setLoading(false));
   }, [slug]);
+
+  // Bloquear el scroll de fondo mientras el carrito mobile está abierto.
+  useEffect(() => {
+    document.body.style.overflow = cartOpen ? 'hidden' : '';
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [cartOpen]);
 
   const categories = ['Todos', ...Array.from(new Set(products.map((p) => p.category)))];
 
@@ -102,6 +111,7 @@ export const PublicClientStoreView: React.FC<PublicClientStoreViewProps> = ({ sl
       );
       setConfirmedOrder(order.number);
       setCart([]);
+      setCartOpen(false);
       setTimeout(() => {
         setConfirmedOrder(null);
         onNavigate('pedidos-publicos');
@@ -113,20 +123,153 @@ export const PublicClientStoreView: React.FC<PublicClientStoreViewProps> = ({ sl
     }
   };
 
+  // Panel de carrito/checkout — compartido entre desktop (sticky) y mobile (overlay).
+  const cartPanel = (
+    <div className="bg-surface-container-lowest rounded-xl shadow-md overflow-hidden flex flex-col border border-outline-variant/20">
+      <div className="bg-primary text-on-primary p-md flex items-center justify-between">
+        <h2 className="font-headline-md text-headline-md flex items-center gap-sm">
+          <span className="material-symbols-outlined">shopping_cart</span>
+          Tu Pedido
+        </h2>
+        <span className="bg-on-primary text-primary font-label-md text-label-md px-sm py-base rounded-full">
+          {cart.length} items
+        </span>
+      </div>
+
+      {confirmedOrder ? (
+        <div className="p-lg text-center flex flex-col items-center justify-center py-10 gap-sm">
+          <span className="material-symbols-outlined text-[48px] text-on-tertiary-container">check_circle</span>
+          <h3 className="font-headline-md text-on-surface">¡Pedido {confirmedOrder} Recibido!</h3>
+          <p className="font-body-md text-on-surface-variant text-xs">Su orden fue registrada en el sistema ERP y ya está visible para administración.</p>
+        </div>
+      ) : (
+        <form onSubmit={handleConfirmOrder} className="p-md flex flex-col gap-md">
+          {/* Cart Item list */}
+          <div className="flex flex-col gap-sm max-h-48 overflow-y-auto">
+            {cart.length === 0 ? (
+              <p className="text-center py-4 font-body-md text-on-surface-variant text-xs">El carrito está vacío</p>
+            ) : (
+              cart.map((item) => (
+                <div key={item.product.id} className="flex gap-sm items-center p-sm rounded-lg hover:bg-surface-container-low transition-colors">
+                  <div className="w-10 h-10 bg-surface-container-high rounded shrink-0 overflow-hidden flex items-center justify-center">
+                    <span className="material-symbols-outlined text-outline text-[18px]">inventory_2</span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-body-md text-body-md text-on-surface truncate font-semibold">{item.product.name}</p>
+                    <p className="font-body-md text-body-md text-on-surface-variant text-[12px]">{item.quantity} x ${item.product.price.toFixed(2)}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => removeFromCart(item.product.id)}
+                    className="text-error opacity-70 hover:opacity-100 p-xs cursor-pointer tap-target"
+                  >
+                    <span className="material-symbols-outlined text-[18px]">delete</span>
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+
+          <div className="w-full h-[1px] bg-outline-variant/30"></div>
+
+          {/* Totals */}
+          <div className="flex flex-col gap-xs font-body-md text-body-md text-on-surface-variant">
+            <div className="flex justify-between">
+              <span>Subtotal</span>
+              <span>${subtotal.toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Impuestos</span>
+              <span>${tax.toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between font-headline-lg text-headline-lg text-on-surface mt-sm pt-sm border-t border-outline-variant/30">
+              <span>Total</span>
+              <span>${total.toFixed(2)}</span>
+            </div>
+          </div>
+
+          {/* Contact Form */}
+          <div className="flex flex-col gap-sm pt-sm border-t border-outline-variant/20">
+            <h4 className="font-label-md text-on-surface uppercase">Datos de Contacto</h4>
+            <input
+              type="text"
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              placeholder="Nombre Completo"
+              className="bg-surface-container-low border border-outline-variant/50 rounded-lg p-sm font-body-md text-body-md text-on-surface outline-none"
+              required
+            />
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="Email (opcional, para seguimiento)"
+              className="bg-surface-container-low border border-outline-variant/50 rounded-lg p-sm font-body-md text-body-md text-on-surface outline-none"
+            />
+            <input
+              type="tel"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              placeholder="Teléfono / WhatsApp"
+              className="bg-surface-container-low border border-outline-variant/50 rounded-lg p-sm font-body-md text-body-md text-on-surface outline-none"
+            />
+
+            <label className="font-label-md text-on-surface uppercase mt-xs">Método de Entrega</label>
+            <label className="flex items-center gap-sm p-sm rounded-lg border border-outline-variant/50 cursor-pointer hover:bg-surface-container-low">
+              <input
+                type="radio"
+                name="del"
+                checked={deliveryMethod === 'delivery'}
+                onChange={() => setDeliveryMethod('delivery')}
+                className="accent-secondary"
+              />
+              <span className="font-body-md text-xs">Envío a Domicilio</span>
+            </label>
+            <label className="flex items-center gap-sm p-sm rounded-lg border border-outline-variant/50 cursor-pointer hover:bg-surface-container-low">
+              <input
+                type="radio"
+                name="del"
+                checked={deliveryMethod === 'pickup'}
+                onChange={() => setDeliveryMethod('pickup')}
+                className="accent-secondary"
+              />
+              <span className="font-body-md text-xs">Retiro en Sucursal Central</span>
+            </label>
+          </div>
+
+          {error && (
+            <div className="p-sm bg-error-container/20 text-on-error-container rounded-lg font-label-md text-sm flex items-center gap-xs">
+              <span className="material-symbols-outlined text-[18px]">error</span> {error}
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={submitting || cart.length === 0}
+            className="w-full bg-primary text-on-primary font-label-md text-label-md py-md rounded-lg shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-sm cursor-pointer mt-xs disabled:opacity-50"
+          >
+            {submitting ? 'Registrando...' : 'Confirmar Pedido'}
+            <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
+          </button>
+        </form>
+      )}
+    </div>
+  );
+
   return (
-    <div className="flex flex-col w-full min-h-screen bg-surface -m-lg">
+    <div className="flex flex-col w-full min-h-screen bg-surface">
       {/* Client Header */}
-      <header className="fixed top-0 left-0 right-0 h-16 bg-surface-container-lowest/90 backdrop-blur-md z-50 flex items-center justify-between px-lg border-b border-outline-variant/30">
-        <div className="flex items-center gap-md">
-          <div className="w-8 h-8 bg-primary rounded flex items-center justify-center text-on-primary font-bold text-headline-md">N</div>
-          <span className="font-headline-md text-headline-md text-on-surface">{companyName} • Nexus Storefront</span>
+      <header className="fixed top-0 left-0 right-0 h-16 bg-surface-container-lowest/90 backdrop-blur-md z-50 flex items-center justify-between gap-md px-lg border-b border-outline-variant/30">
+        <div className="flex items-center gap-md min-w-0">
+          <div className="w-8 h-8 bg-primary rounded flex items-center justify-center text-on-primary font-bold text-headline-md shrink-0">N</div>
+          <span className="font-headline-md text-headline-md text-on-surface truncate">{companyName}<span className="hidden sm:inline"> • Nexus Storefront</span></span>
         </div>
         <button
           onClick={() => onNavigate('pedidos-publicos')}
-          className="flex items-center gap-xs px-md py-sm bg-primary text-on-primary rounded-lg font-label-md text-label-md hover:bg-primary-container transition-colors cursor-pointer"
+          className="flex items-center gap-xs px-sm sm:px-md py-sm bg-primary text-on-primary rounded-lg font-label-md text-label-md hover:bg-primary-container transition-colors cursor-pointer shrink-0"
         >
           <span className="material-symbols-outlined text-[18px]">admin_panel_settings</span>
-          Volver a Administración ERP
+          <span className="hidden sm:inline">Volver a Administración ERP</span>
         </button>
       </header>
 
@@ -186,8 +329,8 @@ export const PublicClientStoreView: React.FC<PublicClientStoreViewProps> = ({ sl
                     </div>
                     <div className="p-md flex flex-col flex-1 gap-sm">
                       <div className="flex justify-between items-start gap-sm">
-                        <h3 className="font-headline-md text-headline-md text-on-surface line-clamp-2">{prod.name}</h3>
-                        <span className="font-headline-md text-headline-md text-primary">${prod.price.toFixed(2)}</span>
+                        <h3 className="font-headline-md text-headline-md text-on-surface line-clamp-2 min-w-0">{prod.name}</h3>
+                        <span className="font-headline-md text-headline-md text-primary shrink-0">${prod.price.toFixed(2)}</span>
                       </div>
                       <p className="font-body-md text-body-md text-on-surface-variant line-clamp-2 flex-1">{prod.description || 'Producto de excelente calidad garantizada.'}</p>
                       <button
@@ -205,140 +348,44 @@ export const PublicClientStoreView: React.FC<PublicClientStoreViewProps> = ({ sl
             )}
           </div>
 
-          {/* Floating Cart & Checkout Panel */}
-          <div className="w-full lg:w-96 flex-shrink-0 flex flex-col gap-lg sticky top-20">
-            <div className="bg-surface-container-lowest rounded-xl shadow-md overflow-hidden flex flex-col border border-outline-variant/20">
-              <div className="bg-primary text-on-primary p-md flex items-center justify-between">
-                <h2 className="font-headline-md text-headline-md flex items-center gap-sm">
-                  <span className="material-symbols-outlined">shopping_cart</span>
-                  Tu Pedido
-                </h2>
-                <span className="bg-on-primary text-primary font-label-md text-label-md px-sm py-base rounded-full">
-                  {cart.length} items
-                </span>
-              </div>
-
-              {confirmedOrder ? (
-                <div className="p-lg text-center flex flex-col items-center justify-center py-10 gap-sm">
-                  <span className="material-symbols-outlined text-[48px] text-on-tertiary-container">check_circle</span>
-                  <h3 className="font-headline-md text-on-surface">¡Pedido {confirmedOrder} Recibido!</h3>
-                  <p className="font-body-md text-on-surface-variant text-xs">Su orden fue registrada en el sistema ERP y ya está visible para administración.</p>
-                </div>
-              ) : (
-                <form onSubmit={handleConfirmOrder} className="p-md flex flex-col gap-md">
-                  {/* Cart Item list */}
-                  <div className="flex flex-col gap-sm max-h-48 overflow-y-auto">
-                    {cart.length === 0 ? (
-                      <p className="text-center py-4 font-body-md text-on-surface-variant text-xs">El carrito está vacío</p>
-                    ) : (
-                      cart.map((item) => (
-                        <div key={item.product.id} className="flex gap-sm items-center p-sm rounded-lg hover:bg-surface-container-low transition-colors">
-                          <div className="w-10 h-10 bg-surface-container-high rounded shrink-0 overflow-hidden flex items-center justify-center">
-                            <span className="material-symbols-outlined text-outline text-[18px]">inventory_2</span>
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="font-body-md text-body-md text-on-surface truncate font-semibold">{item.product.name}</p>
-                            <p className="font-body-md text-body-md text-on-surface-variant text-[12px]">{item.quantity} x ${item.product.price.toFixed(2)}</p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => removeFromCart(item.product.id)}
-                            className="text-error opacity-70 hover:opacity-100 p-xs cursor-pointer"
-                          >
-                            <span className="material-symbols-outlined text-[18px]">delete</span>
-                          </button>
-                        </div>
-                      ))
-                    )}
-                  </div>
-
-                  <div className="w-full h-[1px] bg-outline-variant/30"></div>
-
-                  {/* Totals */}
-                  <div className="flex flex-col gap-xs font-body-md text-body-md text-on-surface-variant">
-                    <div className="flex justify-between">
-                      <span>Subtotal</span>
-                      <span>${subtotal.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Impuestos</span>
-                      <span>${tax.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between font-headline-lg text-headline-lg text-on-surface mt-sm pt-sm border-t border-outline-variant/30">
-                      <span>Total</span>
-                      <span>${total.toFixed(2)}</span>
-                    </div>
-                  </div>
-
-                  {/* Contact Form */}
-                  <div className="flex flex-col gap-sm pt-sm border-t border-outline-variant/20">
-                    <h4 className="font-label-md text-on-surface uppercase">Datos de Contacto</h4>
-                    <input
-                      type="text"
-                      value={fullName}
-                      onChange={(e) => setFullName(e.target.value)}
-                      placeholder="Nombre Completo"
-                      className="bg-surface-container-low border border-outline-variant/50 rounded-lg p-sm font-body-md text-body-md text-on-surface outline-none"
-                      required
-                    />
-                    <input
-                      type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="Email (opcional, para seguimiento)"
-                      className="bg-surface-container-low border border-outline-variant/50 rounded-lg p-sm font-body-md text-body-md text-on-surface outline-none"
-                    />
-                    <input
-                      type="tel"
-                      value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
-                      placeholder="Teléfono / WhatsApp"
-                      className="bg-surface-container-low border border-outline-variant/50 rounded-lg p-sm font-body-md text-body-md text-on-surface outline-none"
-                    />
-
-                    <label className="font-label-md text-on-surface uppercase mt-xs">Método de Entrega</label>
-                    <label className="flex items-center gap-sm p-sm rounded-lg border border-outline-variant/50 cursor-pointer hover:bg-surface-container-low">
-                      <input
-                        type="radio"
-                        name="del"
-                        checked={deliveryMethod === 'delivery'}
-                        onChange={() => setDeliveryMethod('delivery')}
-                        className="accent-secondary"
-                      />
-                      <span className="font-body-md text-xs">Envío a Domicilio</span>
-                    </label>
-                    <label className="flex items-center gap-sm p-sm rounded-lg border border-outline-variant/50 cursor-pointer hover:bg-surface-container-low">
-                      <input
-                        type="radio"
-                        name="del"
-                        checked={deliveryMethod === 'pickup'}
-                        onChange={() => setDeliveryMethod('pickup')}
-                        className="accent-secondary"
-                      />
-                      <span className="font-body-md text-xs">Retiro en Sucursal Central</span>
-                    </label>
-                  </div>
-
-                  {error && (
-                    <div className="p-sm bg-error-container/20 text-on-error-container rounded-lg font-label-md text-sm flex items-center gap-xs">
-                      <span className="material-symbols-outlined text-[18px]">error</span> {error}
-                    </div>
-                  )}
-
-                  <button
-                    type="submit"
-                    disabled={submitting || cart.length === 0}
-                    className="w-full bg-primary text-on-primary font-label-md text-label-md py-md rounded-lg shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-sm cursor-pointer mt-xs disabled:opacity-50"
-                  >
-                    {submitting ? 'Registrando...' : 'Confirmar Pedido'}
-                    <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
-                  </button>
-                </form>
-              )}
-            </div>
+          {/* Cart Panel — Desktop: sticky a la derecha */}
+          <div className="hidden lg:flex w-96 flex-shrink-0 flex-col gap-lg sticky top-20">
+            {cartPanel}
           </div>
         </div>
       </main>
+
+      {/* Modal Mobile: barra flotante + overlay de carrito */}
+      {cart.length > 0 && !confirmedOrder && (
+        <button
+          onClick={() => setCartOpen(true)}
+          className="lg:hidden fixed bottom-0 inset-x-0 z-40 bg-primary text-on-primary px-lg py-md font-label-md text-label-md flex items-center justify-between shadow-[0_-4px_15px_rgba(0,0,0,0.15)] cursor-pointer"
+        >
+          <span className="flex items-center gap-sm">
+            <span className="material-symbols-outlined text-[20px]">shopping_cart</span>
+            Ver pedido ({cart.length})
+          </span>
+          <span className="font-headline-md text-headline-md">${total.toFixed(2)}</span>
+        </button>
+      )}
+
+      {cartOpen && (
+        <div className="lg:hidden fixed inset-0 z-50 flex flex-col bg-surface" role="dialog" aria-modal="true" aria-label="Tu Pedido">
+          <div className="flex items-center justify-between px-lg py-md bg-primary text-on-primary shrink-0">
+            <h2 className="font-headline-md text-headline-md">Tu Pedido</h2>
+            <button
+              onClick={() => setCartOpen(false)}
+              className="p-sm hover:bg-on-primary/10 rounded-lg transition-colors cursor-pointer tap-target"
+              aria-label="Cerrar pedido"
+            >
+              <span className="material-symbols-outlined text-[20px]">close</span>
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto p-md bg-surface-container-low">
+            {cartPanel}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

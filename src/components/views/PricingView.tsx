@@ -29,21 +29,21 @@ export const PricingView: React.FC<PricingViewProps> = ({ onNavigate }) => {
   }, []);
 
   return (
-    <div className="min-h-screen w-full bg-surface relative overflow-hidden -m-lg">
+    <div className="min-h-screen w-full bg-surface relative overflow-x-clip overflow-y-auto">
       {/* Decorative gradient blurs */}
       <div className="absolute top-0 left-1/4 w-96 h-96 bg-primary/10 rounded-full blur-3xl pointer-events-none"></div>
       <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-secondary/10 rounded-full blur-3xl pointer-events-none"></div>
 
       <div className="relative z-10 max-w-[1080px] mx-auto px-lg py-xl flex flex-col gap-xl">
         {/* Header nav */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-md flex-wrap">
           <div className="flex items-center gap-sm">
             <div className="w-9 h-9 rounded-lg bg-primary flex items-center justify-center text-on-primary font-bold text-headline-md shadow-md">
               N
             </div>
             <span className="font-display-md text-headline-md text-on-surface">Nexus ERP</span>
           </div>
-          <div className="flex items-center gap-sm">
+          <div className="flex items-center gap-sm flex-wrap">
             <button
               onClick={() => onNavigate('auth-login')}
               className="px-md py-xs rounded-lg font-label-md text-label-md text-on-surface hover:bg-surface-container-high transition-colors cursor-pointer"

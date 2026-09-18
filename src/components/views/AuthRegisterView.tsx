@@ -34,8 +34,8 @@ export const AuthRegisterView: React.FC<AuthRegisterViewProps> = ({ onNavigate, 
   };
 
   return (
-    <div className="min-h-screen w-full bg-surface flex items-center justify-center p-md relative overflow-hidden -m-lg">
-      <div className="bg-surface-container-lowest rounded-2xl shadow-2xl border border-outline-variant/30 w-full max-w-[min(520px,90vw)] p-xl relative z-10 flex flex-col gap-lg">
+    <div className="min-h-screen w-full bg-surface flex relative overflow-x-clip overflow-y-auto p-md md:p-xl">
+      <div className="m-auto bg-surface-container-lowest rounded-2xl shadow-2xl border border-outline-variant/30 w-full max-w-[min(520px,90vw)] p-xl relative z-10 flex flex-col gap-lg">
         <div className="flex flex-col items-center text-center gap-xs">
           <div className="w-12 h-12 rounded-xl bg-primary flex items-center justify-center text-on-primary font-bold text-headline-lg shadow-md mb-xs">
             N
