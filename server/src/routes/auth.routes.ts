@@ -18,6 +18,7 @@ const BASE_PERMISSIONS = [
   'configuracion.leer', 'configuracion.escribir',
   'usuarios.leer', 'usuarios.escribir',
   'auditoria.leer',
+  'billing.leer', 'billing.manage',
 ];
 
 const registerSchema = z.object({

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { requireAuth, requirePermission, tenantWhere } from '../middleware/auth.js';
 import { logAudit, clientIp } from '../lib/audit.js';
+import { assertProductCreationAllowed } from '../lib/billing.js';
 
 const router = Router();
 
@@ -196,6 +197,18 @@ router.get('/:id', async (req, res) => {
 
 /** POST /api/products — create product (validates category belongs to tenant) */
 router.post('/', requirePermission('inventario.escribir'), async (req, res) => {
+  // SaaS plan gate: the Free plan caps the product catalog size.
+  try {
+    await assertProductCreationAllowed(req.authUser!.companyId);
+  } catch (err) {
+    if ((err as { status?: number }).status === 402) {
+      const e = err as { message: string; plan?: unknown };
+      res.status(402).json({ error: e.message, plan: e.plan ?? null });
+      return;
+    }
+    throw err;
+  }
+
   const parsed = productSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });

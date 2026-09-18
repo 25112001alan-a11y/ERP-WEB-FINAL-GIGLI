@@ -37,6 +37,7 @@ model Company {
   auditLogs  AuditLog[]
   taxes      Tax[]
   documentCounters DocumentCounter[]
+  subscription CompanySubscription?
 
   @@map("empresas")
 }
@@ -414,6 +415,58 @@ model Payment {
   cashBox     CashBox? @relation(fields: [cashBoxId], references: [id])
 
   @@map("pagos")
+}
+
+// ============ BILLING / SAAS ============
+// SaaS catalog. The free plan is the onboarding default; paid plans unlock
+// the platform without monthly/volume limits. Prices drive Mercado Pago
+// preapprovals (recurring subscriptions) via /api/billing/checkout.
+
+model Plan {
+  id           Int      @id @default(autoincrement())
+  code         String   @unique @db.VarChar(30) // free | pro | enterprise
+  name         String   @db.VarChar(60)
+  description  String?  @db.Text
+  priceMonthly Decimal  @db.Decimal(10, 2) // 0 = gratis
+  features     String?  @db.Text // JSON array of feature bullets
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  subscriptions CompanySubscription[]
+
+  @@map("planes")
+}
+
+// One active subscription per tenant. A new company starts on the free plan
+// (ensured at boot); mercadopago events keep the status up to date.
+model CompanySubscription {
+  id               Int      @id @default(autoincrement())
+  companyId        Int      @unique
+  planId           Int
+  status           String   @default("active") @db.VarChar(20) // active | past_due | canceled | pending
+  mpCustomerId     String?  @db.VarChar(80)
+  mpSubscriptionId String?  @db.VarChar(80)
+  currentPeriodStart DateTime?
+  currentPeriodEnd   DateTime?
+  cancelAtPeriodEnd  Boolean  @default(false)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  company          Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  plan             Plan     @relation(fields: [planId], references: [id])
+
+  @@map("suscripciones_empresa")
+}
+
+// Idempotency ledger for Mercado Pago webhooks: eventId is unique, so replaying
+// the same webhook cannot double-apply a subscription change.
+model BillingEvent {
+  id        Int      @id @default(autoincrement())
+  eventId   String   @unique @db.VarChar(120)
+  topic     String   @db.VarChar(40)
+  payload   String?  @db.Text // raw JSON for audit
+  createdAt DateTime @default(now())
+
+  @@map("eventos_billing")
 }
 
 // ============ AUDIT ============

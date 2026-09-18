@@ -15,6 +15,7 @@ import {
 } from '../middleware/auth.js';
 import { logAudit, clientIp } from '../lib/audit.js';
 import { reserveNextNumber } from '../lib/numbering.js';
+import { assertDocCreationAllowed } from '../lib/billing.js';
 
 const router = Router();
 
@@ -215,6 +216,18 @@ router.get('/:id', requireAnyPermission('ventas.leer', 'compras.leer'), async (r
  * Fiscal numbering is auto-incremented per (companyId, type, series).
  */
 router.post('/', requireAnyPermission('ventas.escribir', 'compras.escribir'), async (req, res) => {
+  // SaaS plan gate: the Free plan caps monthly document creation.
+  try {
+    await assertDocCreationAllowed(req.authUser!.companyId);
+  } catch (err) {
+    if ((err as { status?: number }).status === 402) {
+      const e = err as { message: string; plan?: unknown; checkoutUrl?: string | null };
+      res.status(402).json({ error: e.message, plan: e.plan ?? null, checkoutUrl: e.checkoutUrl ?? null });
+      return;
+    }
+    throw err;
+  }
+
   const bodyParsed = documentSchema.safeParse(req.body);
   if (!bodyParsed.success) {
     res.status(400).json({ error: 'Datos inválidos', details: bodyParsed.error.flatten() });

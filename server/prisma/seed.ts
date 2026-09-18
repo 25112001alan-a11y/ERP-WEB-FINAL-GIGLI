@@ -53,6 +53,19 @@ async function main() {
   const company = await prisma.company.create({ data: COMPANY });
   console.log(`  company: ${company.name} (id=${company.id})`);
 
+  // ---------- SaaS plans ----------
+  const planData = [
+    { code: 'free', name: 'Gratis', description: 'Para probar la plataforma. Hasta 20 documentos y 10 productos por mes.', priceMonthly: 0, features: JSON.stringify(['20 documentos / mes', '10 productos', '1 usuario']) },
+    { code: 'pro', name: 'Profesional', description: 'Operación completa sin límites de documentos ni productos.', priceMonthly: 29, features: JSON.stringify(['Documentos ilimitados', 'Productos ilimitados', 'Hasta 10 usuarios', 'Portal público del storefront']) },
+    { code: 'enterprise', name: 'Empresa', description: 'Multi-sucursal, roles avanzados y soporte prioritario.', priceMonthly: 99, features: JSON.stringify(['Todo de Profesional', 'Multi-sucursal', 'Roles personalizados', 'Soporte prioritario']) },
+  ];
+  const plans: Record<string, number> = {};
+  for (const p of planData) {
+    const plan = await prisma.plan.create({ data: p });
+    plans[p.code] = plan.id;
+  }
+  console.log(`  plans: ${planData.length}`);
+
   // ---------- Permissions ----------
   const permissionNames = [
     'inventario.leer', 'inventario.escribir',
@@ -63,6 +76,7 @@ async function main() {
     'configuracion.leer', 'configuracion.escribir',
     'usuarios.leer', 'usuarios.escribir',
     'auditoria.leer',
+    'billing.leer', 'billing.manage',
   ];
   const permissions: Record<string, number> = {};
   for (const name of permissionNames) {
@@ -412,6 +426,19 @@ async function main() {
     },
   });
   console.log(`  demo chain: OC A-0001 -> REMITO A-0001 -> FACTURA A-0001 (total ${ocSubtotal + ocTotalTax})`);
+
+  // ---------- Subscription (free plan for the demo tenant) ----------
+  const now = new Date();
+  await prisma.companySubscription.create({
+    data: {
+      companyId: company.id,
+      planId: plans['free'],
+      status: 'active',
+      currentPeriodStart: now,
+      currentPeriodEnd: new Date(now.getFullYear(), now.getMonth() + 1, 1),
+    },
+  });
+  console.log('  subscription: Gratis (free) — demo tenant');
 
   // ---------- Audit logs ----------
   await prisma.auditLog.createMany({

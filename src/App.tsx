@@ -780,7 +780,7 @@ export default function App() {
               />
             )}
             {currentView === 'administracion' && (
-              <AdminView users={users} roles={userRoles} onNavigate={setCurrentView} />
+              <AdminView users={users} roles={userRoles} permissions={user?.permissions ?? []} onNavigate={setCurrentView} />
             )}
             {currentView === 'nuevo-usuario' && (
               <NewUserView

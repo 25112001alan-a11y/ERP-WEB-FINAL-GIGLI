@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ViewPath, TaxRate } from '../../types';
+import { ViewPath, TaxRate, BillingPlan, BillingSubscription } from '../../types';
 import { apiFetch } from '../../lib/api';
 
 interface SettingsViewProps {
@@ -35,7 +35,7 @@ const TIMEZONE_LABELS: Record<string, string> = {
 };
 
 export const SettingsView: React.FC<SettingsViewProps> = ({ taxes, onAddTax, onToggleTax, onNavigate }) => {
-  const [activeTab, setActiveTab] = useState<'empresa' | 'impuestos'>('empresa');
+  const [activeTab, setActiveTab] = useState<'empresa' | 'impuestos' | 'plan'>('empresa');
 
   // Company state (backed by GET/PATCH /api/company)
   const [company, setCompany] = useState<CompanyProfile | null>(null);
@@ -47,6 +47,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ taxes, onAddTax, onT
   const [currency, setCurrency] = useState('USD');
   const [timezone, setTimezone] = useState('America/Argentina/Buenos_Aires');
   const [savedMsg, setSavedMsg] = useState(false);
+
+  // Billing state (backed by GET /api/billing/subscription + plans)
+  const [subscription, setSubscription] = useState<BillingSubscription | null>(null);
+  const [plans, setPlans] = useState<BillingPlan[]>([]);
+  const [billingLoading, setBillingLoading] = useState(true);
+  const [billingError, setBillingError] = useState('');
+  const [checkoutError, setCheckoutError] = useState('');
+  const [checkoutBusy, setCheckoutBusy] = useState(false);
 
   // Tax form state
   const [taxName, setTaxName] = useState('');
@@ -75,6 +83,55 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ taxes, onAddTax, onT
       cancelled = true;
     };
   }, []);
+
+  // Billing: current subscription + available plans.
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      apiFetch<BillingSubscription>('/api/billing/subscription'),
+      apiFetch<BillingPlan[]>('/api/billing/plans'),
+    ])
+      .then(([sub, catalog]) => {
+        if (cancelled) return;
+        setSubscription(sub);
+        setPlans(catalog);
+      })
+      .catch(() => {
+        if (!cancelled) setBillingError('No se pudo cargar la información del plan.');
+      })
+      .finally(() => {
+        if (!cancelled) setBillingLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleUpgrade = async (planCode: string) => {
+    setCheckoutError('');
+    setCheckoutBusy(true);
+    try {
+      const { checkoutUrl } = await apiFetch<{ checkoutUrl: string }>('/api/billing/checkout', {
+        method: 'POST',
+        body: { planCode },
+      });
+      // Redirect to the Mercado Pago payment flow.
+      window.location.href = checkoutUrl;
+    } catch (err) {
+      setCheckoutError(err instanceof Error ? err.message : 'No se pudo iniciar el proceso de pago.');
+      setCheckoutBusy(false);
+    }
+  };
+
+  const PLAN_STATUS_LABELS: Record<string, string> = {
+    active: 'Activa',
+    past_due: 'Vencida',
+    canceled: 'Cancelada',
+    pending: 'Pendiente de pago',
+  };
+
+  const formatPeriod = (iso: string | null) =>
+    iso ? new Date(iso).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—';
 
   const handleSaveCompany = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -148,6 +205,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ taxes, onAddTax, onT
             }`}
           >
             Impuestos y Monedas
+          </button>
+          <button
+            onClick={() => setActiveTab('plan')}
+            className={`py-sm px-md font-label-md text-label-md uppercase tracking-wider border-b-2 cursor-pointer transition-colors ${
+              activeTab === 'plan' ? 'border-primary text-primary font-bold' : 'border-transparent text-on-surface-variant hover:text-on-surface'
+            }`}
+          >
+            Plan y Facturación
           </button>
         </div>
 
@@ -314,8 +379,90 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ taxes, onAddTax, onT
               )}
             </div>
           )}
+{activeTab === 'plan' && (
+                <div className="space-y-md max-w-[672px]">
+                  <h3 className="font-headline-md text-headline-md text-on-surface">Plan y Facturación</h3>
+
+                  {billingLoading && (
+                    <div className="flex items-center gap-sm text-on-surface-variant">
+                      <span className="material-symbols-outlined text-[18px] animate-spin">progress_activity</span>
+                      Cargando plan...
+                    </div>
+                  )}
+                  {billingError && (
+                    <p className="text-sm text-on-error-container bg-error-container/20 rounded-lg p-sm">{billingError}</p>
+                  )}
+
+                  {!billingLoading && subscription && (
+                    <div className="p-md rounded-xl bg-surface-container-low border border-outline-variant/30 flex flex-col gap-md md:flex-row md:items-center md:justify-between">
+                      <div>
+                        <p className="font-label-md text-label-md uppercase text-on-surface-variant">Plan actual</p>
+                        <p className="font-headline-md text-headline-md text-primary">
+                          {subscription.plan.name}{' '}
+                          <span className="text-on-surface-variant font-body-lg text-sm">
+                            — USD {subscription.plan.priceMonthly}/mes
+                          </span>
+                        </p>
+                        <p className="text-sm text-on-surface-variant">
+                          Estado: {PLAN_STATUS_LABELS[subscription.status] ?? subscription.status}
+                          <span className="mx-sm">·</span>
+                          Período: {formatPeriod(subscription.currentPeriodStart)} al {formatPeriod(subscription.currentPeriodEnd)}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {checkoutError && (
+                    <p className="text-sm text-on-error-container bg-error-container/20 rounded-lg p-sm">{checkoutError}</p>
+                  )}
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-md">
+                    {plans.map((p) => {
+                      const isCurrent = subscription?.plan.code === p.code;
+                      return (
+                        <div
+                          key={p.code}
+                          className={`p-md rounded-xl border flex flex-col gap-sm ${
+                            isCurrent ? 'border-primary bg-primary-container/10' : 'border-outline-variant/30 bg-surface-container-low'
+                          }`}
+                        >
+                          <p className="font-label-md text-label-md uppercase text-on-surface-variant">{p.name}</p>
+                          <p className="font-display-sm text-display-sm text-on-surface">
+                            USD {p.priceMonthly}
+                            <span className="text-xs text-on-surface-variant font-body-md"> /mes</span>
+                          </p>
+                          <p className="text-xs text-on-surface-variant leading-relaxed">{p.description}</p>
+                          <ul className="space-y-1 text-xs text-on-surface-variant">
+                            {p.features.map((f) => (
+                              <li key={f} className="flex items-start gap-xs">
+                                <span className="material-symbols-outlined text-[16px] text-primary">check</span>
+                                {f}
+                              </li>
+                            ))}
+                          </ul>
+                          <div className="mt-auto pt-sm">
+                            {isCurrent ? (
+                              <span className="text-xs font-semibold text-primary">Plan actual</span>
+                            ) : p.priceMonthly === 0 ? (
+                              <span className="text-xs text-on-surface-variant">Disponible al registrarte</span>
+                            ) : (
+                              <button
+                                onClick={() => handleUpgrade(p.code)}
+                                disabled={checkoutBusy}
+                                className="w-full px-md py-xs bg-primary text-on-primary font-label-md text-label-md rounded-lg cursor-pointer hover:shadow-md transition-shadow disabled:opacity-50"
+                              >
+                                {checkoutBusy ? 'Preparando pago...' : 'Elegir este plan'}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
-      </div>
-    </div>
   );
 };

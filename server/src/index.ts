@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { runMigrations, ensureSeeded, runDemoSeed } from './bootstrap.js';
 import { sweepOrphanAttachments } from './lib/uploads.js';
 import { backfillCompanySlugs } from './lib/slug.js';
+import { ensureCompanySubscriptions } from './lib/billing.js';
 import { prisma } from './lib/prisma.js';
 import { app } from './app.js';
 
@@ -11,6 +12,7 @@ async function start() {
   runMigrations();
   await ensureSeeded();
   await backfillCompanySlugs(prisma);
+  await ensureCompanySubscriptions();
   await sweepOrphanAttachments();
   runDemoSeed();
   app.listen(PORT, () => {

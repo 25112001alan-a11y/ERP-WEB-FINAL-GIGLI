@@ -14,6 +14,7 @@ import usersRoutes from './routes/users.routes.js';
 import auditRoutes from './routes/audit.routes.js';
 import companyRoutes from './routes/company.routes.js';
 import publicRoutes from './routes/public.routes.js';
+import billingRoutes from './routes/billing.routes.js';
 import { apiLimiter, loginLimiter, registerLimiter, publicLimiter } from './middleware/rateLimit.js';
 
 export const app = express();
@@ -82,6 +83,7 @@ app.use('/api/users', usersRoutes);
 app.use('/api/audit-logs', auditRoutes);
 app.use('/api/company', companyRoutes);
 app.use('/api/public', publicRoutes);
+app.use('/api/billing', billingRoutes);
 
 // Central error handler: converts rejected handlers (Express 5) into JSON.
 // 4xx keeps the actionable business message; 5xx is logged in full server-side

@@ -195,3 +195,36 @@ export interface WarehouseOption {
   id: number;
   name: string;
 }
+
+// ---------------------------------------------------------------------------
+// SaaS billing (F4)
+// ---------------------------------------------------------------------------
+
+export interface BillingPlan {
+  code: string;
+  name: string;
+  description: string;
+  priceMonthly: number;
+  features: string[];
+}
+
+export interface BillingSubscription {
+  status: string;
+  plan: { code: string; name: string; priceMonthly: number };
+  currentPeriodStart: string | null;
+  currentPeriodEnd: string | null;
+  mpSubscriptionId: string | null;
+}
+
+export interface BillingAdminOverview {
+  totals: {
+    companies: number;
+    activeSubscriptions: number;
+    pastDueSubscriptions: number;
+    canceledSubscriptions: number;
+    pendingSubscriptions: number;
+    mrrUsd: number;
+  };
+  recentEvents: { eventId: string; topic: string; createdAt: string }[];
+  unsubscribedCompanies: { id: number; name: string; slug: string | null }[];
+}
