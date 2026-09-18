@@ -61,11 +61,13 @@ export default function App() {
   const [userRoles, setUserRoles] = useState<RoleOption[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [taxes, setTaxes] = useState<TaxRate[]>([]);
+  const [dataLoading, setDataLoading] = useState(true);
+  const [dataError, setDataError] = useState<string | null>(null);
 
   // Maps front product id -> first warehouse id (used for stock adjustments).
   const [productWarehouseIds, setProductWarehouseIds] = useState<Record<string, number>>({});
 
-  const loadProducts = useCallback(async () => {
+  const loadProducts = useCallback(async (): Promise<boolean> => {
     try {
       const data = await apiFetch<ApiProduct[]>('/api/products');
       setProducts(data.map(toFrontProduct));
@@ -76,12 +78,14 @@ export default function App() {
             .map((p) => [String(p.id), p.stocks[0].warehouseId]),
         ),
       );
+      return true;
     } catch (err) {
       console.error('No se pudieron cargar los productos', err);
+      return false;
     }
   }, []);
 
-  const loadPurchases = useCallback(async () => {
+  const loadPurchases = useCallback(async (): Promise<boolean> => {
     try {
       const [ocs, compras, remitos, facturas, sups, whs] = await Promise.all([
         apiFetch<ApiDocument[]>('/api/documents?type=OC'),
@@ -109,12 +113,14 @@ export default function App() {
           .sort((a, b) => b.id.localeCompare(a.id)),
       );
       setOpenOrders(ocs.filter((o) => o.status !== 'Recibido').map(toFrontPurchaseDocument));
+      return true;
     } catch (err) {
       console.error('No se pudieron cargar las compras', err);
+      return false;
     }
   }, []);
 
-  const loadSales = useCallback(async () => {
+  const loadSales = useCallback(async (): Promise<boolean> => {
     try {
       const [ventas, remitos] = await Promise.all([
         apiFetch<ApiDocument[]>('/api/documents?type=VENTA'),
@@ -122,12 +128,14 @@ export default function App() {
       ]);
       setSalesDocs([...ventas, ...remitos]);
       setSales(ventas.map(toFrontSale));
+      return true;
     } catch (err) {
       console.error('No se pudieron cargar las ventas', err);
+      return false;
     }
   }, []);
 
-  const loadPublicOrders = useCallback(async () => {
+  const loadPublicOrders = useCallback(async (): Promise<boolean> => {
     try {
       const data = await apiFetch<ApiDocument[]>('/api/documents?type=PEDIDO');
       setPublicOrders(
@@ -142,12 +150,14 @@ export default function App() {
             d.status === 'Recibido' ? 'Enviado' : d.status === 'Parcial' ? 'En Proceso' : 'Nuevo',
         })),
       );
+      return true;
     } catch (err) {
       console.error('No se pudieron cargar los pedidos públicos', err);
+      return false;
     }
   }, []);
 
-  const loadFinance = useCallback(async () => {
+  const loadFinance = useCallback(async (): Promise<boolean> => {
     try {
       const data = await apiFetch<
         { id: string; date: string; concept: string; method: string; amount: number; type: 'Ingreso' | 'Egreso'; status: string }[]
@@ -163,20 +173,24 @@ export default function App() {
           status: t.status === 'Conciliado' ? 'Conciliado' : 'Completado',
         })),
       );
+      return true;
     } catch (err) {
       console.error('No se pudieron cargar las finanzas', err);
+      return false;
     }
   }, []);
 
-  const loadDashboard = useCallback(async () => {
+  const loadDashboard = useCallback(async (): Promise<boolean> => {
     try {
       setDashboard(await apiFetch<DashboardData>('/api/dashboard'));
+      return true;
     } catch (err) {
       console.error('No se pudo cargar el dashboard', err);
+      return false;
     }
   }, []);
 
-  const loadUsers = useCallback(async () => {
+  const loadUsers = useCallback(async (): Promise<boolean> => {
     try {
       const [userList, roles] = await Promise.all([
         apiFetch<{
@@ -201,12 +215,14 @@ export default function App() {
         })),
       );
       setUserRoles(roles);
+      return true;
     } catch (err) {
       console.error('No se pudieron cargar los usuarios', err);
+      return false;
     }
   }, []);
 
-  const loadAudit = useCallback(async () => {
+  const loadAudit = useCallback(async (): Promise<boolean> => {
     try {
       const data = await apiFetch<
         {
@@ -236,30 +252,45 @@ export default function App() {
           details: l.details ?? '',
         })),
       );
+      return true;
     } catch (err) {
       console.error('No se pudo cargar el log de auditoría', err);
+      return false;
     }
   }, []);
 
-  const loadTaxes = useCallback(async () => {
+  const loadTaxes = useCallback(async (): Promise<boolean> => {
     try {
       const data = await apiFetch<TaxRate[]>('/api/products/taxes');
       setTaxes(data);
+      return true;
     } catch (err) {
       console.error('No se pudieron cargar los impuestos', err);
+      return false;
     }
   }, []);
 
-  const loadAll = useCallback(() => {
-    void loadProducts();
-    void loadPurchases();
-    void loadSales();
-    void loadPublicOrders();
-    void loadFinance();
-    void loadDashboard();
-    void loadUsers();
-    void loadAudit();
-    void loadTaxes();
+  const loadAll = useCallback(async () => {
+    setDataLoading(true);
+    setDataError(null);
+    const results = await Promise.all([
+      loadProducts(),
+      loadPurchases(),
+      loadSales(),
+      loadPublicOrders(),
+      loadFinance(),
+      loadDashboard(),
+      loadUsers(),
+      loadAudit(),
+      loadTaxes(),
+    ]);
+    const failed = results.filter((ok) => !ok).length;
+    if (failed === results.length) {
+      setDataError('No se pudieron cargar los datos del sistema. Revisá tu conexión e intentá de nuevo.');
+    } else if (failed > 0) {
+      setDataError('Algunos datos no se pudieron cargar. Se muestra la información disponible.');
+    }
+    setDataLoading(false);
   }, [loadProducts, loadPurchases, loadSales, loadPublicOrders, loadFinance, loadDashboard, loadUsers, loadAudit, loadTaxes]);
 
   useEffect(() => {
@@ -650,6 +681,29 @@ export default function App() {
 
           {/* View Container */}
           <main className="pt-20 p-lg flex-1 flex flex-col max-w-[1600px] w-full mx-auto">
+            {dataError && (
+              <div className="mb-md flex items-center justify-between gap-md bg-error-container/40 border border-error/30 rounded-xl px-md py-sm">
+                <p className="font-body-md text-body-md text-on-error-container">{dataError}</p>
+                <button
+                  onClick={() => void loadAll()}
+                  className="shrink-0 px-md py-xs rounded-lg border border-error/40 text-error font-label-md text-label-md hover:bg-error-container transition-colors cursor-pointer"
+                >
+                  Reintentar
+                </button>
+              </div>
+            )}
+
+            {dataLoading ? (
+              <div className="flex-1 flex flex-col items-center justify-center gap-md py-20">
+                <div
+                  className="animate-spin rounded-full w-10 h-10 border-4 border-primary border-t-transparent"
+                  role="status"
+                  aria-label="Cargando datos"
+                />
+                <p className="font-body-lg text-body-lg text-on-surface-variant">Cargando datos...</p>
+              </div>
+            ) : (
+              <>
             {currentView === 'dashboard' && <DashboardView dashboard={dashboard} onNavigate={setCurrentView} />}
             {currentView === 'inventario' && <InventoryView products={products} onNavigate={setCurrentView} />}
             {currentView === 'inventario-ajuste' && (
@@ -736,6 +790,8 @@ export default function App() {
               />
             )}
             {currentView === 'log-auditoria' && <AuditLogView logs={auditLogs} onNavigate={setCurrentView} />}
+            </>
+            )}
           </main>
         </div>
       </div>
