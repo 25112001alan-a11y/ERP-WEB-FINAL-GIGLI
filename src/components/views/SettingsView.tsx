@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { ViewPath, TaxRate, BillingPlan, BillingSubscription } from '../../types';
 import { apiFetch } from '../../lib/api';
+import { useAuth } from '../../lib/auth';
 
 interface SettingsViewProps {
   taxes: TaxRate[];
@@ -12,6 +13,7 @@ interface SettingsViewProps {
 interface CompanyProfile {
   id: number;
   name: string;
+  slug: string | null;
   legalName: string | null;
   taxId: string | null;
   currency: string | null;
@@ -35,6 +37,7 @@ const TIMEZONE_LABELS: Record<string, string> = {
 };
 
 export const SettingsView: React.FC<SettingsViewProps> = ({ taxes, onAddTax, onToggleTax, onNavigate }) => {
+  const { refreshMe } = useAuth();
   const [activeTab, setActiveTab] = useState<'empresa' | 'impuestos' | 'plan'>('empresa');
 
   // Company state (backed by GET/PATCH /api/company)
@@ -42,6 +45,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ taxes, onAddTax, onT
   const [companyLoading, setCompanyLoading] = useState(true);
   const [companyError, setCompanyError] = useState('');
   const [companyName, setCompanyName] = useState('');
+  const [companySlug, setCompanySlug] = useState('');
   const [legalName, setLegalName] = useState('');
   const [taxId, setTaxId] = useState('');
   const [currency, setCurrency] = useState('USD');
@@ -68,6 +72,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ taxes, onAddTax, onT
         if (cancelled) return;
         setCompany(c);
         setCompanyName(c.name ?? '');
+        setCompanySlug(c.slug ?? '');
         setLegalName(c.legalName ?? '');
         setTaxId(c.taxId ?? '');
         setCurrency(c.currency ?? 'USD');
@@ -141,6 +146,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ taxes, onAddTax, onT
         method: 'PATCH',
         body: {
           name: companyName.trim(),
+          slug: companySlug.trim(),
           legalName: legalName.trim() || null,
           taxId: taxId.trim() || null,
           currency,
@@ -148,6 +154,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ taxes, onAddTax, onT
         },
       });
       setCompany(updated);
+      // Keep the session's company (storefront slug) in sync with the profile.
+      await refreshMe().catch(() => undefined);
       setSavedMsg(true);
       setTimeout(() => setSavedMsg(false), 2000);
     } catch (err) {
@@ -245,6 +253,23 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ taxes, onAddTax, onT
                       className="bg-surface border border-outline-variant/50 rounded-lg p-sm outline-none focus:border-primary font-body-md"
                       required
                     />
+                  </div>
+
+                  <div className="flex flex-col gap-xs">
+                    <label className="font-label-md text-label-md uppercase text-on-surface-variant">Slug del Storefront</label>
+                    <div className="flex items-center gap-xs">
+                      <span className="font-mono-sm text-on-surface-variant">{window.location.origin}/tienda/</span>
+                      <input
+                        type="text"
+                        value={companySlug}
+                        onChange={(e) => setCompanySlug(e.target.value)}
+                        placeholder="mi-empresa"
+                        className="bg-surface border border-outline-variant/50 rounded-lg p-sm outline-none focus:border-primary font-mono-sm flex-1"
+                      />
+                    </div>
+                    <p className="text-xs text-on-surface-variant">
+                      Identificador público de tu tienda. Solo minúsculas, números y guiones; debe ser único.
+                    </p>
                   </div>
 
                   <div className="flex flex-col gap-xs">

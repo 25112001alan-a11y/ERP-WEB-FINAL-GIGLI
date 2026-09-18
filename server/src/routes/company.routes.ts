@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { requireAuth, requirePermission, tenantWhere } from '../middleware/auth.js';
 import { logAudit, clientIp } from '../lib/audit.js';
+import { slugify } from '../lib/slug.js';
 
 const router = Router();
 
@@ -15,6 +16,7 @@ router.get('/', requirePermission('configuracion.leer'), async (req, res) => {
     select: {
       id: true,
       name: true,
+      slug: true,
       legalName: true,
       taxId: true,
       currency: true,
@@ -26,6 +28,7 @@ router.get('/', requirePermission('configuracion.leer'), async (req, res) => {
 
 const patchSchema = z.object({
   name: z.string().min(2).max(120).optional(),
+  slug: z.string().min(1).max(80).optional(),
   legalName: z.string().max(200).nullable().optional(),
   taxId: z.string().max(50).nullable().optional(),
   currency: z.string().length(3).optional(),
@@ -41,11 +44,28 @@ router.patch('/', requirePermission('configuracion.escribir'), async (req, res) 
   }
   const companyId = req.authUser!.companyId;
 
+  // The storefront slug is normalized and must stay unique across tenants.
+  let nextSlug: string | undefined;
+  if (parsed.data.slug !== undefined) {
+    nextSlug = slugify(parsed.data.slug);
+    const taken = await prisma.company.findUnique({
+      where: { slug: nextSlug },
+      select: { id: true },
+    });
+    if (taken && taken.id !== companyId) {
+      res.status(409).json({
+        error: `El slug "${nextSlug}" ya está en uso por otra empresa. Elegí otro identificador.`,
+      });
+      return;
+    }
+  }
+
   const updated = await prisma.$transaction(async (tx) => {
     const company = await tx.company.update({
       where: { id: companyId },
       data: {
         ...(parsed.data.name !== undefined ? { name: parsed.data.name } : {}),
+        ...(nextSlug !== undefined ? { slug: nextSlug } : {}),
         ...(parsed.data.legalName !== undefined ? { legalName: parsed.data.legalName } : {}),
         ...(parsed.data.taxId !== undefined ? { taxId: parsed.data.taxId } : {}),
         ...(parsed.data.currency !== undefined ? { currency: parsed.data.currency } : {}),
@@ -67,6 +87,7 @@ router.patch('/', requirePermission('configuracion.escribir'), async (req, res) 
   res.json({
     id: updated.id,
     name: updated.name,
+    slug: updated.slug,
     legalName: updated.legalName,
     taxId: updated.taxId,
     currency: updated.currency,
