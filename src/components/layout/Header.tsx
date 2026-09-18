@@ -8,6 +8,7 @@ interface HeaderProps {
   searchTerm: string;
   onSearchChange: (term: string) => void;
   onLogout: () => void;
+  onMenuClick: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -16,6 +17,7 @@ export const Header: React.FC<HeaderProps> = ({
   searchTerm,
   onSearchChange,
   onLogout,
+  onMenuClick,
 }) => {
   const { user } = useAuth();
   const [showQuickNav, setShowQuickNav] = useState(false);
@@ -26,10 +28,18 @@ export const Header: React.FC<HeaderProps> = ({
   const companyName = user?.company?.name ?? 'SaaS Enterprise Tenant';
 
   return (
-    <header className="fixed top-0 left-64 right-0 h-16 bg-surface-container-lowest/90 backdrop-blur-xl shadow-[0_1px_8px_rgba(0,0,0,0.04)] z-40 flex items-center justify-between px-lg border-b border-outline-variant/20">
+    <header className="fixed top-0 left-0 lg:left-64 right-0 h-16 bg-surface-container-lowest/90 backdrop-blur-xl shadow-[0_1px_8px_rgba(0,0,0,0.04)] z-40 flex items-center justify-between px-lg border-b border-outline-variant/20">
       {/* Search Input */}
-      <div className="flex items-center flex-1">
-        <div className="relative w-96 max-w-full">
+      <div className="flex items-center flex-1 min-w-0 gap-md">
+        {/* Hamburger (solo mobile) */}
+        <button
+          onClick={onMenuClick}
+          className="lg:hidden p-base -ml-sm hover:bg-surface-container-high rounded-lg transition-colors cursor-pointer"
+          aria-label="Abrir menú de navegación"
+        >
+          <span className="material-symbols-outlined text-on-surface-variant">menu</span>
+        </button>
+        <div className="relative flex-1 max-w-96 min-w-0">
           <span className="material-symbols-outlined absolute left-md top-1/2 -translate-y-1/2 text-outline text-[20px]">
             search
           </span>
@@ -102,7 +112,7 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             onClick={() => setProfileOpen(!profileOpen)}
             title="Mi cuenta"
-            className="w-8 h-8 rounded-full bg-primary hover:bg-primary-container transition-colors flex items-center justify-center text-on-primary cursor-pointer"
+            className="w-8 h-8 rounded-full bg-primary hover:bg-primary-container transition-colors flex items-center justify-center text-on-primary cursor-pointer tap-target"
           >
             <span className="material-symbols-outlined text-[18px]">person</span>
           </button>
@@ -128,7 +138,7 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* Quick Navigation Drawer/Modal */}
       {showQuickNav && (
-        <div className="absolute top-16 right-lg w-96 bg-surface-container-lowest rounded-xl shadow-2xl border border-outline-variant/30 p-lg z-50">
+        <div className="absolute top-16 right-lg w-[min(90vw,24rem)] bg-surface-container-lowest rounded-xl shadow-2xl border border-outline-variant/30 p-lg z-50">
           <div className="flex items-center justify-between border-b border-outline-variant/20 pb-sm mb-md">
             <h3 className="font-headline-md text-headline-md text-on-surface">Pantallas de Nexus ERP</h3>
             <button onClick={() => setShowQuickNav(false)} className="text-outline hover:text-on-surface">

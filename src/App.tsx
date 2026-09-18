@@ -44,6 +44,13 @@ export default function App() {
   const { user, logout, loading } = useAuth();
   const [currentView, setCurrentView] = useState<ViewPath>(user ? 'dashboard' : 'auth-login');
   const [searchTerm, setSearchTerm] = useState('');
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // Navegación central: cambia de vista y cierra el drawer mobile siempre.
+  const navigate = useCallback((view: ViewPath) => {
+    setCurrentView(view);
+    setSidebarOpen(false);
+  }, []);
 
   // Global State Collections
   const [products, setProducts] = useState<Product[]>([]);
@@ -314,6 +321,29 @@ export default function App() {
       setTaxes([]);
     }
   }, [user, loadAll]);
+
+  // Mantener el drawer cerrado al pasar a desktop y bloquear el scroll de fondo en mobile.
+  useEffect(() => {
+    const onResize = () => {
+      if (window.innerWidth >= 1024) setSidebarOpen(false);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setSidebarOpen(false);
+    };
+    window.addEventListener('resize', onResize);
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, []);
+
+  useEffect(() => {
+    document.body.style.overflow = sidebarOpen ? 'hidden' : '';
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [sidebarOpen]);
 
   // Keep the view consistent with the session state.
   useEffect(() => {
@@ -645,21 +675,19 @@ export default function App() {
     );
   }
 
-  if (isPublicOrAuth) {
+if (isPublicOrAuth) {
     return (
-      <div className="min-h-screen bg-surface font-sans text-on-surface flex flex-col">
-        <div className="w-full min-h-screen">
+      <div className="min-h-screen bg-surface font-sans text-on-surface">
 {currentView === 'portal-clientes' && user?.company?.slug && (
-  <PublicClientStoreView slug={user.company.slug} onNavigate={setCurrentView} />
+  <PublicClientStoreView slug={user.company.slug} onNavigate={navigate} />
 )}
           {currentView === 'auth-login' && !user && (
-            <AuthLoginView onNavigate={setCurrentView} onLoginSuccess={() => setCurrentView('dashboard')} />
+            <AuthLoginView onNavigate={navigate} onLoginSuccess={() => setCurrentView('dashboard')} />
           )}
           {currentView === 'auth-register' && (
-            <AuthRegisterView onNavigate={setCurrentView} onRegisterSuccess={() => setCurrentView('dashboard')} />
+            <AuthRegisterView onNavigate={navigate} onRegisterSuccess={() => setCurrentView('dashboard')} />
           )}
-          {currentView === 'pricing' && <PricingView onNavigate={setCurrentView} />}
-        </div>
+          {currentView === 'pricing' && <PricingView onNavigate={navigate} />}
       </div>
     );
   }
@@ -668,21 +696,28 @@ export default function App() {
     <div className="min-h-screen bg-surface font-sans text-on-surface flex flex-col">
       <div className="flex flex-1 min-h-screen">
         {/* Main ERP Admin Sidebar */}
-        <Sidebar currentView={currentView} onNavigate={setCurrentView} />
+        <Sidebar currentView={currentView} onNavigate={navigate} open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
         {/* Main ERP Content Area */}
-        <div className="flex-1 pl-64 flex flex-col min-h-screen">
+        <div className="flex-1 lg:pl-64 flex flex-col min-h-screen">
           {/* ERP Top Bar Header */}
           <Header
             currentView={currentView}
-            onNavigate={setCurrentView}
+            onNavigate={navigate}
             searchTerm={searchTerm}
             onSearchChange={setSearchTerm}
             onLogout={handleLogout}
+            onMenuClick={() => setSidebarOpen(true)}
           />
 
-          {/* View Container */}
-          <main className="pt-20 p-lg flex-1 flex flex-col max-w-[1600px] w-full mx-auto">
+          {/* View Container — POS usa full-bleed (sin padding del shell) */}
+          <main
+            className={
+              currentView === 'pos'
+                ? 'flex-1 flex flex-col pt-16 overflow-hidden'
+                : 'pt-20 p-lg flex-1 flex flex-col max-w-[1600px] w-full mx-auto'
+            }
+          >
             {dataError && (
               <div className="mb-md flex items-center justify-between gap-md bg-error-container/40 border border-error/30 rounded-xl px-md py-sm">
                 <p className="font-body-md text-body-md text-on-error-container">{dataError}</p>
@@ -706,32 +741,32 @@ export default function App() {
               </div>
             ) : (
               <>
-            {currentView === 'dashboard' && <DashboardView dashboard={dashboard} onNavigate={setCurrentView} />}
-            {currentView === 'inventario' && <InventoryView products={products} onNavigate={setCurrentView} />}
+            {currentView === 'dashboard' && <DashboardView dashboard={dashboard} onNavigate={navigate} />}
+            {currentView === 'inventario' && <InventoryView products={products} onNavigate={navigate} />}
             {currentView === 'inventario-ajuste' && (
-              <StockAdjustmentView products={products} onNavigate={setCurrentView} onApplyAdjustment={handleApplyAdjustment} />
+              <StockAdjustmentView products={products} onNavigate={navigate} onApplyAdjustment={handleApplyAdjustment} />
             )}
             {currentView === 'inventario-transferencia' && (
               <StockTransferView
                 products={products}
                 warehouses={warehouses}
                 onTransfer={handleTransferStock}
-                onNavigate={setCurrentView}
+                onNavigate={navigate}
               />
             )}
             {currentView === 'inventario-nuevo-producto' && (
-              <AddProductView onAddProduct={handleAddProduct} onNavigate={setCurrentView} />
+              <AddProductView onAddProduct={handleAddProduct} onNavigate={navigate} />
             )}
             {currentView === 'pos' && (
-              <PosView products={products} onCompleteSale={handleCompleteSale} onNavigate={setCurrentView} />
+              <PosView products={products} onCompleteSale={handleCompleteSale} onNavigate={navigate} />
             )}
-            {currentView === 'ventas' && <SalesView sales={sales} onNavigate={setCurrentView} />}
+            {currentView === 'ventas' && <SalesView sales={sales} onNavigate={navigate} />}
             {currentView === 'pedidos-publicos' && (
-              <PublicOrdersView orders={publicOrders} onNavigate={setCurrentView} />
+              <PublicOrdersView orders={publicOrders} onNavigate={navigate} />
             )}
-            {currentView === 'nuevo-pedido-manual' && <NewManualOrderView products={products} onNavigate={setCurrentView} />}
+            {currentView === 'nuevo-pedido-manual' && <NewManualOrderView products={products} onNavigate={navigate} />}
             {currentView === 'compras' && (
-              <PurchasesView orders={purchaseOrders} suppliers={suppliers} onNavigate={setCurrentView} />
+              <PurchasesView orders={purchaseOrders} suppliers={suppliers} onNavigate={navigate} />
             )}
             {currentView === 'nueva-orden-compra' && (
               <NewPurchaseOrderView
@@ -739,7 +774,7 @@ export default function App() {
                 products={products}
                 warehouses={warehouses}
                 onCreateOrder={handleCreatePurchaseOrder}
-                onNavigate={setCurrentView}
+                onNavigate={navigate}
               />
             )}
             {currentView === 'registrar-remito' && (
@@ -748,7 +783,7 @@ export default function App() {
                 warehouses={warehouses}
                 products={products}
                 onReceive={handleReceivePurchaseOrder}
-                onNavigate={setCurrentView}
+                onNavigate={navigate}
               />
             )}
             {currentView === 'registrar-factura' && (
@@ -758,7 +793,7 @@ export default function App() {
                 remitoDocs={remitoDocs}
                 products={products}
                 onCreateFactura={handleCreateFactura}
-                onNavigate={setCurrentView}
+                onNavigate={navigate}
               />
             )}
             {currentView === 'remito-salida' && (
@@ -766,32 +801,32 @@ export default function App() {
                 salesDocs={salesDocs}
                 products={products}
                 onRegisterRemitoSalida={handleRegisterRemitoSalida}
-                onNavigate={setCurrentView}
+                onNavigate={navigate}
               />
             )}
-            {currentView === 'finanzas' && <FinanceView transactions={financeTxs} onNavigate={setCurrentView} />}
+            {currentView === 'finanzas' && <FinanceView transactions={financeTxs} onNavigate={navigate} />}
             {currentView === 'reportes' && (
-              <ReportsView products={products} sales={sales} onNavigate={setCurrentView} />
+              <ReportsView products={products} sales={sales} onNavigate={navigate} />
             )}
             {currentView === 'configuracion' && (
               <SettingsView
                 taxes={taxes}
                 onAddTax={handleAddTax}
                 onToggleTax={handleToggleTax}
-                onNavigate={setCurrentView}
+                onNavigate={navigate}
               />
             )}
             {currentView === 'administracion' && (
-              <AdminView users={users} roles={userRoles} permissions={user?.permissions ?? []} onNavigate={setCurrentView} />
+              <AdminView users={users} roles={userRoles} permissions={user?.permissions ?? []} onNavigate={navigate} />
             )}
             {currentView === 'nuevo-usuario' && (
               <NewUserView
                 roles={userRoles}
                 onAddUser={handleAddUser}
-                onNavigate={setCurrentView}
+                onNavigate={navigate}
               />
             )}
-            {currentView === 'log-auditoria' && <AuditLogView logs={auditLogs} onNavigate={setCurrentView} />}
+            {currentView === 'log-auditoria' && <AuditLogView logs={auditLogs} onNavigate={navigate} />}
             </>
             )}
           </main>
