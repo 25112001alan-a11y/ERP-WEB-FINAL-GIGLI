@@ -4,6 +4,10 @@ export const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
 
 export const TOKEN_KEY = 'nexus.auth.token';
 
+// Fired whenever the API answers 401 while an authenticated request was made.
+// The AuthProvider listens and logs the session out (clears token + user).
+export const AUTH_UNAUTHORIZED_EVENT = 'nexus:unauthorized';
+
 export function getToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
 }
@@ -14,6 +18,12 @@ export function setToken(token: string): void {
 
 export function clearToken(): void {
   localStorage.removeItem(TOKEN_KEY);
+}
+
+/** Logs the session out from anywhere: expires the token and notifies the app. */
+export function handleUnauthorized(): void {
+  clearToken();
+  window.dispatchEvent(new Event(AUTH_UNAUTHORIZED_EVENT));
 }
 
 export class ApiError extends Error {
@@ -50,6 +60,11 @@ export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): 
   });
 
   if (!res.ok) {
+    // The session is dead (token expired, invalidated by a deploy, or a revoked
+    // account). Global handling: no UI defends itself here.
+    if (auth && res.status === 401) {
+      handleUnauthorized();
+    }
     let message = `Error ${res.status}`;
     let details: unknown;
     try {
@@ -80,6 +95,9 @@ export async function apiUpload<T>(path: string, file: File): Promise<T> {
   });
 
   if (!res.ok) {
+    if (res.status === 401) {
+      handleUnauthorized();
+    }
     let message = `Error ${res.status}`;
     let details: unknown;
     try {

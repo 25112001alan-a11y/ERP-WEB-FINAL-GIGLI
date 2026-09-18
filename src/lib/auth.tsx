@@ -1,5 +1,11 @@
-import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
-import { apiFetch, clearToken, setToken } from './api';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import {
+  apiFetch,
+  clearToken,
+  setToken,
+  getToken,
+  AUTH_UNAUTHORIZED_EVENT,
+} from './api';
 
 export interface AuthCompany {
   id: number;
@@ -39,11 +45,51 @@ interface AuthContextValue {
   logout: () => void;
 }
 
+/** Shape of GET /api/auth/me — same public fields as AuthUser. */
+type MeResponse = AuthUser;
+
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
-  const [loading, setLoading] = useState(false);
+  // Starts true: the app waits for the session restore before rendering UI.
+  const [loading, setLoading] = useState(true);
+
+  // Session restore: a persisted token is revalidated against /api/auth/me so a
+  // page refresh keeps the user logged in. Invalid/expired tokens are cleared.
+  useEffect(() => {
+    let cancelled = false;
+    async function restore() {
+      if (!getToken()) {
+        if (!cancelled) setLoading(false);
+        return;
+      }
+      try {
+        const me = await apiFetch<MeResponse>('/api/auth/me');
+        if (!cancelled) setUser(me);
+      } catch {
+        // No user on screen; apiFetch already fired the unauthorized event.
+        clearToken();
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    void restore();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Global 401: any module can lose the session (expired token, revoked account).
+  useEffect(() => {
+    const onUnauthorized = () => {
+      clearToken();
+      setUser(null);
+    };
+    window.addEventListener(AUTH_UNAUTHORIZED_EVENT, onUnauthorized);
+    return () => window.removeEventListener(AUTH_UNAUTHORIZED_EVENT, onUnauthorized);
+  }, []);
 
   const login = useCallback(async (payload: LoginPayload): Promise<AuthUser> => {
     setLoading(true);
