@@ -699,7 +699,7 @@ if (isPublicOrAuth) {
         <Sidebar currentView={currentView} onNavigate={navigate} open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
         {/* Main ERP Content Area */}
-        <div className="flex-1 lg:pl-64 flex flex-col min-h-screen">
+        <div className="flex-1 lg:pl-64 flex flex-col min-h-screen min-w-0">
           {/* ERP Top Bar Header */}
           <Header
             currentView={currentView}

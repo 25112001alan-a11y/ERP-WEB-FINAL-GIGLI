@@ -255,7 +255,7 @@ export const PosView: React.FC<PosViewProps> = ({ products, onCompleteSale, onNa
   );
 
   return (
-    <div className="flex flex-col w-full h-full max-h-screen">
+    <div className="flex flex-col w-full h-full max-h-dvh">
       <div className="flex flex-1 overflow-hidden flex-col lg:flex-row">
         {/* Left Panel: Product Search & Grid */}
         <div className="flex-1 flex flex-col bg-surface overflow-hidden min-h-0 pb-24 lg:pb-0">

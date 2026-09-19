@@ -103,6 +103,7 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ orders, suppliers,
                   </div>
                 </div>
 
+                <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="text-primary-container font-label-md text-label-md uppercase tracking-wider border-b border-surface-container-high">
@@ -190,6 +191,7 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ orders, suppliers,
                     );})}
                   </tbody>
                 </table>
+                </div>
               </div>
             )}
 
