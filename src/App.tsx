@@ -703,7 +703,13 @@ if (isPublicOrAuth) {
     <div className="min-h-screen bg-surface font-sans text-on-surface flex flex-col">
       <div className="flex flex-1 min-h-screen">
         {/* Main ERP Admin Sidebar */}
-        <Sidebar currentView={currentView} onNavigate={navigate} open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+        <Sidebar
+          currentView={currentView}
+          facturaDirection={facturaDirection}
+          onNavigate={navigate}
+          open={sidebarOpen}
+          onClose={() => setSidebarOpen(false)}
+        />
 
         {/* Main ERP Content Area */}
         <div className="flex-1 lg:pl-64 flex flex-col min-h-screen min-w-0">

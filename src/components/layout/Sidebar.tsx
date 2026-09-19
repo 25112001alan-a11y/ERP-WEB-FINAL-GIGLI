@@ -3,21 +3,28 @@ import { ViewPath } from '../../types';
 
 interface SidebarProps {
   currentView: ViewPath;
+  /** Which section opened the invoice form, so only that origin gets highlighted. */
+  facturaDirection: 'ingreso' | 'egreso';
   onNavigate: (view: ViewPath) => void;
   open: boolean;
   onClose: () => void;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate, open, onClose }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ currentView, facturaDirection, onNavigate, open, onClose }) => {
   const getIsActive = (path: ViewPath) => {
     if (path === 'inventario') {
       return ['inventario', 'inventario-ajuste', 'inventario-transferencia', 'inventario-nuevo-producto'].includes(currentView);
     }
+    // La factura es una sola vista compartida: la seccion activa es la de origen.
+    if (currentView === 'registrar-factura') {
+      if (path === 'ventas') return facturaDirection === 'egreso';
+      if (path === 'compras') return facturaDirection === 'ingreso';
+    }
     if (path === 'ventas') {
-      return ['ventas', 'registrar-factura', 'remito-salida'].includes(currentView);
+      return ['ventas', 'remito-salida'].includes(currentView);
     }
     if (path === 'compras') {
-      return ['compras', 'nueva-orden-compra', 'registrar-remito', 'registrar-factura'].includes(currentView);
+      return ['compras', 'nueva-orden-compra', 'registrar-remito'].includes(currentView);
     }
     if (path === 'pedidos-publicos') {
       return ['pedidos-publicos', 'nuevo-pedido-manual', 'portal-clientes'].includes(currentView);
