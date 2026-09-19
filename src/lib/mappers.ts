@@ -69,7 +69,11 @@ export function toFrontProduct(p: ApiProduct): Product {
     status,
     active: p.active,
     allowOversell: p.allowOversell,
-    warehouse: '',
+    stocks: p.stocks.map((s) => ({
+      warehouseId: s.warehouseId,
+      quantity: Number(s.quantity),
+      minStock: Number(s.minStock),
+    })),
     description: p.description ?? undefined,
   };
 }

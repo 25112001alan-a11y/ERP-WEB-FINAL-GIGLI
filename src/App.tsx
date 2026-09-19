@@ -160,6 +160,7 @@ export default function App() {
           client: d.client?.name ?? 'Sin cliente',
           clientType: d.client?.type ?? 'Mayorista',
           date: new Date(d.date).toLocaleDateString('es-ES'),
+          createdAt: d.date,
           total: Number(d.total),
           paymentStatus: d.status === 'Pagado' ? 'Pagado' : 'Pendiente',
           logisticsStatus:
@@ -754,7 +755,9 @@ if (isPublicOrAuth) {
             ) : (
               <>
             {currentView === 'dashboard' && <DashboardView dashboard={dashboard} onNavigate={navigate} />}
-            {currentView === 'inventario' && <InventoryView products={products} onNavigate={navigate} />}
+            {currentView === 'inventario' && (
+              <InventoryView products={products} warehouses={warehouses} onNavigate={navigate} />
+            )}
             {currentView === 'inventario-ajuste' && (
               <StockAdjustmentView products={products} onNavigate={navigate} onApplyAdjustment={handleApplyAdjustment} />
             )}

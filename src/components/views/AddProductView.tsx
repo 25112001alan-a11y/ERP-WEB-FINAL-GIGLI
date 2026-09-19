@@ -38,7 +38,7 @@ export const AddProductView: React.FC<AddProductViewProps> = ({ onAddProduct, on
       description,
       stock: initialStock,
       minStock,
-      warehouse: warehouses.find((w) => w.id === warehouseId)?.name ?? '',
+      stocks: warehouseId ? [{ warehouseId, quantity: initialStock, minStock }] : [],
       warehouseId: warehouseId || undefined,
       costPrice,
       price,

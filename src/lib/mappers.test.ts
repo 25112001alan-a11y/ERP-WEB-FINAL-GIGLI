@@ -39,6 +39,14 @@ const sampleDocument: ApiDocument = {
 };
 
 describe('toFrontProduct', () => {
+  it('passes per-warehouse stocks through with numeric quantities', () => {
+    const p = toFrontProduct(sampleProduct);
+    expect(p.stocks).toEqual([
+      { warehouseId: 1, quantity: 840, minStock: 40 },
+      { warehouseId: 2, quantity: 7, minStock: 10 },
+    ]);
+  });
+
   it('sums stock and minStock across warehouses (Prisma Decimal strings)', () => {
     const p = toFrontProduct(sampleProduct);
     expect(p.stock).toBe(847);

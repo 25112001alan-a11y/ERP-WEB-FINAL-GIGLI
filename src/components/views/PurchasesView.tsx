@@ -63,6 +63,15 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ orders, suppliers,
       s.email.toLowerCase().includes(supplierSearch.toLowerCase())
   );
 
+  // Gastos reales por proveedor, calculados desde las compras cargadas.
+  const supplierSpend = new Map<string, number>();
+  orders.forEach((o) => {
+    if (o.total > 0) supplierSpend.set(o.supplier, (supplierSpend.get(o.supplier) ?? 0) + o.total);
+  });
+  const topSuppliers = [...supplierSpend.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4);
+  const maxSupplierSpend = topSuppliers.length > 0 ? topSuppliers[0][1] : 0;
+  const supplierBarColors = ['bg-primary-container', 'bg-secondary-container', 'bg-surface-container-high', 'bg-outline-variant'];
+
   return (
     <div className="flex flex-col w-full h-full gap-lg">
       {/* Header Section */}
@@ -298,13 +307,29 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ orders, suppliers,
 
           {/* Expenses Chart Mini Widget */}
           <div className="bg-surface-container-lowest rounded-xl shadow-sm p-lg flex flex-col h-64 relative border border-outline-variant/20">
-            <h2 className="font-headline-md text-headline-md text-on-surface mb-xs">Gastos por Categoría</h2>
-            <p className="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-md">Últimos 30 días</p>
-            <div className="flex-1 relative w-full h-full flex items-end gap-sm">
-              <div className="w-1/4 bg-primary-container rounded-t-sm h-[80%] hover:opacity-80 transition-opacity" title="Equipos (80%)"></div>
-              <div className="w-1/4 bg-secondary-container rounded-t-sm h-[45%] hover:opacity-80 transition-opacity" title="Insumos (45%)"></div>
-              <div className="w-1/4 bg-surface-container-high rounded-t-sm h-[60%] hover:opacity-80 transition-opacity" title="Servicios (60%)"></div>
-              <div className="w-1/4 bg-outline-variant rounded-t-sm h-[20%] hover:opacity-80 transition-opacity" title="Otros (20%)"></div>
+            <h2 className="font-headline-md text-headline-md text-on-surface mb-xs">Gastos por Proveedor</h2>
+            <p className="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-md">Según compras registradas</p>
+            <div className="flex-1 flex flex-col justify-end gap-sm">
+              {topSuppliers.map(([name, total], idx) => {
+                const pct = maxSupplierSpend > 0 ? Math.round((total / maxSupplierSpend) * 100) : 0;
+                return (
+                  <div key={name} className="flex flex-col gap-xs">
+                    <div className="flex justify-between font-body-md text-xs">
+                      <span className="font-semibold text-on-surface">{name}</span>
+                      <span className="text-on-surface-variant font-mono-sm">${total.toLocaleString('es-ES', { maximumFractionDigits: 0 })} ({pct}%)</span>
+                    </div>
+                    <div className="h-3 w-full bg-surface-container-high rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full ${supplierBarColors[idx % supplierBarColors.length]}`}
+                        style={{ width: `${Math.max(pct, 2)}%` }}
+                      ></div>
+                    </div>
+                  </div>
+                );
+              })}
+              {topSuppliers.length === 0 && (
+                <p className="font-body-md text-body-md text-on-surface-variant text-center py-md">Sin compras registradas.</p>
+              )}
             </div>
           </div>
         </div>

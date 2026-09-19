@@ -7,23 +7,44 @@ interface ReportsViewProps {
   onNavigate: (view: ViewPath) => void;
 }
 
-export const ReportsView: React.FC<ReportsViewProps> = ({ products, sales }) => {
-  const [period, setPeriod] = useState<'7d' | '30d' | '90d' | 'year'>('30d');
-  const [exporting, setExporting] = useState(false);
+type Period = '7d' | '30d' | '90d' | 'year';
 
-  const totalSalesVal = sales.reduce((acc, s) => acc + s.amount, 0);
-  const avgTicket = sales.length > 0 ? totalSalesVal / sales.length : 0;
+const PERIOD_DAYS: Record<Period, number> = { '7d': 7, '30d': 30, '90d': 90, year: 365 };
+const DAY_MS = 86_400_000;
+
+export const ReportsView: React.FC<ReportsViewProps> = ({ products, sales }) => {
+  const [period, setPeriod] = useState<Period>('30d');
+
+  // Ventas filtradas por el período elegido, comparadas contra el período anterior de igual longitud.
+  const now = Date.now();
+  const days = PERIOD_DAYS[period];
+  const windowStart = now - days * DAY_MS;
+  const prevStart = now - 2 * days * DAY_MS;
+
+  const salesWithTs = sales
+    .map((s) => ({ amount: s.amount, ts: new Date(s.createdAt ?? s.date).getTime() }))
+    .filter((s) => !Number.isNaN(s.ts));
+
+  const salesInWindow = salesWithTs.filter((s) => s.ts >= windowStart);
+  const salesPrev = salesWithTs.filter((s) => s.ts >= prevStart && s.ts < windowStart);
+
+  const totalSalesVal = salesInWindow.reduce((acc, s) => acc + s.amount, 0);
+  const prevSalesVal = salesPrev.reduce((acc, s) => acc + s.amount, 0);
+  const avgTicket = salesInWindow.length > 0 ? totalSalesVal / salesInWindow.length : 0;
+  const salesDelta = prevSalesVal > 0 ? ((totalSalesVal - prevSalesVal) / prevSalesVal) * 100 : null;
+
   const totalStockVal = products.reduce((acc, p) => acc + p.stock * p.price, 0);
   const totalCostVal = products.reduce((acc, p) => acc + p.stock * p.costPrice, 0);
   const estimatedMargin = totalStockVal > 0 ? ((totalStockVal - totalCostVal) / totalStockVal) * 100 : 0;
 
-  const handleExportPDF = () => {
-    setExporting(true);
-    setTimeout(() => {
-      setExporting(false);
-      alert('Reporte en formato PDF generado y listo para descargar.');
-    }, 1200);
-  };
+  // Distribución real del inventario por categoría (proporción sobre la categoría con más stock).
+  const catCounts = new Map<string, number>();
+  products.forEach((p) => catCounts.set(p.category, (catCounts.get(p.category) ?? 0) + p.stock));
+  const catEntries = [...catCounts.entries()].filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]);
+  const maxCat = catEntries.reduce((m, [, n]) => Math.max(m, n), 0);
+
+  // Ranking real por stock disponible ascendente (lo que conviene reponer primero).
+  const lowStockRanking = [...products].sort((a, b) => a.stock - b.stock).slice(0, 4);
 
   return (
     <div className="flex flex-col w-full h-full gap-lg font-body-md text-on-surface">
@@ -48,15 +69,6 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ products, sales }) => 
               </button>
             ))}
           </div>
-
-          <button
-            onClick={handleExportPDF}
-            disabled={exporting}
-            className="px-md py-sm bg-secondary-container text-on-secondary-container font-label-md text-label-md rounded-lg shadow-sm hover:opacity-90 transition-opacity flex items-center gap-sm cursor-pointer"
-          >
-            <span className="material-symbols-outlined text-[18px]">picture_as_pdf</span>
-            {exporting ? 'Generando PDF...' : 'Exportar Reporte'}
-          </button>
         </div>
       </div>
 
@@ -65,15 +77,18 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ products, sales }) => 
         <div className="bg-surface-container-lowest rounded-xl p-lg shadow-sm border border-outline-variant/20 flex flex-col gap-xs">
           <span className="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Ventas Totales</span>
           <p className="font-display-lg text-display-lg font-mono-sm text-primary">${totalSalesVal.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</p>
-          <span className="text-xs text-tertiary-container flex items-center gap-1 font-semibold">
-            <span className="material-symbols-outlined text-xs">trending_up</span> +18.4% vs período anterior
-          </span>
+          {salesDelta !== null && (
+            <span className={`text-xs flex items-center gap-1 font-semibold ${salesDelta >= 0 ? 'text-tertiary-container' : 'text-error'}`}>
+              <span className="material-symbols-outlined text-xs">{salesDelta >= 0 ? 'trending_up' : 'trending_down'}</span>
+              {salesDelta >= 0 ? '+' : ''}{salesDelta.toFixed(1)}% vs período anterior
+            </span>
+          )}
         </div>
 
         <div className="bg-surface-container-lowest rounded-xl p-lg shadow-sm border border-outline-variant/20 flex flex-col gap-xs">
           <span className="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Ticket Promedio</span>
           <p className="font-display-lg text-display-lg font-mono-sm text-on-surface">${avgTicket.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</p>
-          <span className="text-xs text-on-surface-variant">Basado en {sales.length} transacciones</span>
+          <span className="text-xs text-on-surface-variant">Basado en {salesInWindow.length} transacciones</span>
         </div>
 
         <div className="bg-surface-container-lowest rounded-xl p-lg shadow-sm border border-outline-variant/20 flex flex-col gap-xs">
@@ -85,7 +100,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ products, sales }) => 
         <div className="bg-surface-container-lowest rounded-xl p-lg shadow-sm border border-outline-variant/20 flex flex-col gap-xs">
           <span className="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Margen Bruto Estimado</span>
           <p className="font-display-lg text-display-lg font-mono-sm text-tertiary-container">{estimatedMargin.toFixed(1)}%</p>
-          <span className="text-xs text-tertiary-container">Estructura de precios saludable</span>
+          <span className="text-xs text-tertiary-container">Sobre el valor de inventario cargado</span>
         </div>
       </div>
 
@@ -101,11 +116,8 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ products, sales }) => 
           </div>
 
           <div className="space-y-md flex-1 justify-center flex flex-col">
-            {['Electrónica', 'Muebles', 'Ropa', 'Bebidas', 'Snacks'].map((cat, idx) => {
-              const catProds = products.filter((p) => p.category === cat);
-              const count = catProds.reduce((acc, p) => acc + p.stock, 0);
-              const max = 1000;
-              const pct = Math.min(100, Math.round((count / max) * 100));
+            {catEntries.map(([cat, count], idx) => {
+              const pct = maxCat > 0 ? Math.round((count / maxCat) * 100) : 0;
 
               return (
                 <div key={cat} className="flex flex-col gap-xs">
@@ -124,43 +136,50 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ products, sales }) => 
                           ? 'bg-tertiary-container'
                           : 'bg-primary-container'
                       }`}
-                      style={{ width: `${Math.max(5, pct)}%` }}
+                      style={{ width: `${Math.max(pct, 5)}%` }}
                     ></div>
                   </div>
                 </div>
               );
             })}
+            {catEntries.length === 0 && (
+              <p className="font-body-md text-body-md text-on-surface-variant text-center py-md">Sin productos cargados.</p>
+            )}
           </div>
         </div>
 
-        {/* Top Performing Products */}
+        {/* Real ranking: productos con menor stock */}
         <div className="bg-surface-container-lowest rounded-xl shadow-sm p-lg border border-outline-variant/20 flex flex-col gap-md">
           <div className="flex justify-between items-center border-b border-outline-variant/20 pb-sm">
             <h2 className="font-headline-md text-headline-md text-on-surface flex items-center gap-xs">
               <span className="material-symbols-outlined text-primary">leaderboard</span>
-              Productos de Mayor Rotación
+              Productos con Menor Stock
             </h2>
           </div>
 
-          <div className="divide-y divide-outline-variant/10">
-            {products.slice(0, 4).map((p, idx) => (
-              <div key={p.id} className="py-sm flex items-center justify-between">
-                <div className="flex items-center gap-md">
-                  <div className="w-8 h-8 rounded-lg bg-surface-container-high text-primary font-mono-sm font-bold flex items-center justify-center text-xs">
-                    0{idx + 1}
+          {lowStockRanking.length > 0 ? (
+            <div className="divide-y divide-outline-variant/10">
+              {lowStockRanking.map((p, idx) => (
+                <div key={p.id} className="py-sm flex items-center justify-between">
+                  <div className="flex items-center gap-md">
+                    <div className="w-8 h-8 rounded-lg bg-surface-container-high text-primary font-mono-sm font-bold flex items-center justify-center text-xs">
+                      0{idx + 1}
+                    </div>
+                    <div>
+                      <p className="font-body-md font-semibold text-on-surface">{p.name}</p>
+                      <p className="text-xs text-on-surface-variant font-mono-sm">SKU: {p.sku} • {p.category}</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="font-body-md font-semibold text-on-surface">{p.name}</p>
-                    <p className="text-xs text-on-surface-variant font-mono-sm">SKU: {p.sku} • Category: {p.category}</p>
+                  <div className="text-right">
+                    <p className="font-mono-sm font-bold text-primary">${p.price.toFixed(2)}</p>
+                    <p className="text-xs font-medium">{p.stock} dispon. / mín {p.minStock}</p>
                   </div>
                 </div>
-                <div className="text-right">
-                  <p className="font-mono-sm font-bold text-primary">${p.price.toFixed(2)}</p>
-                  <p className="text-xs text-tertiary-container font-medium">{p.stock} dispon. en stock</p>
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <p className="font-body-md text-body-md text-on-surface-variant text-center py-md">Sin productos cargados.</p>
+          )}
         </div>
       </div>
     </div>

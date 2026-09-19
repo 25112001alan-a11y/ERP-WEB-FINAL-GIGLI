@@ -19,6 +19,31 @@ export const PublicOrdersView: React.FC<PublicOrdersViewProps> = ({ orders, onNa
   const inProgress = orders.filter((o) => o.logisticsStatus === 'En Proceso').length;
   const shipped = orders.filter((o) => o.logisticsStatus === 'Enviado').length;
 
+  const dayKey = (iso: string): string => {
+    const d = new Date(iso);
+    return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+  };
+
+  const DAY_MS = 86_400_000;
+  const today = new Date();
+  const todayKey = dayKey(today.toISOString());
+  const yesterdayKey = dayKey(new Date(today.getTime() - DAY_MS).toISOString());
+
+  const todayNewCount = orders.filter((o) => o.logisticsStatus === 'Nuevo' && dayKey(o.createdAt) === todayKey).length;
+  const yesterdayNewCount = orders.filter((o) => o.logisticsStatus === 'Nuevo' && dayKey(o.createdAt) === yesterdayKey).length;
+  const newDelta = yesterdayNewCount > 0 ? Math.round(((todayNewCount - yesterdayNewCount) / yesterdayNewCount) * 100) : null;
+
+  const weekDays = Array.from({ length: 7 }, (_, i) => {
+    const day = new Date(today.getTime() - (6 - i) * DAY_MS);
+    const key = dayKey(day.toISOString());
+    return {
+      label: i === 6 ? 'Hoy' : day.toLocaleDateString('es-ES', { weekday: 'short' }),
+      key,
+      count: orders.filter((o) => dayKey(o.createdAt) === key).length,
+    };
+  });
+  const weeklyMax = Math.max(1, ...weekDays.map((d) => d.count));
+
   return (
     <div className="flex flex-col w-full gap-lg">
       {/* Header Area */}
@@ -54,7 +79,11 @@ export const PublicOrdersView: React.FC<PublicOrdersViewProps> = ({ orders, onNa
             <div className="w-10 h-10 rounded-full bg-secondary-container text-on-secondary-container flex items-center justify-center">
               <span className="material-symbols-outlined">hourglass_top</span>
             </div>
-            <span className="font-label-md text-on-surface-variant bg-surface-container py-1 px-2 rounded-md">+12% vs ayer</span>
+            {newDelta !== null && (
+              <span className="font-label-md text-on-surface-variant bg-surface-container py-1 px-2 rounded-md">
+                {newDelta >= 0 ? '+' : ''}{newDelta}% vs ayer
+              </span>
+            )}
           </div>
           <div>
             <p className="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-sm">Pendientes Nuevos</p>
@@ -79,7 +108,6 @@ export const PublicOrdersView: React.FC<PublicOrdersViewProps> = ({ orders, onNa
             <div className="w-10 h-10 rounded-full bg-tertiary-container text-on-tertiary-container flex items-center justify-center">
               <span className="material-symbols-outlined">check_circle</span>
             </div>
-            <span className="font-label-md text-on-surface-variant bg-surface-container py-1 px-2 rounded-md">Hoy</span>
           </div>
           <div>
             <p className="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-sm">Enviados</p>
@@ -90,15 +118,27 @@ export const PublicOrdersView: React.FC<PublicOrdersViewProps> = ({ orders, onNa
         <div className="bg-primary rounded-xl p-lg shadow-sm flex flex-col gap-sm text-on-primary justify-between relative overflow-hidden">
           <p className="font-label-md text-label-md text-on-primary/80 uppercase tracking-wider">Volumen Semanal</p>
           <div className="h-16 w-full flex items-end gap-1 mt-auto">
-            <div className="w-1/6 bg-on-primary/40 h-[40%] rounded-t-sm"></div>
-            <div className="w-1/6 bg-on-primary/60 h-[60%] rounded-t-sm"></div>
-            <div className="w-1/6 bg-on-primary/50 h-[50%] rounded-t-sm"></div>
-            <div className="w-1/6 bg-on-primary/80 h-[80%] rounded-t-sm"></div>
-            <div className="w-1/6 bg-on-primary/30 h-[30%] rounded-t-sm"></div>
-            <div className="w-1/6 bg-on-primary h-[100%] rounded-t-sm relative">
-              <div className="absolute -top-6 left-1/2 -translate-x-1/2 font-mono-sm text-mono-sm text-on-primary bg-primary-container px-2 py-1 rounded">Hoy</div>
-            </div>
+            {weekDays.map((d) => {
+              const pct = d.count === 0 ? 0 : Math.max(6, (d.count / weeklyMax) * 100);
+              return (
+                <div
+                  key={d.key}
+                  title={`${d.label}: ${d.count} pedidos`}
+                  className={`w-1/6 rounded-t-sm ${d.label === 'Hoy' ? 'bg-on-primary' : 'bg-on-primary/40'} relative`}
+                  style={{ height: `${pct}%` }}
+                >
+                  {d.label === 'Hoy' && (
+                    <div className="absolute -top-6 left-1/2 -translate-x-1/2 font-mono-sm text-mono-sm text-on-primary bg-primary-container px-2 py-1 rounded whitespace-nowrap">
+                      Hoy
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
+          {orders.length === 0 && (
+            <span className="font-body-md text-body-md text-on-primary/80">Sin pedidos esta semana.</span>
+          )}
         </div>
       </div>
 

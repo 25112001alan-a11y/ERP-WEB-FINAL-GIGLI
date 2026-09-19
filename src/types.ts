@@ -38,7 +38,7 @@ export interface Product {
   status: 'InStock' | 'LowStock' | 'OutOfStock';
   active: boolean;
   allowOversell?: boolean;
-  warehouse: string;
+  stocks: { warehouseId: number; quantity: number; minStock: number }[];
   stockInicial?: number;
   warehouseId?: number;
   description?: string;
@@ -118,6 +118,7 @@ export interface PublicOrder {
   client: string;
   clientType: string;
   date: string;
+  createdAt: string;
   total: number;
   paymentStatus: 'Pagado' | 'Pendiente';
   logisticsStatus: 'Nuevo' | 'En Proceso' | 'Enviado';

@@ -1,23 +1,69 @@
-import React, { useState } from 'react';
-import { ViewPath, Product } from '../../types';
+import React, { useMemo, useState } from 'react';
+import { ViewPath, Product, WarehouseOption } from '../../types';
 
 interface InventoryViewProps {
   products: Product[];
+  warehouses: WarehouseOption[];
   onNavigate: (view: ViewPath) => void;
 }
 
-export const InventoryView: React.FC<InventoryViewProps> = ({ products, onNavigate }) => {
+interface WarehouseStats {
+  id: number;
+  name: string;
+  units: number;
+  inStock: number;
+  lowStock: number;
+  outOfStock: number;
+}
+
+export const InventoryView: React.FC<InventoryViewProps> = ({ products, warehouses, onNavigate }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('');
   const [selectedWarehouse, setSelectedWarehouse] = useState('');
+
+  const warehouseStats = useMemo<WarehouseStats[]>(() => {
+    const map = new Map<number, WarehouseStats>();
+    products.forEach((p) => {
+      p.stocks.forEach((s) => {
+        let st = map.get(s.warehouseId);
+        if (!st) {
+          st = {
+            id: s.warehouseId,
+            name: warehouses.find((w) => w.id === s.warehouseId)?.name ?? `Depósito ${s.warehouseId}`,
+            units: 0,
+            inStock: 0,
+            lowStock: 0,
+            outOfStock: 0,
+          };
+          map.set(s.warehouseId, st);
+        }
+        st.units += s.quantity;
+        if (s.quantity <= 0) st.outOfStock += 1;
+        else if (s.quantity <= s.minStock) st.lowStock += 1;
+        else st.inStock += 1;
+      });
+    });
+    return [...map.values()];
+  }, [products, warehouses]);
+
+  const categories = useMemo(
+    () => [...new Set(products.map((p) => p.category))].filter(Boolean).sort(),
+    [products],
+  );
 
   const filteredProducts = products.filter((prod) => {
     const matchesSearch = prod.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       prod.sku.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesCat = !selectedCategory || prod.category === selectedCategory;
-    const matchesWh = !selectedWarehouse || prod.warehouse === selectedWarehouse;
+    const matchesWh = !selectedWarehouse || prod.stocks.some((s) => s.warehouseId === Number(selectedWarehouse));
     return matchesSearch && matchesCat && matchesWh;
   });
+
+  const cardDecor = [
+    'bg-tertiary-container/10 group-hover:bg-tertiary-container/20',
+    'bg-secondary-container/10 group-hover:bg-secondary-container/20',
+    'bg-primary-container/10 group-hover:bg-primary-container/20',
+  ];
 
   return (
     <div className="flex flex-col w-full gap-xl">
@@ -53,55 +99,41 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ products, onNaviga
       </div>
 
       {/* Warehouse Status Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-lg">
-        <div className="bg-surface-container-lowest rounded-xl p-lg shadow-sm flex flex-col gap-md relative overflow-hidden group hover:shadow-md transition-shadow border border-outline-variant/20">
-          <div className="absolute -right-4 -top-4 w-24 h-24 bg-tertiary-container/10 rounded-full blur-xl group-hover:bg-tertiary-container/20 transition-colors"></div>
-          <div className="flex justify-between items-center">
-            <span className="font-headline-md text-headline-md text-on-surface">Depósito Central</span>
-            <span className="material-symbols-outlined text-tertiary-container">warehouse</span>
-          </div>
-          <div className="flex flex-col">
-            <span className="font-display-lg text-display-lg text-on-surface">14,250</span>
-            <span className="font-body-md text-body-md text-on-surface-variant">Unidades en stock</span>
-          </div>
-          <div className="flex items-center gap-sm mt-sm">
-            <span className="flex h-2 w-2 rounded-full bg-on-tertiary-container"></span>
-            <span className="font-label-md text-label-md text-on-surface-variant">Operativo</span>
-          </div>
+      {warehouseStats.length > 0 ? (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-lg">
+          {warehouseStats.map((w, idx) => (
+            <div key={w.id} className="bg-surface-container-lowest rounded-xl p-lg shadow-sm flex flex-col gap-md relative overflow-hidden group hover:shadow-md transition-shadow border border-outline-variant/20">
+              <div className={`absolute -right-4 -top-4 w-24 h-24 rounded-full blur-xl transition-colors ${cardDecor[idx % cardDecor.length]}`}></div>
+              <div className="flex justify-between items-center">
+                <span className="font-headline-md text-headline-md text-on-surface">{w.name}</span>
+                <span className="material-symbols-outlined text-tertiary-container">warehouse</span>
+              </div>
+              <div className="flex flex-col">
+                <span className="font-display-lg text-display-lg text-on-surface">{w.units.toLocaleString('es-ES')}</span>
+                <span className="font-body-md text-body-md text-on-surface-variant">Unidades en stock</span>
+              </div>
+              <div className="flex flex-wrap items-center gap-x-md gap-y-xs mt-sm">
+                <span className="flex items-center gap-xs">
+                  <span className="flex h-2 w-2 rounded-full bg-on-tertiary-container"></span>
+                  <span className="font-label-md text-label-md text-on-surface-variant">{w.inStock} en stock</span>
+                </span>
+                <span className="flex items-center gap-xs">
+                  <span className="flex h-2 w-2 rounded-full bg-error"></span>
+                  <span className="font-label-md text-label-md text-on-surface-variant">{w.lowStock} bajo mínimo</span>
+                </span>
+                <span className="flex items-center gap-xs">
+                  <span className="flex h-2 w-2 rounded-full bg-outline"></span>
+                  <span className="font-label-md text-label-md text-on-surface-variant">{w.outOfStock} agotados</span>
+                </span>
+              </div>
+            </div>
+          ))}
         </div>
-
-        <div className="bg-surface-container-lowest rounded-xl p-lg shadow-sm flex flex-col gap-md relative overflow-hidden group hover:shadow-md transition-shadow border border-outline-variant/20">
-          <div className="absolute -right-4 -top-4 w-24 h-24 bg-secondary-container/10 rounded-full blur-xl group-hover:bg-secondary-container/20 transition-colors"></div>
-          <div className="flex justify-between items-center">
-            <span className="font-headline-md text-headline-md text-on-surface">Tienda Norte</span>
-            <span className="material-symbols-outlined text-secondary-container">storefront</span>
-          </div>
-          <div className="flex flex-col">
-            <span className="font-display-lg text-display-lg text-on-surface">3,840</span>
-            <span className="font-body-md text-body-md text-on-surface-variant">Unidades en stock</span>
-          </div>
-          <div className="flex items-center gap-sm mt-sm">
-            <span className="flex h-2 w-2 rounded-full bg-error"></span>
-            <span className="font-label-md text-label-md text-on-surface-variant">Alerta de capacidad</span>
-          </div>
+      ) : (
+        <div className="bg-surface-container-lowest rounded-xl p-lg shadow-sm border border-outline-variant/20 text-center">
+          <span className="font-body-md text-body-md text-on-surface-variant">Sin datos de stock para mostrar.</span>
         </div>
-
-        <div className="bg-surface-container-lowest rounded-xl p-lg shadow-sm flex flex-col gap-md relative overflow-hidden group hover:shadow-md transition-shadow border border-outline-variant/20">
-          <div className="absolute -right-4 -top-4 w-24 h-24 bg-primary-container/10 rounded-full blur-xl group-hover:bg-primary-container/20 transition-colors"></div>
-          <div className="flex justify-between items-center">
-            <span className="font-headline-md text-headline-md text-on-surface">Tienda Sur</span>
-            <span className="material-symbols-outlined text-primary-container">storefront</span>
-          </div>
-          <div className="flex flex-col">
-            <span className="font-display-lg text-display-lg text-on-surface">2,105</span>
-            <span className="font-body-md text-body-md text-on-surface-variant">Unidades en stock</span>
-          </div>
-          <div className="flex items-center gap-sm mt-sm">
-            <span className="flex h-2 w-2 rounded-full bg-on-tertiary-container"></span>
-            <span className="font-label-md text-label-md text-on-surface-variant">Operativo</span>
-          </div>
-        </div>
-      </div>
+      )}
 
       {/* Main Inventory Table Card */}
       <div className="bg-surface-container-lowest rounded-xl shadow-sm flex flex-col border border-outline-variant/20">
@@ -123,11 +155,9 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ products, onNaviga
               className="bg-surface text-on-surface font-body-md text-body-md py-sm px-md rounded-lg shadow-sm border-none focus:ring-2 focus:ring-secondary-container cursor-pointer min-w-0"
             >
               <option value="">Todas las Categorías</option>
-              <option value="Electrónica">Electrónica</option>
-              <option value="Muebles">Muebles</option>
-              <option value="Ropa">Ropa</option>
-              <option value="Bebidas">Bebidas</option>
-              <option value="Snacks">Snacks</option>
+              {categories.map((cat) => (
+                <option key={cat} value={cat}>{cat}</option>
+              ))}
             </select>
             <select
               value={selectedWarehouse}
@@ -135,9 +165,9 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ products, onNaviga
               className="bg-surface text-on-surface font-body-md text-body-md py-sm px-md rounded-lg shadow-sm border-none focus:ring-2 focus:ring-secondary-container cursor-pointer min-w-0"
             >
               <option value="">Todos los Depósitos</option>
-              <option value="Depósito Central">Depósito Central</option>
-              <option value="Tienda Norte">Tienda Norte</option>
-              <option value="Tienda Sur">Tienda Sur</option>
+              {warehouseStats.map((w) => (
+                <option key={w.id} value={String(w.id)}>{w.name}</option>
+              ))}
             </select>
           </div>
         </div>
@@ -152,12 +182,11 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ products, onNaviga
                 <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider font-semibold border-b border-surface-container-highest text-right">Stock</th>
                 <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider font-semibold border-b border-surface-container-highest text-right">Precio</th>
                 <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider font-semibold border-b border-surface-container-highest text-center">Estado</th>
-                <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider font-semibold border-b border-surface-container-highest text-center">Acciones</th>
               </tr>
             </thead>
             <tbody className="font-body-md text-body-md text-on-surface divide-y divide-surface-container-highest">
               {filteredProducts.map((product) => (
-                <tr key={product.id} className="hover:bg-surface-container-low transition-colors group cursor-pointer">
+                <tr key={product.id} className="hover:bg-surface-container-low transition-colors group">
                   <td className="p-md flex items-center gap-md">
                     <div className="w-12 h-12 rounded-lg bg-surface-container overflow-hidden shrink-0 flex items-center justify-center">
                       {product.imageUrl ? (
@@ -187,27 +216,19 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ products, onNaviga
                       </span>
                     )}
                   </td>
-                  <td className="p-md text-center">
-                    <button className="text-on-surface-variant hover:text-primary transition-colors p-xs rounded-full hover:bg-surface-container-high opacity-100 tap-target">
-                      <span className="material-symbols-outlined text-[20px]">more_vert</span>
-                    </button>
-                  </td>
                 </tr>
               ))}
+              {filteredProducts.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="p-md text-center text-on-surface-variant">No se encontraron productos.</td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
 
         <div className="p-md bg-surface-container-lowest rounded-b-xl border-t border-surface-container-highest flex justify-between items-center flex-wrap gap-sm">
-          <span className="font-body-md text-body-md text-on-surface-variant">Mostrando 1-{filteredProducts.length} de {filteredProducts.length} productos</span>
-          <div className="flex gap-sm">
-            <button className="p-sm rounded-lg hover:bg-surface-container-high text-on-surface-variant disabled:opacity-50 transition-colors tap-target" disabled>
-              <span className="material-symbols-outlined">chevron_left</span>
-            </button>
-            <button className="p-sm rounded-lg hover:bg-surface-container-high text-on-surface-variant transition-colors tap-target">
-              <span className="material-symbols-outlined">chevron_right</span>
-            </button>
-          </div>
+          <span className="font-body-md text-body-md text-on-surface-variant">Mostrando {filteredProducts.length} de {products.length} productos</span>
         </div>
       </div>
     </div>

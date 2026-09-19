@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { ViewPath } from '../../types';
+import { apiFetch } from '../../lib/api';
 
 interface SidebarProps {
   currentView: ViewPath;
@@ -11,6 +12,23 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ currentView, facturaDirection, onNavigate, open, onClose }) => {
+  // Estado real del servicio: un único ping a /api/health al montar, sin polling.
+  const [online, setOnline] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch('/api/health', { auth: false })
+      .then(() => {
+        if (!cancelled) setOnline(true);
+      })
+      .catch(() => {
+        if (!cancelled) setOnline(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const getIsActive = (path: ViewPath) => {
     if (path === 'inventario') {
       return ['inventario', 'inventario-ajuste', 'inventario-transferencia', 'inventario-nuevo-producto'].includes(currentView);
@@ -145,13 +163,22 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, facturaDirection,
         <div className="p-md border-t border-slate-800/80 text-xs text-slate-400 flex flex-col gap-1.5 bg-[#080d1e]">
           <div className="flex items-center justify-between">
             <span>SaaS Status:</span>
-            <span className="text-emerald-400 font-bold flex items-center gap-1.5 text-[11px]">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-              En línea
-            </span>
-          </div>
-          <div className="font-mono text-[10px] text-slate-500">
-            v2.4.0 • Enterprise Cloud
+            {online === null ? (
+              <span className="text-slate-400 font-semibold flex items-center gap-1.5 text-[11px]">
+                <span className="w-2 h-2 rounded-full bg-slate-500"></span>
+                Verificando...
+              </span>
+            ) : online ? (
+              <span className="text-emerald-400 font-bold flex items-center gap-1.5 text-[11px]">
+                <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+                En línea
+              </span>
+            ) : (
+              <span className="text-red-400 font-bold flex items-center gap-1.5 text-[11px]">
+                <span className="w-2 h-2 rounded-full bg-red-400"></span>
+                Sin conexión
+              </span>
+            )}
           </div>
         </div>
       </aside>
