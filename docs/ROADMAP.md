@@ -88,7 +88,8 @@ npm test               # server — node:test + tsx: smoke API, cadena OC->REMIT
 - **Fase D — Portal público B2B multi-tenant**: parametrizar el portal por tenant (hoy usa la primera empresa demo) con subdominio/ruta y catálogo propio.
 - **Fase E — Pagos online (Mercado Pago)** en el checkout público: preferencia MP, webhook de confirmación → PEDIDO pagado.
 - **Fase F — Notificaciones por email**: emitir remitos, confirmar pedidos, recuperación de cuenta.
-- **Fase G — Ingeniería**: CI en GitHub Actions (`npm test` + tests server), observabilidad (logs estructurados + métricas en `/api/health`), backups automáticos de MySQL + restore documentado, gestión de tenants a nivel plataforma.
+- **Fase G — Ingeniería**: ~~CI en GitHub Actions (`npm test` + tests server)~~ ✅ CI añadido (`.github/workflows/ci.yml` — frontend lint+tests, server type-check+tests con MySQL service), observabilidad (logs estructurados + métricas en `/api/health`), backups automáticos de MySQL + restore documentado, gestión de tenants a nivel plataforma.
+- **Hardening 2026-09** ✅: webhook MP firma sobre body crudo, ajuste de stock atómico, params validados (400 en vez de 500), low-stock scoped por tenant, alta de producto con stock inicial + impuesto real, 14 índices FK (migración pendiente: `cd server && npx prisma migrate dev --name add_fk_indexes`). Detalle completo en [AUDIT.md](./AUDIT.md).
 
 ## Historial de despliegue
 
