@@ -66,6 +66,7 @@ model User {
   stockMovements StockMovement[]
   verifiedInvoices InvoiceData[] @relation("InvoiceDataVerifiedBy")
 
+  @@index([companyId])
   @@map("usuarios")
 }
 
@@ -79,6 +80,7 @@ model Role {
   users       UserRole[]
   permissions RolePermission[]
 
+  @@index([companyId])
   @@map("roles")
 }
 
@@ -233,6 +235,10 @@ model StockMovement {
   user          User      @relation(fields: [userId], references: [id])
   document      Document? @relation(fields: [documentId], references: [id])
 
+  @@index([productId])
+  @@index([warehouseFromId])
+  @@index([warehouseToId])
+  @@index([documentId])
   @@map("movimientos_stocks")
 }
 
@@ -251,6 +257,7 @@ model Client {
 
   documents Document[] @relation("DocumentClient")
 
+  @@index([companyId])
   @@map("clientes")
 }
 
@@ -266,6 +273,7 @@ model Supplier {
 
   documents Document[] @relation("DocumentSupplier")
 
+  @@index([companyId])
   @@map("proveedores")
 }
 
@@ -324,6 +332,9 @@ model Document {
 
   @@unique([companyId, type, series, number])
   @@index([companyId, type, date])
+  @@index([clientId])
+  @@index([supplierId])
+  @@index([userId])
   @@map("comprobantes")
 }
 
@@ -355,6 +366,7 @@ model DocumentItem {
   document      Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
   product       Product?  @relation(fields: [productId], references: [id])
 
+  @@index([documentId])
   @@map("comprobante_items")
 }
 
@@ -414,6 +426,8 @@ model Payment {
   document    Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
   cashBox     CashBox? @relation(fields: [cashBoxId], references: [id])
 
+  @@index([companyId])
+  @@index([documentId])
   @@map("pagos")
 }
 
