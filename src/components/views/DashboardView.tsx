@@ -48,59 +48,51 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ dashboard, onNavig
       {/* KPI Cards Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-md">
         <div className="bg-surface-container-lowest p-md rounded-xl shadow-sm flex flex-col gap-sm border border-outline-variant/20">
-          <div className="flex justify-between items-center text-on-surface-variant">
+          <div className="flex justify-between items-center gap-sm text-on-surface-variant">
             <span className="font-label-md text-label-md uppercase tracking-wider">Ventas ({dashboard.month})</span>
-            <span className="material-symbols-outlined text-[20px]">payments</span>
+            <span className="material-symbols-outlined text-[20px] shrink-0">payments</span>
           </div>
-          <div className="flex items-end gap-sm min-w-0">
-            <span className="font-display-lg text-headline-lg md:text-display-lg text-on-surface truncate min-w-0">{formatCurrency(dashboard.totalSalesMonth)}</span>
-            <div className="flex items-center text-on-tertiary-container bg-tertiary-fixed-dim/20 px-sm py-[2px] rounded-full mb-xs shrink-0">
-              <span className="material-symbols-outlined text-[14px]">trending_up</span>
-              <span className="font-mono-sm text-mono-sm ml-xs">ingresos</span>
-            </div>
+          <span className="font-display-lg text-headline-lg md:text-display-lg text-on-surface break-words">{formatCurrency(dashboard.totalSalesMonth)}</span>
+          <div className="flex items-center self-start text-on-tertiary-container bg-tertiary-fixed-dim/20 px-sm py-[2px] rounded-full">
+            <span className="material-symbols-outlined text-[14px]">trending_up</span>
+            <span className="font-mono-sm text-mono-sm ml-xs">ingresos</span>
           </div>
         </div>
 
         <div className="bg-surface-container-lowest p-md rounded-xl shadow-sm flex flex-col gap-sm border border-outline-variant/20">
-          <div className="flex justify-between items-center text-on-surface-variant">
+          <div className="flex justify-between items-center gap-sm text-on-surface-variant">
             <span className="font-label-md text-label-md uppercase tracking-wider">Flujo de Caja Neto</span>
-            <span className="material-symbols-outlined text-[20px]">account_balance</span>
+            <span className="material-symbols-outlined text-[20px] shrink-0">account_balance</span>
           </div>
-          <div className="flex items-end gap-sm min-w-0">
-            <span className={`font-display-lg text-headline-lg md:text-display-lg truncate min-w-0 ${dashboard.netCashFlow >= 0 ? 'text-on-surface' : 'text-error'}`}>
-              {formatCurrency(dashboard.netCashFlow)}
-            </span>
-            <div className="flex items-center text-on-surface-variant px-sm py-[2px] mb-xs shrink-0">
-              <span className="font-mono-sm text-mono-sm">ingresos − egresos</span>
-            </div>
+          <span className={`font-display-lg text-headline-lg md:text-display-lg break-words ${dashboard.netCashFlow >= 0 ? 'text-on-surface' : 'text-error'}`}>
+            {formatCurrency(dashboard.netCashFlow)}
+          </span>
+          <div className="flex items-center self-start text-on-surface-variant">
+            <span className="font-mono-sm text-mono-sm">ingresos − egresos</span>
           </div>
         </div>
 
         <div className="bg-surface-container-lowest p-md rounded-xl shadow-sm flex flex-col gap-sm border border-outline-variant/20">
-          <div className="flex justify-between items-center text-on-surface-variant">
+          <div className="flex justify-between items-center gap-sm text-on-surface-variant">
             <span className="font-label-md text-label-md uppercase tracking-wider">Órdenes de Compra Abiertas</span>
-            <span className="material-symbols-outlined text-[20px]">local_shipping</span>
+            <span className="material-symbols-outlined text-[20px] shrink-0">local_shipping</span>
           </div>
-          <div className="flex items-end gap-sm min-w-0">
-            <span className="font-display-lg text-headline-lg md:text-display-lg text-on-surface truncate min-w-0">{dashboard.pendingOrders}</span>
-            <div className="flex items-center text-on-surface-variant px-sm py-[2px] mb-xs shrink-0">
-              <span className="font-mono-sm text-mono-sm">pendientes de recepción</span>
-            </div>
+          <span className="font-display-lg text-headline-lg md:text-display-lg text-on-surface break-words">{dashboard.pendingOrders}</span>
+          <div className="flex items-center self-start text-on-surface-variant">
+            <span className="font-mono-sm text-mono-sm">pendientes de recepción</span>
           </div>
         </div>
 
         <div className="bg-surface-container-lowest p-md rounded-xl shadow-sm flex flex-col gap-sm border border-outline-variant/20">
-          <div className="flex justify-between items-center text-on-surface-variant">
+          <div className="flex justify-between items-center gap-sm text-on-surface-variant">
             <span className="font-label-md text-label-md uppercase tracking-wider">Alertas de Stock Bajo</span>
-            <span className="material-symbols-outlined text-[20px]">warning</span>
+            <span className="material-symbols-outlined text-[20px] shrink-0">warning</span>
           </div>
-          <div className="flex items-end gap-sm min-w-0">
-            <span className={`font-display-lg text-headline-lg md:text-display-lg truncate min-w-0 ${dashboard.lowStockCount > 0 ? 'text-error' : 'text-on-surface'}`}>
-              {dashboard.lowStockCount}
-            </span>
-            <div className="flex items-center text-on-surface-variant px-sm py-[2px] mb-xs shrink-0">
-              <span className="font-mono-sm text-mono-sm">SKUs bajo mínimo</span>
-            </div>
+          <span className={`font-display-lg text-headline-lg md:text-display-lg break-words ${dashboard.lowStockCount > 0 ? 'text-error' : 'text-on-surface'}`}>
+            {dashboard.lowStockCount}
+          </span>
+          <div className="flex items-center self-start text-on-surface-variant">
+            <span className="font-mono-sm text-mono-sm">SKUs bajo mínimo</span>
           </div>
         </div>
       </div>
