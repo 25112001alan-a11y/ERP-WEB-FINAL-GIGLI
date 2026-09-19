@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { requireAuth, requirePermission, tenantWhere } from '../middleware/auth.js';
 import { logAudit, clientIp } from '../lib/audit.js';
+import { parsePositiveInt } from '../lib/params.js';
 
 const router = Router();
 
@@ -19,9 +20,15 @@ const adjustSchema = z.object({
 /** GET /api/stock — stock per warehouse, tenant-scoped */
 router.get('/', async (req, res) => {
   const { warehouseId } = req.query;
+  const parsedWarehouseId =
+    warehouseId === undefined ? undefined : parsePositiveInt(warehouseId);
+  if (parsedWarehouseId === null) {
+    res.status(400).json({ error: 'Parámetro inválido' });
+    return;
+  }
   const stocks = await prisma.stock.findMany({
     where: {
-      ...(warehouseId ? { warehouseId: Number(warehouseId) } : {}),
+      ...(parsedWarehouseId !== undefined ? { warehouseId: parsedWarehouseId } : {}),
       // Stock has no companyId: tenancy resolves through product/warehouse relations.
       product: { companyId: req.authUser!.companyId },
       warehouse: { companyId: req.authUser!.companyId },
@@ -80,15 +87,18 @@ router.post('/adjust', requirePermission('inventario.escribir'), async (req, res
       });
     }
 
-    const newQuantity = Number(stock.quantity) + delta;
-    if (newQuantity < 0) {
+    // Atomic guarded increment: a single conditional UPDATE, so two concurrent
+    // adjustments can never both pass a read-then-write check and drive stock
+    // negative (lost update + oversell).
+    const updated = await tx.stock.updateMany({
+      where: { id: stock.id, quantity: { gte: -delta } },
+      data: { quantity: { increment: delta } },
+    });
+    if (updated.count === 0) {
       throw Object.assign(new Error('El ajuste dejaría stock negativo'), { status: 400 });
     }
 
-    const updated = await tx.stock.update({
-      where: { id: stock.id },
-      data: { quantity: newQuantity },
-    });
+    const stockRow = await tx.stock.findUnique({ where: { id: stock.id } });
 
     await tx.stockMovement.create({
       data: {
@@ -116,7 +126,7 @@ router.post('/adjust', requirePermission('inventario.escribir'), async (req, res
       clientIp(req),
     );
 
-    return { stock: updated, productName: product.name };
+    return { stock: stockRow, productName: product.name };
   });
 
   res.json({ ok: true, ...result });
