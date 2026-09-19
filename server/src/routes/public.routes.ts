@@ -150,7 +150,6 @@ router.post('/store/:slug/orders', async (req, res) => {
         subtotal,
         totalTax,
         total: subtotal + totalTax,
-        currency: 'USD',
         notes: data.notes ?? null,
         items: { create: lines },
       },

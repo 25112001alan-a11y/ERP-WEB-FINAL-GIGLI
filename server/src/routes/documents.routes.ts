@@ -483,8 +483,6 @@ router.post('/', requireAnyPermission('ventas.escribir', 'compras.escribir'), as
         subtotal,
         totalTax,
         total,
-        currency: 'USD',
-        exchangeRate: 1,
         notes: data.notes,
         items: {
           create: lines.map((l) => ({
@@ -785,7 +783,6 @@ router.post('/:id/receive', requirePermission('compras.escribir'), async (req, r
         subtotal,
         totalTax,
         total,
-        currency: 'USD',
         notes: data.notes,
         items: {
           create: lines.map((l) => ({
