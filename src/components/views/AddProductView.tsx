@@ -1,22 +1,24 @@
 import React, { useState } from 'react';
-import { ViewPath, Product } from '../../types';
+import { ViewPath, Product, TaxRate, WarehouseOption } from '../../types';
 
 interface AddProductViewProps {
   onAddProduct: (prod: Omit<Product, 'id'>) => void;
   onNavigate: (view: ViewPath) => void;
+  taxes: TaxRate[];
+  warehouses: WarehouseOption[];
 }
 
-export const AddProductView: React.FC<AddProductViewProps> = ({ onAddProduct, onNavigate }) => {
+export const AddProductView: React.FC<AddProductViewProps> = ({ onAddProduct, onNavigate, taxes, warehouses }) => {
   const [name, setName] = useState('');
   const [sku, setSku] = useState('');
   const [category, setCategory] = useState('Electrónica');
   const [description, setDescription] = useState('');
   const [initialStock, setInitialStock] = useState<number>(0);
   const [minStock, setMinStock] = useState<number>(5);
-  const [warehouse, setWarehouse] = useState('Depósito Central');
+  const [warehouseId, setWarehouseId] = useState<number | ''>('');
   const [costPrice, setCostPrice] = useState<number>(0);
   const [price, setPrice] = useState<number>(0);
-  const [taxRate, setTaxRate] = useState<number>(16);
+  const [taxId, setTaxId] = useState<number>(taxes[0]?.id ?? 0);
   const [active, setActive] = useState(true);
   const [allowOversell, setAllowOversell] = useState(false);
   const [imageUrl, setImageUrl] = useState('');
@@ -27,6 +29,8 @@ export const AddProductView: React.FC<AddProductViewProps> = ({ onAddProduct, on
     e.preventDefault();
     if (!name || !sku || price <= 0) return;
 
+    const selectedTax = taxes.find((t) => t.id === taxId);
+
     onAddProduct({
       sku,
       name,
@@ -34,10 +38,13 @@ export const AddProductView: React.FC<AddProductViewProps> = ({ onAddProduct, on
       description,
       stock: initialStock,
       minStock,
-      warehouse,
+      warehouse: warehouses.find((w) => w.id === warehouseId)?.name ?? '',
+      warehouseId: warehouseId || undefined,
       costPrice,
       price,
-      taxRate,
+      taxRate: selectedTax?.rate ?? 0,
+      taxId: selectedTax?.id ?? taxId,
+      stockInicial: initialStock,
       active,
       status: initialStock > minStock ? 'InStock' : initialStock > 0 ? 'LowStock' : 'OutOfStock',
       imageUrl: imageUrl || undefined,
@@ -166,13 +173,14 @@ export const AddProductView: React.FC<AddProductViewProps> = ({ onAddProduct, on
                 <div className="col-span-1">
                   <label className="block font-label-md text-label-md text-on-surface-variant mb-sm">Almacén Principal</label>
                   <select
-                    value={warehouse}
-                    onChange={(e) => setWarehouse(e.target.value)}
+                    value={warehouseId}
+                    onChange={(e) => setWarehouseId(e.target.value ? Number(e.target.value) : '')}
                     className="w-full bg-surface-container-low rounded-lg px-md py-sm font-body-md text-body-md text-on-surface focus:outline-none focus:ring-2 focus:ring-secondary-container transition-all cursor-pointer outline-none"
                   >
-                    <option value="Depósito Central">Bodega Central</option>
-                    <option value="Tienda Norte">Sucursal Norte</option>
-                    <option value="Tienda Sur">Sucursal Sur</option>
+                    <option value="">Sin almacén</option>
+                    {warehouses.map((w) => (
+                      <option key={w.id} value={w.id}>{w.name}</option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -219,14 +227,15 @@ export const AddProductView: React.FC<AddProductViewProps> = ({ onAddProduct, on
                 <div className="col-span-1">
                   <label className="block font-label-md text-label-md text-on-surface-variant mb-sm">Impuesto (IVA)</label>
                   <select
-                    value={taxRate}
-                    onChange={(e) => setTaxRate(Number(e.target.value))}
+                    value={taxId}
+                    onChange={(e) => setTaxId(Number(e.target.value))}
                     className="w-full bg-surface-container-low rounded-lg px-md py-sm font-body-md text-body-md text-on-surface focus:outline-none focus:ring-2 focus:ring-secondary-container transition-all cursor-pointer outline-none"
                   >
-                    <option value={16}>16%</option>
-                    <option value={12}>12%</option>
-                    <option value={8}>8%</option>
-                    <option value={0}>0% (Exento)</option>
+                    {taxes.filter((t) => t.active).map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name} ({t.rate}%)
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <div className="col-span-3 mt-sm">

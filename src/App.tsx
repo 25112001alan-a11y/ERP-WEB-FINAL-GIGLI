@@ -107,16 +107,17 @@ export default function App() {
         apiFetch<ApiDocument[]>('/api/documents?type=COMPRA'),
         apiFetch<ApiDocument[]>('/api/documents?type=REMITO'),
         apiFetch<ApiDocument[]>('/api/documents?type=FACTURA'),
-        apiFetch<{ id: number; name: string; contact: string | null }[]>('/api/suppliers'),
+        apiFetch<{ id: number; name: string; email: string; phone: string | null; taxId: string | null; contact: string | null }[]>('/api/suppliers'),
         apiFetch<{ id: number; name: string }[]>('/api/stock/warehouses'),
       ]);
       setSuppliers(
         sups.map((s) => ({
           id: String(s.id),
           name: s.name,
-          email: '',
-          phone: '',
-          taxId: '',
+          email: s.email ?? '',
+          phone: s.phone,
+          taxId: s.taxId,
+          contact: s.contact,
           contactPerson: s.contact ?? '',
         })),
       );
@@ -185,7 +186,7 @@ export default function App() {
           method: t.method,
           amount: t.amount,
           type: t.type,
-          status: t.status === 'Conciliado' ? 'Conciliado' : 'Completado',
+          status: t.status,
         })),
       );
       return true;
@@ -367,23 +368,23 @@ export default function App() {
   const handleAddProduct = async (newProduct: Omit<Product, 'id'>) => {
     try {
       const categories = await apiFetch<{ id: number; name: string }[]>('/api/products/categories');
-      const taxes = await apiFetch<{ id: number; rate: number; active: boolean }[]>('/api/products/taxes');
       const categoryId = categories.find((c) => c.name === newProduct.category)?.id;
-      const tax = taxes.find((t) => t.active && t.rate === newProduct.taxRate);
-      await apiFetch('/api/products', {
-        method: 'POST',
-        body: {
-          name: newProduct.name,
-          internalCode: newProduct.sku,
-          description: newProduct.description,
-          salePrice: newProduct.price,
-          costPrice: newProduct.costPrice ?? 0,
-          categoryId,
-          taxId: tax?.id,
-          allowOversell: newProduct.allowOversell ?? false,
-          active: true,
-        },
-      });
+      const body: Record<string, unknown> = {
+        name: newProduct.name,
+        internalCode: newProduct.sku,
+        description: newProduct.description,
+        salePrice: newProduct.price,
+        costPrice: newProduct.costPrice ?? 0,
+        categoryId,
+        taxId: newProduct.taxId ?? taxes.find((t) => t.active && t.rate === newProduct.taxRate)?.id,
+        allowOversell: newProduct.allowOversell ?? false,
+        active: true,
+      };
+      if (newProduct.stockInicial != null && newProduct.stockInicial > 0 && newProduct.warehouseId) {
+        body.stockInicial = newProduct.stockInicial;
+        body.warehouseId = newProduct.warehouseId;
+      }
+      await apiFetch('/api/products', { method: 'POST', body });
       await loadProducts();
       setCurrentView('inventario');
     } catch (err) {
@@ -766,7 +767,12 @@ if (isPublicOrAuth) {
               />
             )}
             {currentView === 'inventario-nuevo-producto' && (
-              <AddProductView onAddProduct={handleAddProduct} onNavigate={navigate} />
+              <AddProductView
+                onAddProduct={handleAddProduct}
+                onNavigate={navigate}
+                taxes={taxes}
+                warehouses={warehouses}
+              />
             )}
             {currentView === 'pos' && (
               <PosView products={products} onCompleteSale={handleCompleteSale} onNavigate={navigate} />

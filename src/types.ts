@@ -34,10 +34,13 @@ export interface Product {
   price: number;
   costPrice: number;
   taxRate: number;
+  taxId?: number;
   status: 'InStock' | 'LowStock' | 'OutOfStock';
   active: boolean;
   allowOversell?: boolean;
   warehouse: string;
+  stockInicial?: number;
+  warehouseId?: number;
   description?: string;
   imageUrl?: string;
 }
@@ -59,9 +62,10 @@ export interface Supplier {
   id: string;
   name: string;
   email: string;
-  phone: string;
-  taxId: string;
-  contactPerson: string;
+  phone: string | null;
+  taxId: string | null;
+  contact?: string | null;
+  contactPerson?: string;
 }
 
 export interface SaleTransaction {
@@ -163,7 +167,7 @@ export interface FinanceTransaction {
   method: string;
   amount: number;
   type: 'Ingreso' | 'Egreso';
-  status: 'Completado' | 'Conciliado';
+  status: string;
 }
 
 export interface CartItem {

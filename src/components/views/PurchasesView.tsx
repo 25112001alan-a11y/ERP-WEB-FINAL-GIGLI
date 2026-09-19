@@ -264,7 +264,7 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ orders, suppliers,
                       <div className="flex-1 min-w-0">
                         <h3 className="font-headline-md text-headline-md text-on-surface truncate">{sup.name}</h3>
                         <p className="font-body-md text-body-md text-on-surface-variant truncate">{sup.email}</p>
-                        <p className="font-mono-sm text-xs text-outline mt-1">{sup.phone} • NIF: {sup.taxId}</p>
+                        <p className="font-mono-sm text-xs text-outline mt-1">{sup.phone ?? ''} • NIF: {sup.taxId ?? ''}</p>
                       </div>
                       <span className="material-symbols-outlined text-outline">chevron_right</span>
                     </div>
