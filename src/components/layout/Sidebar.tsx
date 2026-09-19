@@ -85,7 +85,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate, open,
           </div>
           <button
             onClick={onClose}
-            className="lg:hidden p-sm -mr-sm rounded-lg hover:bg-slate-800/60 transition-colors text-slate-300 cursor-pointer tap-target"
+            className="lg:hidden p-md -mr-sm rounded-lg hover:bg-slate-800/60 transition-colors text-slate-300 cursor-pointer"
             aria-label="Cerrar menú"
           >
             <span className="material-symbols-outlined text-[20px]">close</span>
