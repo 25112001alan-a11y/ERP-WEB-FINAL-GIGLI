@@ -4,9 +4,11 @@ import { ViewPath, SaleTransaction } from '../../types';
 interface SalesViewProps {
   sales: SaleTransaction[];
   onNavigate: (view: ViewPath) => void;
+  /** Opens the invoice form already locked to a sale invoice (egreso). */
+  onOpenRegistrarFactura: () => void;
 }
 
-export const SalesView: React.FC<SalesViewProps> = ({ sales, onNavigate }) => {
+export const SalesView: React.FC<SalesViewProps> = ({ sales, onNavigate, onOpenRegistrarFactura }) => {
   const [selectedSale, setSelectedSale] = useState<SaleTransaction | null>(sales[0] || null);
 
   const now = new Date();
@@ -250,7 +252,7 @@ export const SalesView: React.FC<SalesViewProps> = ({ sales, onNavigate }) => {
 
             <div className="p-md bg-surface-container-low border-t border-outline-variant/30 flex flex-col gap-sm">
               <button
-                onClick={() => onNavigate('registrar-factura')}
+                onClick={() => onOpenRegistrarFactura()}
                 className="w-full py-2 bg-secondary text-on-secondary rounded font-label-md text-label-md flex items-center justify-center gap-sm hover:opacity-90 transition-opacity cursor-pointer shadow-sm"
               >
                 <span className="material-symbols-outlined text-[18px]">receipt_long</span>

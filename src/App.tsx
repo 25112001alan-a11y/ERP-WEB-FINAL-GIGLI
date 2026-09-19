@@ -44,12 +44,20 @@ export default function App() {
   const { user, logout, loading } = useAuth();
   const [currentView, setCurrentView] = useState<ViewPath>(user ? 'dashboard' : 'auth-login');
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  // The entry point decides the invoice direction: Compras -> compra (ingreso),
+  // Ventas -> venta (egreso). The form no longer asks for it.
+  const [facturaDirection, setFacturaDirection] = useState<'ingreso' | 'egreso'>('ingreso');
 
   // Navegación central: cambia de vista y cierra el drawer mobile siempre.
   const navigate = useCallback((view: ViewPath) => {
     setCurrentView(view);
     setSidebarOpen(false);
   }, []);
+
+  const openRegistrarFactura = useCallback((direction: 'ingreso' | 'egreso') => {
+    setFacturaDirection(direction);
+    navigate('registrar-factura');
+  }, [navigate]);
 
   // Global State Collections
   const [products, setProducts] = useState<Product[]>([]);
@@ -757,13 +765,21 @@ if (isPublicOrAuth) {
             {currentView === 'pos' && (
               <PosView products={products} onCompleteSale={handleCompleteSale} onNavigate={navigate} />
             )}
-            {currentView === 'ventas' && <SalesView sales={sales} onNavigate={navigate} />}
+            {currentView === 'ventas' && (
+              <SalesView sales={sales} onNavigate={navigate} onOpenRegistrarFactura={() => openRegistrarFactura('egreso')} />
+            )}
             {currentView === 'pedidos-publicos' && (
               <PublicOrdersView orders={publicOrders} onNavigate={navigate} />
             )}
             {currentView === 'nuevo-pedido-manual' && <NewManualOrderView products={products} onNavigate={navigate} />}
             {currentView === 'compras' && (
-              <PurchasesView orders={purchaseOrders} suppliers={suppliers} onNavigate={navigate} />
+              <PurchasesView
+                orders={purchaseOrders}
+                suppliers={suppliers}
+                onNavigate={navigate}
+                onSupplierCreated={loadPurchases}
+                onOpenRegistrarFactura={() => openRegistrarFactura('ingreso')}
+              />
             )}
             {currentView === 'nueva-orden-compra' && (
               <NewPurchaseOrderView
@@ -789,6 +805,7 @@ if (isPublicOrAuth) {
                 salesDocs={salesDocs}
                 remitoDocs={remitoDocs}
                 products={products}
+                direction={facturaDirection}
                 onCreateFactura={handleCreateFactura}
                 onNavigate={navigate}
               />

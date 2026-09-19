@@ -7,6 +7,8 @@ interface RegistrarFacturaViewProps {
   salesDocs: ApiDocument[];
   remitoDocs: ApiDocument[];
   products: Product[];
+  /** Fixed by the entry point: Compras opens 'ingreso', Ventas opens 'egreso'. */
+  direction: 'ingreso' | 'egreso';
   onCreateFactura: (payload: {
     direction: 'ingreso' | 'egreso';
     sourceDocumentId?: number;
@@ -35,10 +37,10 @@ export const RegistrarFacturaView: React.FC<RegistrarFacturaViewProps> = ({
   salesDocs,
   remitoDocs,
   products,
+  direction,
   onCreateFactura,
   onNavigate,
 }) => {
-  const [direction, setDirection] = useState<'ingreso' | 'egreso'>('ingreso');
   const [sourceId, setSourceId] = useState('');
   const [supplierId, setSupplierId] = useState('');
   const [clientName, setClientName] = useState('');
@@ -161,7 +163,9 @@ export const RegistrarFacturaView: React.FC<RegistrarFacturaViewProps> = ({
             <span className="material-symbols-outlined text-[16px]">chevron_right</span>
             <span className="text-on-surface font-semibold">Registrar Factura</span>
           </nav>
-          <h1 className="font-display-lg text-display-lg text-on-surface tracking-tight">Registrar Factura (AFIP)</h1>
+          <h1 className="font-display-lg text-display-lg text-on-surface tracking-tight">
+            Registrar Factura de {direction === 'ingreso' ? 'Compra' : 'Venta'} (AFIP)
+          </h1>
         </div>
         <div className="flex gap-sm flex-wrap">
           <button
@@ -200,29 +204,7 @@ export const RegistrarFacturaView: React.FC<RegistrarFacturaViewProps> = ({
             </div>
           )}
 
-          {/* Direction toggle */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-md max-w-md">
-            <button
-              onClick={() => { setDirection('ingreso'); setSourceId(''); setSupplierId(''); }}
-              className={`px-md py-sm rounded-lg border font-label-md text-label-md uppercase tracking-wider cursor-pointer transition-colors ${
-                direction === 'ingreso'
-                  ? 'bg-primary text-on-primary border-primary shadow-md'
-                  : 'bg-surface-container-lowest border-outline-variant text-on-surface-variant hover:bg-surface-container'
-              }`}
-            >
-              Factura de Compra (ingreso)
-            </button>
-            <button
-              onClick={() => { setDirection('egreso'); setSourceId(''); setSupplierId(''); }}
-              className={`px-md py-sm rounded-lg border font-label-md text-label-md uppercase tracking-wider cursor-pointer transition-colors ${
-                direction === 'egreso'
-                  ? 'bg-primary text-on-primary border-primary shadow-md'
-                  : 'bg-surface-container-lowest border-outline-variant text-on-surface-variant hover:bg-surface-container'
-              }`}
-            >
-              Factura de Venta (egreso)
-            </button>
-          </div>
+          {/* Direction is fixed by the entry point (Compras / Ventas) */}
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-lg">
             <div className="lg:col-span-2 space-y-lg">

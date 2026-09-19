@@ -1,19 +1,55 @@
 import React, { useState } from 'react';
 import { ViewPath, PurchaseOrder, Supplier } from '../../types';
 import { SupplierVoucherModal, SupplierVoucherData } from '../SupplierVoucherModal';
+import { apiFetch } from '../../lib/api';
 
 interface PurchasesViewProps {
   orders: PurchaseOrder[];
   suppliers: Supplier[];
   onNavigate: (view: ViewPath) => void;
+  onSupplierCreated: () => void;
+  /** Opens the invoice form already locked to a purchase invoice (ingreso). */
+  onOpenRegistrarFactura: () => void;
 }
 
-export const PurchasesView: React.FC<PurchasesViewProps> = ({ orders, suppliers, onNavigate }) => {
+export const PurchasesView: React.FC<PurchasesViewProps> = ({ orders, suppliers, onNavigate, onSupplierCreated, onOpenRegistrarFactura }) => {
   const [activeTab, setActiveTab] = useState<'po' | 'suppliers'>('po');
   const [poSearch, setPoSearch] = useState('');
   const [supplierSearch, setSupplierSearch] = useState('');
   const [voucherOverrides, setVoucherOverrides] = useState<Record<number, Partial<PurchaseOrder>>>({});
   const [editingDoc, setEditingDoc] = useState<{ documentId: number; label: string; data: SupplierVoucherData } | null>(null);
+  const [showNewSupplier, setShowNewSupplier] = useState(false);
+  const [newSupplier, setNewSupplier] = useState({ name: '', taxId: '', email: '', phone: '' });
+  const [supplierSaving, setSupplierSaving] = useState(false);
+  const [supplierError, setSupplierError] = useState('');
+
+  const handleCreateSupplier = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newSupplier.name.trim()) {
+      setSupplierError('Ingrese el nombre del proveedor.');
+      return;
+    }
+    setSupplierSaving(true);
+    setSupplierError('');
+    try {
+      await apiFetch('/api/suppliers', {
+        method: 'POST',
+        body: {
+          name: newSupplier.name.trim(),
+          taxId: newSupplier.taxId.trim() || undefined,
+          email: newSupplier.email.trim() || '',
+          phone: newSupplier.phone.trim() || undefined,
+        },
+      });
+      setShowNewSupplier(false);
+      setNewSupplier({ name: '', taxId: '', email: '', phone: '' });
+      onSupplierCreated();
+    } catch (err) {
+      setSupplierError(err instanceof Error ? err.message : 'No se pudo crear el proveedor.');
+    } finally {
+      setSupplierSaving(false);
+    }
+  };
 
   const filteredOrders = orders.filter(
     (o) =>
@@ -38,7 +74,7 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ orders, suppliers,
           </div>
           <div className="flex gap-md flex-wrap">
             <button
-              onClick={() => onNavigate('registrar-factura')}
+              onClick={() => onOpenRegistrarFactura()}
               className="flex items-center gap-sm px-md py-sm bg-surface text-on-surface font-label-md text-label-md uppercase tracking-wider rounded-lg shadow-sm hover:shadow-md transition-shadow cursor-pointer border border-outline-variant/30"
             >
               <span className="material-symbols-outlined text-[18px]">receipt_long</span>
@@ -210,7 +246,7 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ orders, suppliers,
                     />
                   </div>
                   <button
-                    onClick={() => alert('Formulario de Nuevo Proveedor')}
+                    onClick={() => setShowNewSupplier(true)}
                     className="flex items-center gap-xs text-primary font-label-md text-label-md hover:bg-surface-container-low px-sm py-xs rounded cursor-pointer"
                   >
                     <span className="material-symbols-outlined text-[16px]">add</span> Nuevo Proveedor
@@ -273,6 +309,99 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ orders, suppliers,
           </div>
         </div>
       </div>
+
+      {/* Nuevo Proveedor Modal */}
+      {showNewSupplier && (
+        <div
+          className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-md"
+          onClick={() => setShowNewSupplier(false)}
+        >
+          <form
+            onSubmit={handleCreateSupplier}
+            onClick={(e) => e.stopPropagation()}
+            className="bg-surface-container-lowest rounded-xl shadow-2xl w-full max-w-[672px] max-h-[90dvh] overflow-y-auto p-lg flex flex-col gap-md border border-outline-variant/20"
+          >
+            <div className="flex items-center justify-between">
+              <h2 className="font-headline-md text-headline-md text-on-surface">Nuevo Proveedor</h2>
+              <button
+                type="button"
+                onClick={() => setShowNewSupplier(false)}
+                className="text-outline hover:text-on-surface cursor-pointer"
+              >
+                <span className="material-symbols-outlined text-[20px]">close</span>
+              </button>
+            </div>
+
+            {supplierError && (
+              <div className="bg-error/10 text-error px-md py-sm rounded-lg border border-error/30 font-body-md">
+                {supplierError}
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-md">
+              <div className="flex flex-col gap-xs sm:col-span-2">
+                <label className="font-label-md text-label-md text-on-surface-variant uppercase">Nombre *</label>
+                <input
+                  type="text"
+                  value={newSupplier.name}
+                  onChange={(e) => setNewSupplier({ ...newSupplier, name: e.target.value })}
+                  placeholder="Razón social"
+                  className="w-full bg-surface border border-outline-variant/50 rounded-lg px-md py-sm focus:border-primary outline-none"
+                  autoFocus
+                />
+              </div>
+              <div className="flex flex-col gap-xs">
+                <label className="font-label-md text-label-md text-on-surface-variant uppercase">CUIT / NIF</label>
+                <input
+                  type="text"
+                  value={newSupplier.taxId}
+                  onChange={(e) => setNewSupplier({ ...newSupplier, taxId: e.target.value })}
+                  placeholder="Opcional"
+                  className="w-full bg-surface border border-outline-variant/50 rounded-lg px-md py-sm focus:border-primary outline-none"
+                />
+              </div>
+              <div className="flex flex-col gap-xs">
+                <label className="font-label-md text-label-md text-on-surface-variant uppercase">Email</label>
+                <input
+                  type="email"
+                  value={newSupplier.email}
+                  onChange={(e) => setNewSupplier({ ...newSupplier, email: e.target.value })}
+                  placeholder="Opcional"
+                  className="w-full bg-surface border border-outline-variant/50 rounded-lg px-md py-sm focus:border-primary outline-none"
+                />
+              </div>
+              <div className="flex flex-col gap-xs sm:col-span-2">
+                <label className="font-label-md text-label-md text-on-surface-variant uppercase">Teléfono</label>
+                <input
+                  type="text"
+                  value={newSupplier.phone}
+                  onChange={(e) => setNewSupplier({ ...newSupplier, phone: e.target.value })}
+                  placeholder="Opcional"
+                  className="w-full bg-surface border border-outline-variant/50 rounded-lg px-md py-sm focus:border-primary outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-md pt-sm border-t border-surface-container-high">
+              <button
+                type="button"
+                onClick={() => setShowNewSupplier(false)}
+                className="px-md py-sm rounded-lg font-label-md text-label-md text-on-surface-variant hover:bg-surface-container-low transition-colors cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                disabled={supplierSaving}
+                className="px-md py-sm rounded-lg bg-primary text-on-primary font-label-md text-label-md uppercase tracking-wider hover:opacity-90 transition-opacity cursor-pointer disabled:opacity-50 flex items-center gap-sm"
+              >
+                <span className="material-symbols-outlined text-[18px]">add</span>
+                {supplierSaving ? 'Creando...' : 'Crear Proveedor'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
 
       {/* Supplier Voucher Modal */}
       {editingDoc && (
