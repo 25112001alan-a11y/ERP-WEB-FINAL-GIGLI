@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ViewPath } from '../../types';
 import { useAuth } from '../../lib/auth';
 
@@ -19,6 +19,31 @@ export const Header: React.FC<HeaderProps> = ({
   const [showQuickNav, setShowQuickNav] = useState(false);
   const [notificationsOpen, setShowNotificationsOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+
+  const quickNavRef = useRef<HTMLDivElement>(null);
+  const notificationsRef = useRef<HTMLDivElement>(null);
+  const profileRef = useRef<HTMLDivElement>(null);
+
+  // Any click outside an open panel dismisses it (including the buttons that
+  // open another one: the panels close each other in their own handlers).
+  useEffect(() => {
+    if (!showQuickNav && !notificationsOpen && !profileOpen) return;
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (
+        quickNavRef.current?.contains(target) ||
+        notificationsRef.current?.contains(target) ||
+        profileRef.current?.contains(target)
+      ) {
+        return;
+      }
+      setShowQuickNav(false);
+      setShowNotificationsOpen(false);
+      setProfileOpen(false);
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    return () => document.removeEventListener('mousedown', onPointerDown);
+  }, [showQuickNav, notificationsOpen, profileOpen]);
 
   const displayName = user ? `${user.firstName} ${user.lastName}`.trim() : 'Admin User';
   const companyName = user?.company?.name ?? 'SaaS Enterprise Tenant';
@@ -45,18 +70,26 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Quick View Switcher Button */}
         <button
-          onClick={() => setShowQuickNav(!showQuickNav)}
+          onClick={() => {
+            setShowQuickNav(!showQuickNav);
+            setShowNotificationsOpen(false);
+            setProfileOpen(false);
+          }}
           title="Vista Rápida de Pantallas"
-          className="hidden sm:flex items-center gap-xs px-sm py-xs bg-surface-container-high text-on-surface hover:bg-surface-container-highest rounded-lg transition-colors font-label-md text-label-md cursor-pointer"
+          className="flex items-center gap-xs px-sm py-xs bg-surface-container-high text-on-surface hover:bg-surface-container-highest rounded-lg transition-colors font-label-md text-label-md cursor-pointer"
         >
           <span className="material-symbols-outlined text-[18px] text-secondary">widgets</span>
           <span className="hidden sm:inline">Navegación</span>
         </button>
 
         {/* Notifications */}
-        <div className="relative">
+        <div className="relative" ref={notificationsRef}>
           <button
-            onClick={() => setShowNotificationsOpen(!notificationsOpen)}
+            onClick={() => {
+              setShowNotificationsOpen(!notificationsOpen);
+              setShowQuickNav(false);
+              setProfileOpen(false);
+            }}
             className="relative p-base hover:bg-surface-container-high rounded-full transition-colors cursor-pointer"
           >
             <span className="material-symbols-outlined text-on-surface-variant">notifications</span>
@@ -64,21 +97,21 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
 
           {notificationsOpen && (
-            <div className="absolute right-0 mt-2 w-80 bg-surface-container-lowest rounded-xl shadow-xl border border-outline-variant/30 p-md z-50">
+            <div className="fixed top-16 left-md right-md sm:absolute sm:top-auto sm:left-auto sm:right-0 sm:mt-2 sm:w-80 bg-surface-container-lowest rounded-xl shadow-xl border border-outline-variant/30 p-md z-50">
               <div className="flex items-center justify-between border-b border-outline-variant/20 pb-xs mb-sm">
                 <span className="font-headline-md text-[14px] text-on-surface">Notificaciones</span>
                 <span className="font-mono-sm text-[10px] bg-error-container text-on-error-container px-2 py-0.5 rounded-full">3 Nuevas</span>
               </div>
               <div className="space-y-sm max-h-64 overflow-y-auto">
-                <div className="p-xs hover:bg-surface-container-low rounded-lg transition-colors cursor-pointer" onClick={() => onNavigate('pedidos-publicos')}>
+                <div className="p-xs hover:bg-surface-container-low rounded-lg transition-colors cursor-pointer" onClick={() => { setShowNotificationsOpen(false); onNavigate('pedidos-publicos'); }}>
                   <p className="font-label-md text-on-surface">Nuevo Pedido Público #ORD-99321</p>
                   <p className="font-body-md text-xs text-on-surface-variant">Carlos Aranda - $3,450.00</p>
                 </div>
-                <div className="p-xs hover:bg-surface-container-low rounded-lg transition-colors cursor-pointer" onClick={() => onNavigate('inventario')}>
+                <div className="p-xs hover:bg-surface-container-low rounded-lg transition-colors cursor-pointer" onClick={() => { setShowNotificationsOpen(false); onNavigate('inventario'); }}>
                   <p className="font-label-md text-error">Alerta de Stock Bajo</p>
                   <p className="font-body-md text-xs text-on-surface-variant">Teclado Mecánico K2 (12 unidades restantes)</p>
                 </div>
-                <div className="p-xs hover:bg-surface-container-low rounded-lg transition-colors cursor-pointer" onClick={() => onNavigate('finanzas')}>
+                <div className="p-xs hover:bg-surface-container-low rounded-lg transition-colors cursor-pointer" onClick={() => { setShowNotificationsOpen(false); onNavigate('finanzas'); }}>
                   <p className="font-label-md text-on-tertiary-container">Conciliación Bancaria</p>
                   <p className="font-body-md text-xs text-on-surface-variant">Transacción TX-8921 recibida con éxito</p>
                 </div>
@@ -88,13 +121,17 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         {/* User Profile Dropdown */}
-        <div className="flex items-center gap-sm pl-0 sm:pl-md border-l-0 sm:border-l border-outline-variant relative">
+        <div className="flex items-center gap-sm pl-0 sm:pl-md border-l-0 sm:border-l border-outline-variant relative" ref={profileRef}>
           <div className="text-right hidden lg:block">
             <p className="text-body-md font-bold leading-tight">{displayName}</p>
             <p className="text-mono-sm text-on-surface-variant uppercase">{user?.roles[0] ?? 'Super Administrador'}</p>
           </div>
           <button
-            onClick={() => setProfileOpen(!profileOpen)}
+            onClick={() => {
+              setProfileOpen(!profileOpen);
+              setShowQuickNav(false);
+              setShowNotificationsOpen(false);
+            }}
             title="Mi cuenta"
             className="w-8 h-8 rounded-full bg-primary hover:bg-primary-container transition-colors flex items-center justify-center text-on-primary cursor-pointer tap-target"
           >
@@ -102,7 +139,7 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
 
           {profileOpen && (
-            <div className="absolute right-0 top-10 mt-2 w-64 bg-surface-container-lowest rounded-xl shadow-xl border border-outline-variant/30 p-md z-50">
+            <div className="absolute right-0 top-10 mt-2 w-64 max-w-[calc(100vw-3rem)] bg-surface-container-lowest rounded-xl shadow-xl border border-outline-variant/30 p-md z-50">
               <div className="border-b border-outline-variant/20 pb-sm mb-sm">
                 <p className="font-headline-md text-[14px] text-on-surface">{displayName}</p>
                 <p className="font-body-md text-xs text-on-surface-variant truncate">{user?.email}</p>
@@ -122,7 +159,7 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* Quick Navigation Drawer/Modal */}
       {showQuickNav && (
-        <div className="absolute top-16 right-lg w-[min(90vw,24rem)] bg-surface-container-lowest rounded-xl shadow-2xl border border-outline-variant/30 p-lg z-50">
+        <div ref={quickNavRef} className="absolute top-16 right-lg w-[min(90vw,24rem)] bg-surface-container-lowest rounded-xl shadow-2xl border border-outline-variant/30 p-lg z-50">
           <div className="flex items-center justify-between border-b border-outline-variant/20 pb-sm mb-md">
             <h3 className="font-headline-md text-headline-md text-on-surface">Pantallas de Nexus ERP</h3>
             <button onClick={() => setShowQuickNav(false)} className="text-outline hover:text-on-surface">
