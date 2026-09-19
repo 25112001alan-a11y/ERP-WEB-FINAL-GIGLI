@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  frontend:
+    name: Frontend (lint + tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+
+  server:
+    name: Server (type-check + tests)
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8
+        env:
+          MYSQL_ROOT_PASSWORD: nexus-ci
+          MYSQL_DATABASE: nexus_erp_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -uroot -pnexus-ci"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - run: npx prisma db push
+        env:
+          DATABASE_URL: mysql://root:nexus-ci@localhost:3306/nexus_erp_test
+      - run: npm run prisma:seed
+        env:
+          DATABASE_URL: mysql://root:nexus-ci@localhost:3306/nexus_erp_test
+      - name: Run server tests (rate limit disabled by test setup)
+        run: npm test
+        env:
+          DATABASE_URL: mysql://root:nexus-ci@localhost:3306/nexus_erp_test
+          RATE_LIMIT_DISABLED: "true"
