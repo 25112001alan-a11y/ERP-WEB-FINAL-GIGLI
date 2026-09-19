@@ -16,6 +16,7 @@ import {
 import { logAudit, clientIp } from '../lib/audit.js';
 import { reserveNextNumber } from '../lib/numbering.js';
 import { assertDocCreationAllowed } from '../lib/billing.js';
+import { parsePositiveInt } from '../lib/params.js';
 
 const router = Router();
 
@@ -136,10 +137,19 @@ const documentSchema = z.object({
 /** GET /api/documents — tenant-scoped list with totals */
 router.get('/', requireAnyPermission('ventas.leer', 'compras.leer'), async (req, res) => {
   const { type } = req.query;
+  let typeFilter: DocumentType | undefined;
+  if (type !== undefined) {
+    const parsedType = documentSchema.shape.type.safeParse(type);
+    if (!parsedType.success) {
+      res.status(400).json({ error: 'Tipo de documento inválido' });
+      return;
+    }
+    typeFilter = parsedType.data;
+  }
   const documents = await prisma.document.findMany({
     where: {
       ...tenantWhere(req),
-      ...(typeof type === 'string' ? { type: type as DocumentType } : {}),
+      ...(typeFilter ? { type: typeFilter } : {}),
     },
     include: {
       client: { select: { id: true, name: true, type: true } },
@@ -174,7 +184,11 @@ router.get('/', requireAnyPermission('ventas.leer', 'compras.leer'), async (req,
 
 /** GET /api/documents/:id */
 router.get('/:id', requireAnyPermission('ventas.leer', 'compras.leer'), async (req, res) => {
-  const id = Number(req.params.id);
+  const id = parsePositiveInt(req.params.id);
+  if (id === null) {
+    res.status(400).json({ error: 'Parámetro inválido' });
+    return;
+  }
   const document = await prisma.document.findFirst({
     where: { id, ...tenantWhere(req) },
     include: {
@@ -656,7 +670,11 @@ const receiveSchema = z.object({
  *   - marks the OC as Parcial or Recibido
  */
 router.post('/:id/receive', requirePermission('compras.escribir'), async (req, res) => {
-  const id = Number(req.params.id);
+  const id = parsePositiveInt(req.params.id);
+  if (id === null) {
+    res.status(400).json({ error: 'Parámetro inválido' });
+    return;
+  }
   const parsed = receiveSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
@@ -861,7 +879,11 @@ router.patch(
   '/:id/external',
   requireAnyPermission('compras.escribir', 'ventas.escribir'),
   async (req, res) => {
-    const id = Number(req.params.id);
+    const id = parsePositiveInt(req.params.id);
+    if (id === null) {
+      res.status(400).json({ error: 'Parámetro inválido' });
+      return;
+    }
     const parsed = externalVoucherSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
@@ -954,7 +976,11 @@ router.post(
   requireAnyPermission('compras.escribir', 'ventas.escribir'),
   upload.single('file'),
   async (req, res) => {
-    const id = Number(req.params.id);
+    const id = parsePositiveInt(req.params.id);
+    if (id === null) {
+      res.status(400).json({ error: 'Parámetro inválido' });
+      return;
+    }
     if (!req.file) {
       res.status(400).json({ error: 'No se recibió ningún archivo' });
       return;
@@ -1032,7 +1058,11 @@ router.get(
   '/:id/external/attachment',
   requireAnyPermission('compras.leer', 'ventas.leer'),
   async (req, res) => {
-    const id = Number(req.params.id);
+    const id = parsePositiveInt(req.params.id);
+    if (id === null) {
+      res.status(400).json({ error: 'Parámetro inválido' });
+      return;
+    }
     const invoice = await prisma.invoiceData.findFirst({
       where: { documentId: id, document: { companyId: req.authUser!.companyId } },
       select: { attachmentUrl: true },

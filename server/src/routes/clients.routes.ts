@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { requireAuth, requirePermission, tenantWhere } from '../middleware/auth.js';
+import { parsePositiveInt } from '../lib/params.js';
 
 const router = Router();
 
@@ -36,7 +37,11 @@ router.get('/', async (req, res) => {
 
 /** GET /api/clients/:id */
 router.get('/:id', async (req, res) => {
-  const id = Number(req.params.id);
+  const id = parsePositiveInt(req.params.id);
+  if (id === null) {
+    res.status(400).json({ error: 'Parámetro inválido' });
+    return;
+  }
   const client = await prisma.client.findFirst({ where: { id, ...tenantWhere(req) } });
   if (!client) {
     res.status(404).json({ error: 'Cliente no encontrado' });
@@ -60,7 +65,11 @@ router.post('/', requirePermission('ventas.escribir'), async (req, res) => {
 
 /** PATCH /api/clients/:id */
 router.patch('/:id', requirePermission('ventas.escribir'), async (req, res) => {
-  const id = Number(req.params.id);
+  const id = parsePositiveInt(req.params.id);
+  if (id === null) {
+    res.status(400).json({ error: 'Parámetro inválido' });
+    return;
+  }
   const parsed = clientUpdateSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
@@ -77,7 +86,11 @@ router.patch('/:id', requirePermission('ventas.escribir'), async (req, res) => {
 
 /** DELETE /api/clients/:id — only when no documents reference it */
 router.delete('/:id', requirePermission('ventas.escribir'), async (req, res) => {
-  const id = Number(req.params.id);
+  const id = parsePositiveInt(req.params.id);
+  if (id === null) {
+    res.status(400).json({ error: 'Parámetro inválido' });
+    return;
+  }
   const existing = await prisma.client.findFirst({ where: { id, ...tenantWhere(req) } });
   if (!existing) {
     res.status(404).json({ error: 'Cliente no encontrado' });
