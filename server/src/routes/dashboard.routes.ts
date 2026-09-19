@@ -40,9 +40,14 @@ router.get(
         where: { companyId, type: 'OC', status: { not: 'Recibido' } },
       }),
       prisma.stock.findMany({
-        where: { quantity: { lt: prisma.stock.fields.minStock } },
+        where: {
+          quantity: { lt: prisma.stock.fields.minStock },
+          // Stock has no companyId: tenancy resolves through product/warehouse relations.
+          product: { companyId },
+          warehouse: { companyId },
+        },
         include: {
-          product: { select: { id: true, name: true, internalCode: true, companyId: true } },
+          product: { select: { id: true, name: true, internalCode: true } },
           warehouse: { select: { name: true } },
         },
         orderBy: { quantity: 'asc' },
@@ -95,16 +100,14 @@ router.get(
       netCashFlow: totalSalesMonth - totalExpensesMonth,
       pendingOrders,
       lowStockCount: stocks.length,
-      lowStockProducts: stocks
-        .filter((s) => s.product.companyId === companyId)
-        .map((s) => ({
-          productId: s.product.id,
-          sku: s.product.internalCode ?? '',
-          name: s.product.name,
-          stock: Number(s.quantity),
-          minStock: Number(s.minStock),
-          warehouse: s.warehouse.name,
-        })),
+      lowStockProducts: stocks.map((s) => ({
+        productId: s.product.id,
+        sku: s.product.internalCode ?? '',
+        name: s.product.name,
+        stock: Number(s.quantity),
+        minStock: Number(s.minStock),
+        warehouse: s.warehouse.name,
+      })),
       recent: recent.map((d) => ({
         id: d.id,
         type: d.type,
