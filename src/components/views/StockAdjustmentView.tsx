@@ -71,7 +71,7 @@ export const StockAdjustmentView: React.FC<StockAdjustmentViewProps> = ({
               <span className="material-symbols-outlined text-[36px]">check_circle</span>
             </div>
             <h2 className="font-headline-lg text-headline-lg text-on-surface">Ajuste Registrado</h2>
-            <p className="font-body-lg text-body-lg text-on-surface-variant max-w-md">{appliedMessage}</p>
+            <p className="font-body-lg text-body-lg text-on-surface-variant max-w-[28rem]">{appliedMessage}</p>
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="p-xl flex flex-col gap-lg">
@@ -143,7 +143,7 @@ export const StockAdjustmentView: React.FC<StockAdjustmentViewProps> = ({
               {/* Adjustment Type Toggle */}
               <div className="flex flex-col gap-xs">
                 <label className="font-label-md text-label-md text-on-surface-variant uppercase">Tipo de Ajuste</label>
-                <div className="flex bg-surface-container rounded-lg p-base">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-base sm:gap-0 bg-surface-container rounded-lg p-base">
                   <button
                     type="button"
                     onClick={() => setType('increment')}

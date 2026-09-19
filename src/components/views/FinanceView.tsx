@@ -113,7 +113,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({ transactions }) => {
               <p className="font-body-lg text-body-lg text-on-surface-variant">
                 Todavía no hay movimientos de caja.
               </p>
-              <p className="text-body-md text-on-surface-variant max-w-md">
+              <p className="text-body-md text-on-surface-variant max-w-[28rem]">
                 Los movimientos se generan automáticamente al registrar ventas, facturas y compras con sus pagos.
               </p>
             </div>
