@@ -5,8 +5,6 @@ import { useAuth } from '../../lib/auth';
 interface HeaderProps {
   currentView: ViewPath;
   onNavigate: (view: ViewPath) => void;
-  searchTerm: string;
-  onSearchChange: (term: string) => void;
   onLogout: () => void;
   onMenuClick: () => void;
 }
@@ -14,8 +12,6 @@ interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({
   currentView,
   onNavigate,
-  searchTerm,
-  onSearchChange,
   onLogout,
   onMenuClick,
 }) => {
@@ -39,18 +35,6 @@ export const Header: React.FC<HeaderProps> = ({
         >
           <span className="material-symbols-outlined text-on-surface-variant">menu</span>
         </button>
-        <div className="relative flex-1 max-w-96 min-w-0">
-          <span className="material-symbols-outlined absolute left-md top-1/2 -translate-y-1/2 text-outline text-[20px]">
-            search
-          </span>
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => onSearchChange(e.target.value)}
-            placeholder="Buscar en Nexus..."
-            className="w-full bg-surface-container-low border-none rounded-full py-base pl-10 pr-md text-body-md focus:ring-2 focus:ring-secondary-container outline-none transition-all"
-          />
-        </div>
       </div>
 
       {/* Right User Actions */}
@@ -63,7 +47,7 @@ export const Header: React.FC<HeaderProps> = ({
         <button
           onClick={() => setShowQuickNav(!showQuickNav)}
           title="Vista Rápida de Pantallas"
-          className="flex items-center gap-xs px-sm py-xs bg-surface-container-high text-on-surface hover:bg-surface-container-highest rounded-lg transition-colors font-label-md text-label-md cursor-pointer"
+          className="hidden sm:flex items-center gap-xs px-sm py-xs bg-surface-container-high text-on-surface hover:bg-surface-container-highest rounded-lg transition-colors font-label-md text-label-md cursor-pointer"
         >
           <span className="material-symbols-outlined text-[18px] text-secondary">widgets</span>
           <span className="hidden sm:inline">Navegación</span>
@@ -104,7 +88,7 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         {/* User Profile Dropdown */}
-        <div className="flex items-center gap-sm pl-md border-l border-outline-variant relative">
+        <div className="flex items-center gap-sm pl-0 sm:pl-md border-l-0 sm:border-l border-outline-variant relative">
           <div className="text-right hidden lg:block">
             <p className="text-body-md font-bold leading-tight">{displayName}</p>
             <p className="text-mono-sm text-on-surface-variant uppercase">{user?.roles[0] ?? 'Super Administrador'}</p>

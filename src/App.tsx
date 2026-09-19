@@ -43,7 +43,6 @@ import { AuthRegisterView } from './components/views/AuthRegisterView';
 export default function App() {
   const { user, logout, loading } = useAuth();
   const [currentView, setCurrentView] = useState<ViewPath>(user ? 'dashboard' : 'auth-login');
-  const [searchTerm, setSearchTerm] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Navegación central: cambia de vista y cierra el drawer mobile siempre.
@@ -704,8 +703,6 @@ if (isPublicOrAuth) {
           <Header
             currentView={currentView}
             onNavigate={navigate}
-            searchTerm={searchTerm}
-            onSearchChange={setSearchTerm}
             onLogout={handleLogout}
             onMenuClick={() => setSidebarOpen(true)}
           />
