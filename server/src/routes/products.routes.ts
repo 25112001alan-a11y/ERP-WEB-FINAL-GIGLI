@@ -4,6 +4,7 @@ import { prisma } from '../lib/prisma.js';
 import { requireAuth, requirePermission, tenantWhere } from '../middleware/auth.js';
 import { logAudit, clientIp } from '../lib/audit.js';
 import { assertProductCreationAllowed } from '../lib/billing.js';
+import { parsePositiveInt } from '../lib/params.js';
 
 const router = Router();
 
@@ -70,7 +71,11 @@ router.post('/taxes', requirePermission('inventario.escribir'), async (req, res)
  * The shared system catalog (companyId null) is read-only for every tenant.
  */
 router.patch('/taxes/:id', requirePermission('inventario.escribir'), async (req, res) => {
-  const id = Number(req.params.id);
+  const id = parsePositiveInt(req.params.id);
+  if (id === null) {
+    res.status(400).json({ error: 'Parámetro inválido' });
+    return;
+  }
   const parsed = taxUpdateSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
@@ -121,7 +126,11 @@ router.post('/categories', requirePermission('inventario.escribir'), async (req,
 
 /** PATCH /api/products/categories/:id — rename a tenant category */
 router.patch('/categories/:id', requirePermission('inventario.escribir'), async (req, res) => {
-  const id = Number(req.params.id);
+  const id = parsePositiveInt(req.params.id);
+  if (id === null) {
+    res.status(400).json({ error: 'Parámetro inválido' });
+    return;
+  }
   const parsed = z.object({ name: z.string().min(1).max(80) }).safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
@@ -151,6 +160,14 @@ const productSchema = z.object({
 
 const productUpdateSchema = productSchema.partial();
 
+// Create-only extension: an optional initial stock row can be seeded in the
+// same transaction. Kept off the shared productSchema so the PATCH schema
+// never accepts (and silently drops) these fields.
+const productCreateSchema = productSchema.extend({
+  stockInicial: z.number().nonnegative().optional(),
+  warehouseId: z.number().int().positive().optional(),
+});
+
 /** GET /api/products — list tenant products with stock summary */
 router.get('/', async (req, res) => {
   const { search } = req.query;
@@ -179,7 +196,11 @@ router.get('/', async (req, res) => {
 
 /** GET /api/products/:id — tenant-scoped product detail */
 router.get('/:id', async (req, res) => {
-  const id = Number(req.params.id);
+  const id = parsePositiveInt(req.params.id);
+  if (id === null) {
+    res.status(400).json({ error: 'Parámetro inválido' });
+    return;
+  }
   const product = await prisma.product.findFirst({
     where: { id, ...tenantWhere(req) },
     include: {
@@ -209,12 +230,19 @@ router.post('/', requirePermission('inventario.escribir'), async (req, res) => {
     throw err;
   }
 
-  const parsed = productSchema.safeParse(req.body);
+  const parsed = productCreateSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
     return;
   }
   const data = parsed.data;
+
+  // Optional initial stock entries must ship as a pair, never one without the other.
+  const { stockInicial, warehouseId: initialWarehouseId, ...productData } = data;
+  if ((stockInicial === undefined) !== (initialWarehouseId === undefined)) {
+    res.status(400).json({ error: 'stockInicial y warehouseId deben enviarse juntos' });
+    return;
+  }
 
   if (data.categoryId) {
     const category = await prisma.category.findFirst({
@@ -232,10 +260,28 @@ router.post('/', requirePermission('inventario.escribir'), async (req, res) => {
   }
 
   const product = await prisma.$transaction(async (tx) => {
+    if (stockInicial !== undefined && initialWarehouseId !== undefined) {
+      const warehouse = await tx.warehouse.findFirst({
+        where: { id: initialWarehouseId, ...tenantWhere(req) },
+      });
+      if (!warehouse) throw Object.assign(new Error('Depósito no válido'), { status: 400 });
+    }
+
     const created = await tx.product.create({
-      data: { ...tenantWhere(req), ...data },
+      data: { ...tenantWhere(req), ...productData },
       include: { category: true, tax: true },
     });
+
+    if (stockInicial !== undefined && initialWarehouseId !== undefined) {
+      await tx.stock.create({
+        data: {
+          productId: created.id,
+          warehouseId: initialWarehouseId,
+          quantity: stockInicial,
+          minStock: 0,
+        },
+      });
+    }
 
     await logAudit(
       tx,
@@ -258,7 +304,11 @@ router.post('/', requirePermission('inventario.escribir'), async (req, res) => {
 
 /** PATCH /api/products/:id — update product */
 router.patch('/:id', requirePermission('inventario.escribir'), async (req, res) => {
-  const id = Number(req.params.id);
+  const id = parsePositiveInt(req.params.id);
+  if (id === null) {
+    res.status(400).json({ error: 'Parámetro inválido' });
+    return;
+  }
   const parsed = productUpdateSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
@@ -296,7 +346,11 @@ router.patch('/:id', requirePermission('inventario.escribir'), async (req, res) 
 
 /** DELETE /api/products/:id — hard delete (only when no stock movement history) */
 router.delete('/:id', requirePermission('inventario.escribir'), async (req, res) => {
-  const id = Number(req.params.id);
+  const id = parsePositiveInt(req.params.id);
+  if (id === null) {
+    res.status(400).json({ error: 'Parámetro inválido' });
+    return;
+  }
   const existing = await prisma.product.findFirst({ where: { id, ...tenantWhere(req) } });
   if (!existing) {
     res.status(404).json({ error: 'Producto no encontrado' });
