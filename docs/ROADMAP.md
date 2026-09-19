@@ -90,6 +90,8 @@ npm test               # server — node:test + tsx: smoke API, cadena OC->REMIT
 - **Fase F — Notificaciones por email**: emitir remitos, confirmar pedidos, recuperación de cuenta.
 - **Fase G — Ingeniería**: ~~CI en GitHub Actions (`npm test` + tests server)~~ ✅ CI añadido (`.github/workflows/ci.yml` — frontend lint+tests, server type-check+tests con MySQL service), observabilidad (logs estructurados + métricas en `/api/health`), backups automáticos de MySQL + restore documentado, gestión de tenants a nivel plataforma.
 - **Hardening 2026-09** ✅: webhook MP firma sobre body crudo, ajuste de stock atómico, params validados (400 en vez de 500), low-stock scoped por tenant, alta de producto con stock inicial + impuesto real, 14 índices FK (migración pendiente: `cd server && npx prisma migrate dev --name add_fk_indexes`). Detalle completo en [AUDIT.md](./AUDIT.md).
+- **Moneda canónica ARS** ✅: default del schema y creates de documentos en pesos argentinos (decisión del dueño).
+- **Datos reales en UI** ✅: KPIs de inventario, reportes, compras, pedidos públicos y salud del sidebar computados de datos reales; elementos sin dato real eliminados (PDF falsa, "v2.4.0 Enterprise Cloud", etc.). Detalle en [AUDIT.md](./AUDIT.md).
 
 ## Historial de despliegue
 

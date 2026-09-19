@@ -1,8 +1,9 @@
 # Nexus ERP — Informe de auditoría
 
-> Fecha: 2026-09-19 · Alcance: `src/` (frontend React 19 + Vite + Tailwind 4), `server/` (Express 5 + Prisma + Zod, MySQL), `server/prisma/schema.prisma`
+> Fecha: 2026-09-19 · Última actualización: 2026-09-19 (tanda 2: decisiones + datos reales)
+> Alcance: `src/` (frontend React 19 + Vite + Tailwind 4), `server/` (Express 5 + Prisma + Zod, MySQL), `server/prisma/schema.prisma`
 > Método: revisión de código por agentes de exploración (buenas prácticas, coherencia frontend↔backend, duplicación) + verificación cruzada del diff.
-> Estado: hallazgos marcados ✅ (resuelto), ⏳ (pendiente deliberado), ⚠️ (requiere decisión del usuario).
+> Estado: hallazgos marcados ✅ (resuelto), ⏳ (pendiente deliberado), ⚠️ (requiere decisión del usuario). Las decisiones de moneda y datos inventados quedaron resueltas en la tanda 2.
 
 ## Veredicto
 
@@ -22,6 +23,8 @@ El código está **bien encuadrado**: señales de nivel senior en seguridad y co
 | Dashboard low-stock escaneaba todas las tablas de todos los tenants (filtro en JS) | ✅ Resuelto: tenancy movido al WHERE de Prisma (`product.companyId`, `warehouse.companyId`) en `server/src/routes/dashboard.routes.ts` |
 | Índices faltantes en FKs calientes (DocumentItem, StockMovement, Payment, Client, Supplier, User, Role, Document) | ✅ Resuelto: 14 `@@index` añadidos en `server/prisma/schema.prisma` (schema validado con `prisma validate`). **Pendiente aplicar en la DB**: `cd server && npx prisma migrate dev --name add_fk_indexes` |
 | Sin CI | ✅ Resuelto: `.github/workflows/ci.yml` — job frontend (lint + tests) y job server (type-check + tests con servicio MySQL + `db push` + seed) |
+| `currency`/`exchangeRate` siempre USD al persistir documentos, ignorando la moneda de la empresa | ✅ Resuelto (tanda 2): **decisión del usuario — moneda canónica en pesos argentinos (ARS)**. Defaults de schema `Company.currency` y `Document.currency` → `"ARS"`; los creates de documentos (ventas, recepciones, pedidos públicos) ya no fuerzan USD. Nota: las empresas existentes creadas con otra moneda deben ajustarla en Settings → Empresa |
+| Datos inventados en UI: KPIs de InventoryView, ReportsView (+18.4%), gráficos de Purchases/Pedidos, "v2.4.0 Enterprise Cloud" en sidebar | ✅ Resuelto (tanda 2): todos los números se computan de datos reales; donde no existía dato, el elemento se quitó (ver sección "Tanda 2" abajo) |
 | Alta de producto: tasas de IVA hardcodeadas `[16,12,8,0]` → creación fallaba con tasas distintas | ✅ Resuelto: el selector usa el catálogo real de impuestos cargado en App ([`AddProductView.tsx`](../src/components/views/AddProductView.tsx)) y envía `taxId` directo |
 | Alta de producto: descartaba Stock Inicial y Almacén Principal (producto nacía sin stock, silenciosamente) | ✅ Resuelto: `POST /api/products` acepta `stockInicial` + `warehouseId` (ambos o ninguno) y crea la fila `Stock` en la misma transacción (`server/src/routes/products.routes.ts`); el frontend los envía cuando corresponden |
 | Proveedores: el frontend forzaba `email/phone/taxId = ''` pese a que el backend los devuelve | ✅ Resuelto: mapeo 1:1 en `src/App.tsx`, render con `?? ''` en `PurchasesView.tsx`, tipos ajustados en `src/types.ts` |
@@ -33,7 +36,7 @@ El código está **bien encuadrado**: señales de nivel senior en seguridad y co
 | --- | --- |
 | Sin paginación en listas ilimitadas (documents/products/clients/suppliers/users) | ⏳ Pendiente — cambia el contrato de API y el frontend; requiere tanda propia |
 | Scaffold de formulario repetido en 8 vistas (`FormScaffold` + `useSubmitFlow`, ~-250 líneas) | ⏳ Pendiente — refactor de UI con riesgo de regresión visual; tanda propia |
-| `formatMoney`: 4 locales distintos + ~40 `toFixed` sueltos (el mismo monto se ve distinto según vista) | ⚠️ Pendiente — requiere decidir moneda/locale canónicos (hoy la base graba USD para todo tenant) |
+| `formatMoney`: 4 locales distintos + ~40 `toFixed` sueltos (el mismo monto se ve distinto según vista) | ⏳ Desbloqueado en tanda 2 (moneda canónica decidida: **ARS, locale es-AR**) — falta aplicar el helper unificado como parte de la tanda de duplicación |
 | `parseBody` (zod-safeParse→400 repetido 15+ veces), CRUD factory clients/suppliers, line-math, doc-number padding, `getUserPermissions` reutilizable | ⏳ Pendiente — simplificaciones seguras de tanda propia |
 | -7 dependencias sin imports en el frontend (`lucide-react`, `motion`, `@google/genai`, `express`, `dotenv`, `autoprefixer`, `esbuild`) y rename de `"react-example"` | ⏳ Pendiente — mecánico, sin riesgo |
 | `currency`/`exchangeRate` siempre USD al persistir documentos, ignorando la moneda de la empresa | ⚠️ Requiere decisión de negocio (moneda por tenant en documentos) |
@@ -93,4 +96,43 @@ Potencial medido: **~850-950 líneas menos y −7 dependencias** sin cambiar com
 ```bash
 # Aplicar los índices en la DB (schema ya actualizado y validado)
 cd server && npx prisma migrate dev --name add_fk_indexes
+```
+
+---
+
+## Tanda 2 — decisiones y datos reales (2026-09-19)
+
+### Decisiones de producto tomadas por el dueño
+
+- **Moneda canónica: peso argentino (ARS).** Backend: defaults `ARS` en el schema; los creates de documentos ya no fuerzan USD. Frontend: montos muestran `$` que ahora representan ARS; el helper `formatMoney` (es-AR/ARS) queda habilitado para la tanda de duplicación.
+
+### Datos inventados → datos reales
+
+| Vista | Antes (falso) | Ahora (real) |
+| --- | --- | --- |
+| InventoryView | KPIs "Depósito Central 14.250 unidades", selector de depósito decorativo que vaciaba la tabla, `warehouse: ''` siempre | KPIs computados del stock real por depósito (unidades + InStock/LowStock/OutOfStock), selector que filtra por `stocks[].warehouseId` real; `Product.stocks` expuesto por el mapper; categorías desde el catálogo real; se quitaron `more_vert` muerto y paginación falsa |
+| ReportsView | "+18.4% vs período anterior", selector de período que no filtraba, gráfico con `max=1000` falso, "Mayor Rotación" = slice sin orden, PDF = `setTimeout` + `alert` | Selector 7d/30d/90d/año FILTRA las ventas reales por `createdAt`; "Ventas Totales" y "Ticket Promedio" del período; delta real vs. período anterior igual (badge oculto sin datos previos); "Mayor Rotación" → "Productos con Menor Stock" ordenado por stock real; gráfico por categorías reales; **botón de PDF eliminado** (prometía y no exportaba) |
+| PurchasesView | "Equipos (80%)/Insumos (45%)" hardcodeado | "Gastos por Proveedor" con totales reales de las compras (orders), alturas como % del máximo real; empty state |
+| PublicOrdersView | "+12% vs ayer", barras semanales hardcodeadas, chip "Hoy" falso en Enviados | "+X% vs ayer" computado de pedidos reales (hoy vs ayer, badge oculto si ayer fue 0); barras = pedidos reales por día de los últimos 7 días; "Hoy" solo en la barra real |
+| Sidebar | "v2.4.0 • Enterprise Cloud" literales, "En línea" sin verificación | Línea de versión/edición eliminada; "En línea" real vía `apiFetch('/api/health')` al montar (En línea / Sin conexión / Verificando), sin polling |
+
+### Registro de commits (tanda 2)
+
+```text
+fbb99d9 feat(server): moneda canonica en pesos argentinos (ARS)
+7e10ad4 feat(front): reemplazar datos inventados por metricas reales
+```
+
+### Tanda 1 — commits por unidades de trabajo
+
+```text
+6ef47d7 docs: informe de auditoria y roadmap actualizados
+cf9d42f ci: automatizar verificaciones con GitHub Actions
+c530364 fix(front): alta de productos, proveedores y finanzas coherentes con el backend
+e735abd feat(server): indices FK para las consultas calientes
+3b51f31 feat(server): soportar stock inicial al crear productos
+01061aa fix(server): acotar el low-stock del dashboard al tenant
+1d4af04 fix(server): ajuste de stock atomico con guarda de no-negativo
+83fad8b fix(server): validar parametros de ruta y query
+31f3b6a fix(server): verificar webhook de Mercado Pago sobre el body crudo
 ```
