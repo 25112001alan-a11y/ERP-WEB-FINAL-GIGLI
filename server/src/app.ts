@@ -52,6 +52,11 @@ app.use(
   }),
 );
 
+// Mercado Pago webhooks sign the exact request body: mount a strict raw parser
+// so verifyWebhookSignature hashes the bytes MP actually sent (body-parser's
+// _body guard makes the global JSON parser below skip this path).
+app.use('/api/billing/webhook', express.raw({ type: '*/*' }));
+
 // 1 MB covers every JSON payload this API accepts (documents with lines).
 app.use(express.json({ limit: '1mb' }));
 

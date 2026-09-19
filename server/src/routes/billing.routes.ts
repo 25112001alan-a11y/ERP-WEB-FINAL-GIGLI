@@ -94,15 +94,22 @@ router.post('/checkout', requireAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 router.post('/webhook', async (req, res) => {
   const headers = req.headers as Record<string, string>;
-  const body = JSON.stringify(req.body);
+  const body = Buffer.isBuffer(req.body) ? req.body.toString('utf8') : JSON.stringify(req.body);
 
   if (!verifyWebhookSignature(headers, body)) {
     res.status(401).json({ error: 'Firma inválida' });
     return;
   }
 
-  const topic = (req.query.type as string) ?? (req.body?.type as string) ?? 'unknown';
-  const eventId = req.body?.data?.id ?? req.headers['x-request-id'] ?? `evt-${Date.now()}`;
+  let payload: { type?: string; data?: { id?: unknown } } = {};
+  try {
+    payload = JSON.parse(body);
+  } catch {
+    payload = {};
+  }
+
+  const topic = (req.query.type as string) ?? payload?.type ?? 'unknown';
+  const eventId = payload?.data?.id ?? req.headers['x-request-id'] ?? `evt-${Date.now()}`;
 
   try {
     const result = await applyWebhookEvent(topic, String(eventId), body);
