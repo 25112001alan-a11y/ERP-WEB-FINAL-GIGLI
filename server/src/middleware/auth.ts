@@ -58,6 +58,15 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
 }
 
 /**
+ * Permissions reserved for Nexus platform staff (cross-tenant endpoints).
+ * Company owners never receive these: they are excluded from the owner
+ * Super Admin set at register, hidden from the permission catalog for
+ * requesters who don't hold them, and rejected on role create/update
+ * (self-grant protection).
+ */
+export const PLATFORM_ONLY_PERMISSIONS = ['billing.manage'];
+
+/**
  * Tenancy helper: every business query MUST be scoped to the authenticated
  * company. Returns the Prisma where clause for the current tenant.
  */

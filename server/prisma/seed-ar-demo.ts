@@ -43,7 +43,12 @@ const BASE_PERMISSIONS = [
   'billing.leer', 'billing.manage',
 ];
 
-const ALL = BASE_PERMISSIONS;
+// Demo company owners are NOT platform staff: their Super Admin gets every
+// base permission EXCEPT billing.manage (cross-tenant overview stays gated).
+// NOTE: idempotent re-runs only ADD missing RolePermission rows (skipDuplicates),
+// so previously granted billing.manage rows must be stripped by the reconcile
+// script, not by re-seeding.
+const OWNER_PERMS = BASE_PERMISSIONS.filter((p) => p !== 'billing.manage');
 const MANAGER_PERMS = [
   'inventario.leer', 'inventario.escribir',
   'ventas.leer', 'ventas.escribir',
@@ -136,7 +141,7 @@ const COMPANIES: SeedCompany[] = [
       { name: 'Panificadora La Espiga', taxId: '27-55555555-5', phone: '11-5555-1005', contact: 'Marta (dueña)' },
     ],
     roles: [
-      { name: 'Super Admin', description: 'Acceso total a la plataforma', perms: ALL },
+      { name: 'Super Admin', description: 'Acceso total a la empresa', perms: OWNER_PERMS },
       { name: 'Encargado', description: 'Gestiona stock, ventas y compras de su sucursal', perms: MANAGER_PERMS },
       { name: 'Cajero', description: 'Registra ventas en el punto de venta', perms: SALES_PERMS },
     ],
@@ -201,7 +206,7 @@ const COMPANIES: SeedCompany[] = [
       { name: 'Importadora Full Parts', taxId: '30-13131313-3', email: 'info@fullparts.com', phone: '11-5555-2004', contact: 'Nadia Ferro' },
     ],
     roles: [
-      { name: 'Super Admin', description: 'Acceso total a la plataforma', perms: ALL },
+      { name: 'Super Admin', description: 'Acceso total a la empresa', perms: OWNER_PERMS },
       { name: 'Encargado', description: 'Gestiona stock, ventas y compras de su sucursal', perms: MANAGER_PERMS },
       { name: 'Vendedor', description: 'Registra ventas y consulta stock', perms: SALES_PERMS },
     ],
@@ -265,7 +270,7 @@ const COMPANIES: SeedCompany[] = [
       { name: 'Herramientas Bremen directo', taxId: '30-19191919-9', email: 'mayorista@bremen.com', phone: '11-5555-3004', contact: 'Silvio Rey' },
     ],
     roles: [
-      { name: 'Super Admin', description: 'Acceso total a la plataforma', perms: ALL },
+      { name: 'Super Admin', description: 'Acceso total a la empresa', perms: OWNER_PERMS },
       { name: 'Encargado', description: 'Gestiona stock, ventas y compras de su sucursal', perms: MANAGER_PERMS },
       { name: 'Vendedor', description: 'Atiende mostrador y registra ventas', perms: SALES_PERMS },
     ],

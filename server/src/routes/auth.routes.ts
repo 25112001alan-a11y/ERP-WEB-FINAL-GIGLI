@@ -3,12 +3,13 @@ import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { signToken } from '../lib/jwt.js';
-import { requireAuth } from '../middleware/auth.js';
+import { requireAuth, PLATFORM_ONLY_PERMISSIONS } from '../middleware/auth.js';
 import { generateUniqueSlug } from '../lib/slug.js';
 import { clientIp } from '../lib/audit.js';
 
 const router = Router();
 
+// Global permission catalog shared across companies.
 const BASE_PERMISSIONS = [
   'inventario.leer', 'inventario.escribir',
   'ventas.leer', 'ventas.escribir',
@@ -20,6 +21,12 @@ const BASE_PERMISSIONS = [
   'auditoria.leer',
   'billing.leer', 'billing.manage',
 ];
+
+// New company owners get the full base set MINUS platform-only permissions
+// (cross-tenant endpoints like GET /api/billing/admin/overview stay gated
+// behind billing.manage, which only platform staff holds). billing.leer is
+// kept: it gates nothing cross-tenant (own-company subscription/checkout
+// views are auth-only), so owners need it for their own billing UX.
 
 const registerSchema = z.object({
   companyName: z.string().min(2, 'companyName es requerido').max(120),
@@ -48,7 +55,8 @@ const DUMMY_HASH = bcrypt.hashSync('nexus-erp-timing-equalizer', 10);
 /**
  * POST /api/auth/register
  * Multi-tenant onboarding: creates a company, the Super Admin role with the
- * full base permission set, and the first user (company owner).
+ * owner permission set (full base set minus platform-only permissions),
+ * and the first user (company owner).
  */
 router.post('/register', async (req, res) => {
   const parsed = registerSchema.safeParse(req.body);
@@ -86,8 +94,13 @@ router.post('/register', async (req, res) => {
         data: BASE_PERMISSIONS.map((name) => ({ name })),
         skipDuplicates: true,
       });
+      // The owner Super Admin receives every base permission EXCEPT the
+      // platform-only ones (billing.manage gates cross-tenant endpoints).
+      const ownerPermissionNames = BASE_PERMISSIONS.filter(
+        (name) => !PLATFORM_ONLY_PERMISSIONS.includes(name),
+      );
       const permissions = await tx.permission.findMany({
-        where: { name: { in: BASE_PERMISSIONS } },
+        where: { name: { in: ownerPermissionNames } },
       });
 
       const superAdminRole = await tx.role.create({

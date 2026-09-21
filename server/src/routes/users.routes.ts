@@ -2,7 +2,7 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
-import { requireAuth, requirePermission, tenantWhere } from '../middleware/auth.js';
+import { requireAuth, requirePermission, tenantWhere, getUserPermissions, PLATFORM_ONLY_PERMISSIONS } from '../middleware/auth.js';
 import { logAudit, clientIp } from '../lib/audit.js';
 
 const router = Router();
@@ -35,13 +35,28 @@ router.get('/roles', requirePermission('usuarios.leer'), async (req, res) => {
 });
 
 /** GET /api/users/permissions — GLOBAL permission catalog (assignable to roles) */
-router.get('/permissions', requirePermission('usuarios.leer'), async (_req, res) => {
+router.get('/permissions', requirePermission('usuarios.leer'), async (req, res) => {
   const permissions = await prisma.permission.findMany({
     select: { id: true, name: true, description: true },
     orderBy: { name: 'asc' },
   });
-  res.json(permissions);
+  // Platform-only permissions (e.g. billing.manage) are hidden from
+  // requesters who don't hold them, so company owners can't even see —
+  // let alone re-grant — cross-tenant access.
+  const held = await getUserPermissions(req);
+  res.json(permissions.filter((p) => held.has(p.name) || !PLATFORM_ONLY_PERMISSIONS.includes(p.name)));
 });
+
+/**
+ * Platform-only permission names in `names` that the requester does NOT
+ * hold — granting any of these would be a self-grant privilege escalation.
+ */
+async function unheldPlatformOnly(req: Parameters<typeof getUserPermissions>[0], names: string[]): Promise<string[]> {
+  const wanted = [...new Set(names)].filter((n) => PLATFORM_ONLY_PERMISSIONS.includes(n));
+  if (wanted.length === 0) return [];
+  const held = await getUserPermissions(req);
+  return wanted.filter((n) => !held.has(n));
+}
 
 const roleSchema = z.object({
   name: z.string().trim().min(2, 'El nombre debe tener al menos 2 caracteres').max(50),
@@ -76,6 +91,12 @@ router.post('/roles', requirePermission('usuarios.escribir'), async (req, res) =
   const catalog = await resolvePermissionsOrNull(prisma, permissionNames);
   if (!catalog) {
     res.status(400).json({ error: 'Permiso desconocido en permissionNames' });
+    return;
+  }
+
+  const forbidden = await unheldPlatformOnly(req, permissionNames);
+  if (forbidden.length > 0) {
+    res.status(400).json({ error: `Permiso reservado a la plataforma: ${forbidden.join(', ')}` });
     return;
   }
 
@@ -157,9 +178,22 @@ router.patch('/roles/:id', requirePermission('usuarios.escribir'), async (req, r
       return;
     }
     catalog = resolved;
+    const forbidden = await unheldPlatformOnly(req, parsed.data.permissionNames);
+    if (forbidden.length > 0) {
+      res.status(400).json({ error: `Permiso reservado a la plataforma: ${forbidden.join(', ')}` });
+      return;
+    }
     if (isSuperAdmin) {
-      const total = await prisma.permission.count();
-      if (catalog.length < total) {
+      // The owner Super Admin legitimately lacks platform-only permissions,
+      // so the invariant is "must keep every non-platform permission".
+      // (Extras are allowed: platform staff Super Admins keep billing.manage.)
+      const required = await prisma.permission.findMany({
+        where: { name: { notIn: PLATFORM_ONLY_PERMISSIONS } },
+        select: { name: true },
+      });
+      const have = new Set(catalog.map((p) => p.name));
+      const missing = required.filter((p) => !have.has(p.name));
+      if (missing.length > 0) {
         res.status(400).json({ error: "El rol 'Super Admin' debe conservar todos los permisos" });
         return;
       }
