@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ViewPath, User, RoleOption, PermissionOption, BillingAdminOverview } from '../../types';
 import { apiFetch, ApiError } from '../../lib/api';
+import { Modal } from '../Modal';
 
 interface AdminViewProps {
   users: User[];
@@ -550,11 +551,29 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, roles, permissions,
 
       {/* Role create/edit modal */}
       {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-md" role="dialog" aria-modal="true">
-          <div className="w-full max-w-2xl max-h-[90vh] overflow-auto bg-surface-container-lowest rounded-xl shadow-lg border border-outline-variant/20 p-lg space-y-md">
-            <h2 className="font-headline-md text-headline-md text-on-surface">
-              {editing ? `Editar rol «${editing.name}»` : 'Nuevo rol'}
-            </h2>
+        <Modal
+          title={editing ? `Editar rol «${editing.name}»` : 'Nuevo rol'}
+          onClose={() => setModalOpen(false)}
+          maxWidth="max-w-2xl"
+          footer={
+            <>
+              <button
+                onClick={() => setModalOpen(false)}
+                disabled={formSaving}
+                className="px-md py-sm rounded-lg border border-outline-variant/40 text-on-surface font-label-md text-label-md cursor-pointer disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => void handleSaveRole()}
+                disabled={formSaving}
+                className="px-md py-sm rounded-lg bg-primary text-on-primary font-label-md text-label-md cursor-pointer disabled:opacity-50"
+              >
+                {formSaving ? 'Guardando…' : editing ? 'Guardar cambios' : 'Crear rol'}
+              </button>
+            </>
+          }
+        >
             <div className="space-y-sm">
               <label className="block">
                 <span className="font-label-md text-label-md text-on-surface-variant">Nombre</span>
@@ -609,38 +628,17 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, roles, permissions,
             {formError && (
               <p className="text-sm text-on-error-container bg-error-container/20 rounded-lg p-sm">{formError}</p>
             )}
-            <div className="flex justify-end gap-sm">
-              <button
-                onClick={() => setModalOpen(false)}
-                disabled={formSaving}
-                className="px-md py-sm rounded-lg border border-outline-variant/40 text-on-surface font-label-md text-label-md cursor-pointer disabled:opacity-50"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={() => void handleSaveRole()}
-                disabled={formSaving}
-                className="px-md py-sm rounded-lg bg-primary text-on-primary font-label-md text-label-md cursor-pointer disabled:opacity-50"
-              >
-                {formSaving ? 'Guardando…' : editing ? 'Guardar cambios' : 'Crear rol'}
-              </button>
-            </div>
-          </div>
-        </div>
+        </Modal>
       )}
 
       {/* Delete confirm */}
       {deleting && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-md" role="dialog" aria-modal="true">
-          <div className="w-full max-w-md bg-surface-container-lowest rounded-xl shadow-lg border border-outline-variant/20 p-lg space-y-md">
-            <h2 className="font-headline-md text-headline-md text-on-surface">Eliminar rol «{deleting.name}»</h2>
-            <p className="text-sm text-on-surface-variant">
-              Esta acción no se puede deshacer. Si el rol tiene usuarios asignados, el servidor lo rechaza.
-            </p>
-            {deleteError && (
-              <p className="text-sm text-on-error-container bg-error-container/20 rounded-lg p-sm">{deleteError}</p>
-            )}
-            <div className="flex justify-end gap-sm">
+        <Modal
+          title={`Eliminar rol «${deleting.name}»`}
+          onClose={() => setDeleting(null)}
+          maxWidth="max-w-md"
+          footer={
+            <>
               <button
                 onClick={() => setDeleting(null)}
                 disabled={deleteSaving}
@@ -655,9 +653,16 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, roles, permissions,
               >
                 {deleteSaving ? 'Eliminando…' : 'Eliminar'}
               </button>
-            </div>
-          </div>
-        </div>
+            </>
+          }
+        >
+          <p className="text-sm text-on-surface-variant">
+            Esta acción no se puede deshacer. Si el rol tiene usuarios asignados, el servidor lo rechaza.
+          </p>
+          {deleteError && (
+            <p className="text-sm text-on-error-container bg-error-container/20 rounded-lg p-sm">{deleteError}</p>
+          )}
+        </Modal>
       )}
     </div>
   );
