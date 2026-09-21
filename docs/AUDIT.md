@@ -1,6 +1,6 @@
 # Nexus ERP — Informe de auditoría
 
-> Fecha: 2026-09-19 · Última actualización: 2026-09-19 (Fase 1: selector de sucursal)
+> Fecha: 2026-09-19 · Última actualización: 2026-09-19 (Fix sucursales + Seed AR + Fase 2)
 > Alcance: `src/` (frontend React 19 + Vite + Tailwind 4), `server/` (Express 5 + Prisma + Zod, MySQL), `server/prisma/schema.prisma`
 > Método: revisión de código por agentes de exploración (buenas prácticas, coherencia frontend↔backend, duplicación) + verificación cruzada del diff.
 > Estado: hallazgos marcados ✅ (resuelto), ⏳ (pendiente deliberado), ⚠️ (requiere decisión del usuario). Moneda ARS y datos reales resueltos en tanda 2. Fase 0 completada.
@@ -178,6 +178,80 @@ dd6e785 feat: Fase 1 - selector de sucursal con filtro de stock y ventas
 ### Verificación
 
 `npm run lint` ✓ · `npm test` (19 passed, 2 files) ✓ · `npm run build` ✓ · `server build` ✓
+
+---
+
+## Fix sucursales — POS exige sucursal, usuarios fijados (2026-09-19)
+
+### Problema (reportado por el dueño)
+
+POS operaba con sucursal "TODAS" (una venta ocurre en UN punto físico) y cualquier usuario cambiaba de sucursal libremente.
+
+### Qué se hizo
+
+| Área | Antes | Ahora |
+| --- | --- | --- |
+| Modelo | `User` sin sucursal | `User.branchId Int?` + FK (`ON DELETE SET NULL`) + índice; migración `20260921194109_user_branch_lock` aplicada. `null` = dueño/all-access, set = fijado |
+| Backend | — | `GET /me` devuelve `branchId`, `isOwner`, `allowedBranches`; `POST /users` acepta `branchId` (403 si no sos Super Admin); `PATCH /users/:id/branch` (Super Admin, con audit) |
+| Header | Todos cambiaban de sucursal | Fijado → badge sin dropdown; dueño → selector con "Todas" |
+| POS | Vendía en "TODAS" | Sin sucursal → prompt bloqueante "Seleccioná la sucursal del punto de venta"; grid y checkout deshabilitados hasta elegir; venta solo desde depósitos de la sucursal activa |
+| Alta de usuarios | Sin sucursal | `NewUserView` con picker opcional de sucursal |
+| Cuentas existentes | — | Intactas (`branchId null` = all-access, incluida `ana.silva@empresa.com`) |
+
+### Registro de commits
+
+```text
+b58449c feat: bloquear usuarios a su sucursal, POS exige sucursal especifica
+```
+
+### Verificación
+
+`npm run lint` ✓ · `npm test` (19) ✓ · `npm run build` ✓ · `server build` ✓ · `server test` (33 pass, 1 skip) ✓ · `prisma validate` ✓
+
+---
+
+## Seed demo AR — 3 empresas coherentes (2026-09-19)
+
+Archivo: `server/prisma/seed-ar-demo.ts` (no toca `seed.ts`; re-corridas idempotentes). Ejecutar con `npm run prisma:seed:ar` desde `server/`.
+
+| Empresa | Rubro | Branches | Productos | Cuentas demo (password `password123` — solo demo) |
+| --- | --- | --- | --- | --- |
+| Lo de Marta | Kiosco | Casa Central, Suc. Estación | 20 (caramelos, alfajores, gaseosas…; IVA 21/10.5/Exento) | `dueno@lodemarta.test` (Super Admin, todo) · `marta@lodemarta.test` (Encargado, Casa Central) · `cajero@lodemarta.test` (Cajero, Suc. Estación) |
+| TecnoSur | Electrónica | Casa Central, Suc. Shopping | 18 (notebooks, celulares, accesorios — nada de comida) | `dueno@tecnosur.test` (Super Admin) · `jefe@tecnosur.test` (Encargado, Casa Central) · `ventas@tecnosur.test` (Vendedor, Suc. Shopping) |
+| El Tornillo | Ferretería | Casa Central, Suc. Ruta | 18 (herramientas, tornillería, pinturas) | `dueno@eltornillo.test` (Super Admin) · `capataz@eltornillo.test` (Encargado, Casa Central) · `mostrador@eltornillo.test` (Vendedor, Suc. Ruta) |
+
+Cada empresa: stock con mínimos (varios bajo mínimo para probar low-stock), 5-7 clientes, 3-5 proveedores, 1 VENTA + 1 COMPRA recientes. Todo ARS. Nota: los documentos semilla NO mueven stock (para no alterar el low-stock armado).
+
+### Registro de commits
+
+```text
+c9bdb08 feat: seed demo con 3 empresas argentinas coherentes y cuentas por rol
+```
+
+---
+
+## Fase 2 — roles custom + Permisos global (2026-09-19)
+
+### Qué se hizo
+
+**Backend** (`server/src/routes/users.routes.ts`):
+- `GET /api/users/roles` (extendido) — roles del tenant con `permissions[]`, `permissionCount`, `userCount`
+- `GET /api/users/permissions` (nuevo) — catálogo GLOBAL (`usuarios.leer`)
+- `POST /api/users/roles` — crea rol con nombre libre (2-50) + `permissionNames[]` validados contra el catálogo (400 desconocido, 409 nombre duplicado); transacción + audit; 201
+- `PATCH /api/users/roles/:id` — rename + reemplazo de set; Super Admin no renombrable y con set completo obligatorio (400); 409/404 según caso
+- `DELETE /api/users/roles/:id` — 400 si Super Admin, 409 si tiene usuarios, 204 + audit
+
+**Frontend** (`AdminView.tsx`): cards "Roles y Permisos" eliminadas. Tabs: Usuarios / **Roles (n)** (tabla + modal crear/editar con checkboxes agrupados por módulo + eliminar con confirm) / **Permisos (n)** (lista solo-lectura del catálogo global agrupada + nota) / Facturación. Gestión visible solo con `usuarios.escribir`. Nombres de rol libres por empresa; permisos siempre del catálogo global.
+
+### Registro de commits
+
+```text
+5677f0e feat: Fase 2 - roles personalizados por empresa y seccion Permisos global
+```
+
+### Verificación
+
+`npm run lint` ✓ · `npm test` (19) ✓ · `npm run build` ✓ · `server build` ✓ · `server test` (33 pass, 1 skip) ✓
 
 ### Tanda 1 — commits por unidades de trabajo
 
