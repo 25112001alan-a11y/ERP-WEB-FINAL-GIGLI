@@ -1,6 +1,6 @@
 # Nexus ERP — Informe de auditoría
 
-> Fecha: 2026-09-19 · Última actualización: 2026-09-19 (Rutas por empresa + push remoto)
+> Fecha: 2026-09-19 · Última actualización: 2026-09-19 (Causa raíz modales: colisión de tokens)
 > Alcance: `src/` (frontend React 19 + Vite + Tailwind 4), `server/` (Express 5 + Prisma + Zod, MySQL), `server/prisma/schema.prisma`
 > Método: revisión de código por agentes de exploración (buenas prácticas, coherencia frontend↔backend, duplicación) + verificación cruzada del diff.
 > Estado: hallazgos marcados ✅ (resuelto), ⏳ (pendiente deliberado), ⚠️ (requiere decisión del usuario). Moneda ARS y datos reales resueltos en tanda 2. Fase 0 completada.
@@ -363,6 +363,32 @@ Aislamiento verificado en DB dev: tenant nuevo ve catálogo vacío, pedido con p
 ### Verificación
 
 `npm run lint` ✓ · `npm test` (19) ✓ · `npm run build` ✓ · `server build` ✓ · `server test` (38 pass, 1 skip) ✓
+
+---
+
+## Causa raíz modales: colisión de tokens spacing (2026-09-19)
+
+### El bug real (el fix `m-auto` no alcanzaba)
+
+El `@theme` de `src/index.css` define `--spacing-xs/sm/md/lg/xl/2xl` propios (0.25–3rem para `p-md`, `gap-sm`, etc.). Tailwind v4 resuelve `max-w-2xl` contra esa escala en vez de los contenedores: el CSS compilado decía literalmente `.max-w-2xl{max-width:var(--spacing-2xl)}` = **48px**. El modal de roles medía 48px, el de borrar 16px, los de POS 8–16px. Verificado en `dist/assets/*.css`, no adivinado.
+
+### Qué se hizo
+
+Reemplazo por valores arbitrarios (inmunes a la colisión, equivalen a los defaults de Tailwind) en los 8 usos afectados:
+- `max-w-2xl` → `max-w-[42rem]` (Modal roles, default de la primitiva)
+- `max-w-md` → `max-w-[28rem]` (Modal borrar, split POS, 2 párrafos)
+- `max-w-sm` → `max-w-[24rem]` (efectivo POS)
+- Regla: en anchos NUNCA usar `max-w-{xs,sm,md,lg,xl,2xl}` pelados; siempre arbitrarios. El sistema `p-md/gap-sm/space-y-*` sigue intacto.
+
+### Registro de commits
+
+```text
+83f34d9 fix(front): anchos reales en modales, colision de tokens spacing resuelta
+```
+
+### Verificación
+
+CSS compilado con 42/28/24rem ✓ · `npm run lint` ✓ · `npm test` (19) ✓ · `npm run build` ✓
 
 ### Tanda 1 — commits por unidades de trabajo
 
