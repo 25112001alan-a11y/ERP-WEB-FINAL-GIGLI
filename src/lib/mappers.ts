@@ -3,6 +3,7 @@ import type { Product, PurchaseOrder, PurchaseDocument, SaleTransaction } from '
 export interface ApiProduct {
   id: number;
   internalCode: string | null;
+  barcode?: string | null;
   name: string;
   description: string | null;
   salePrice: string | number;
@@ -59,6 +60,7 @@ export function toFrontProduct(p: ApiProduct): Product {
   return {
     id: String(p.id),
     sku: p.internalCode ?? '',
+    barcode: p.barcode ?? null,
     name: p.name,
     category: p.category?.name ?? 'Sin categoría',
     stock: totalStock,

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ViewPath, Product, CartItem, SaleTransaction, BranchOption } from '../../types';
 import { branchStock } from '../../lib/branch';
 
@@ -6,7 +6,11 @@ export interface CompleteSalePayload {
   items: CartItem[];
   method: string;
   clientName: string;
+  payments?: { method: string; amount: number }[];
 }
+
+// Fixed payment method set accepted by POST /api/documents (payments array).
+const PAYMENT_METHODS = ['Efectivo', 'Tarjeta', 'QR / Transf.'];
 
 interface PosViewProps {
   products: Product[];
@@ -45,6 +49,45 @@ export const PosView: React.FC<PosViewProps> = ({
   // Modal states for checkout
   const [cashModal, setCashModal] = useState<{ open: boolean; received: string }>({ open: false, received: '' });
   const [splitModal, setSplitModal] = useState<{ open: boolean; rows: { method: string; amount: string }[] }>({ open: false, rows: [{ method: 'Efectivo', amount: '' }, { method: 'Tarjeta', amount: '' }] });
+
+  // Scanner modal: camera (native BarcodeDetector) + HID pistol (keyboard input).
+  const [scanOpen, setScanOpen] = useState(false);
+  const [scanValue, setScanValue] = useState('');
+  const [scanError, setScanError] = useState<string | null>(null);
+  const [scanNotice, setScanNotice] = useState<string | null>(null);
+  const [cameraOn, setCameraOn] = useState(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const scanTimerRef = useRef<number | null>(null);
+
+  const stopCamera = () => {
+    if (scanTimerRef.current != null) {
+      window.clearTimeout(scanTimerRef.current);
+      scanTimerRef.current = null;
+    }
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    setCameraOn(false);
+  };
+
+  // Never leave a zombie camera: stop tracks when the modal closes or unmounts.
+  const closeScanModal = () => {
+    stopCamera();
+    setScanOpen(false);
+    setScanValue('');
+    setScanError(null);
+    setScanNotice(null);
+    setCameraError(null);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (scanTimerRef.current != null) window.clearTimeout(scanTimerRef.current);
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    };
+  }, []);
 
   // Bloquear el scroll de fondo mientras el carrito mobile está abierto.
   useEffect(() => {
@@ -108,6 +151,82 @@ export const PosView: React.FC<PosViewProps> = ({
   );
   const total = subtotal + tax;
 
+  // Scanner lookup over the products already in memory:
+  // barcode exacto → sku/código interno exacto → nombre contiene.
+  const findProductByCode = (code: string): Product | null => {
+    const q = code.trim().toLowerCase();
+    if (!q) return null;
+    return (
+      products.find((p) => (p.barcode ?? '').toLowerCase() === q) ??
+      products.find((p) => p.sku.toLowerCase() === q) ??
+      products.find((p) => p.name.toLowerCase().includes(q)) ??
+      null
+    );
+  };
+
+  const submitScan = (raw: string) => {
+    const code = raw.trim();
+    if (!code) return;
+    const found = findProductByCode(code);
+    if (!found) {
+      setScanError(`Código no encontrado: ${code}`);
+      return;
+    }
+    setScanError(null);
+    addToCart(found);
+    setScanValue('');
+    setScanNotice(`Agregado: ${found.name}`);
+  };
+
+  const startCamera = async () => {
+    setCameraError(null);
+    const w = window as unknown as {
+      BarcodeDetector?: new (opts: { formats: string[] }) => {
+        detect(video: HTMLVideoElement): Promise<{ rawValue: string }[]>;
+      };
+    };
+    if (!w.BarcodeDetector || !navigator.mediaDevices?.getUserMedia) {
+      setCameraError('Tu navegador no soporta cámara. Usá el campo de la pistola abajo.');
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment' },
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        try {
+          await videoRef.current.play();
+        } catch {
+          // play() can reject on transient interruptions; the tick still decodes.
+        }
+      }
+      setCameraOn(true);
+      const detector = new w.BarcodeDetector({ formats: ['qr_code'] });
+      const tick = async () => {
+        try {
+          if (videoRef.current && videoRef.current.readyState >= 2) {
+            const codes = await detector.detect(videoRef.current);
+            const value = codes?.[0]?.rawValue;
+            if (value) {
+              // One read per activation: stop the camera, report inline.
+              stopCamera();
+              submitScan(value);
+              return;
+            }
+          }
+        } catch {
+          // Transient decode errors: keep scanning.
+        }
+        if (streamRef.current) scanTimerRef.current = window.setTimeout(tick, 400);
+      };
+      tick();
+    } catch {
+      setCameraError('No se pudo acceder a la cámara. Revisá los permisos o usá la pistola abajo.');
+    }
+  };
+
   const handleCheckout = async (method: string) => {
     if (cart.length === 0 || checkingOut || needsBranch) return;
 
@@ -123,11 +242,13 @@ export const PosView: React.FC<PosViewProps> = ({
       return;
     }
 
-    // Tarjeta / QR / Transf.: mock payment, create VENTA with status 'Pagado'
+    // Tarjeta / QR-Transf.: venta real con estado Pagado y método registrado.
+    // El cobro online de Mercado Pago es Fase E (fuera de alcance): el QR de
+    // acá registra el pago presencial por QR/transferencia como Pagado.
     setCheckingOut(true);
     setSaleError(null);
     try {
-      await onCompleteSale({ items: cart, method, clientName });
+      await onCompleteSale({ items: cart, method, clientName, payments: [{ method, amount: total }] });
       setSaleCompleted(true);
       setCartOpen(false);
       setTimeout(() => {
@@ -152,8 +273,9 @@ export const PosView: React.FC<PosViewProps> = ({
     setCheckingOut(true);
     setSaleError(null);
     try {
-      // Use onCompleteSale which creates VENTA document with payment
-      await onCompleteSale({ items: cart, method: 'Efectivo', clientName });
+      // Venta real en efectivo: una fila de pago por el total (el vuelto es
+      // solo informativo del cliente, no se persiste).
+      await onCompleteSale({ items: cart, method: 'Efectivo', clientName, payments: [{ method: 'Efectivo', amount: total }] });
       setSaleCompleted(true);
       setCartOpen(false);
       // TODO: show change to user (toast)
@@ -183,11 +305,14 @@ export const PosView: React.FC<PosViewProps> = ({
     setCheckingOut(true);
     setSaleError(null);
     try {
-      // For now, create VENTA with first payment method; multiple payments would need backend support
-      const primaryMethod = splitModal.rows[0].method;
-      await onCompleteSale({ items: cart, method: primaryMethod, clientName });
-      // TODO: backend supports multiple payments per document (Payment[] relation)
-      console.log('Pago dividido:', splitModal.rows);
+      // Venta real con N filas de pago (el servidor valida suma == total).
+      const payments = splitModal.rows.map((r) => ({ method: r.method, amount: parseFloat(r.amount) }));
+      await onCompleteSale({
+        items: cart,
+        method: payments.map((p) => p.method).join(' + '),
+        clientName,
+        payments,
+      });
       setSaleCompleted(true);
       setCartOpen(false);
       setTimeout(() => {
@@ -334,7 +459,7 @@ export const PosView: React.FC<PosViewProps> = ({
             <span className="font-label-md text-label-md">Efectivo</span>
           </button>
           <button
-            onClick={() => handleCheckout('Tarjeta Crédito')}
+            onClick={() => handleCheckout('Tarjeta')}
             disabled={needsBranch}
             className="bg-surface-container-lowest text-on-surface rounded-xl p-md flex flex-col items-center justify-center gap-xs shadow-sm hover:shadow-md transition-all border border-surface-container-high hover:-translate-y-1 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
@@ -397,7 +522,11 @@ export const PosView: React.FC<PosViewProps> = ({
                   className="w-full bg-surface-container-low rounded-xl py-md pl-12 pr-md font-body-lg text-body-lg text-on-surface focus:outline-none focus:ring-2 focus:ring-primary shadow-inner transition-shadow"
                 />
               </div>
-              <button className="w-12 h-12 bg-surface-container-high text-on-surface flex items-center justify-center rounded-xl hover:bg-surface-variant transition-colors shadow-sm shrink-0 tap-target">
+              <button
+                onClick={() => { setScanOpen(true); setScanError(null); setScanNotice(null); }}
+                aria-label="Escanear código QR o de barras"
+                className="w-12 h-12 bg-surface-container-high text-on-surface flex items-center justify-center rounded-xl hover:bg-surface-variant transition-colors shadow-sm shrink-0 tap-target"
+              >
                 <span className="material-symbols-outlined">barcode_scanner</span>
               </button>
             </div>
@@ -542,6 +671,60 @@ export const PosView: React.FC<PosViewProps> = ({
         </div>
       )}
 
+      {/* Scanner Modal: cámara nativa + pistola HID, mismo resultado */}
+      {scanOpen && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex p-md overflow-y-auto" onClick={closeScanModal}>
+          <div className="bg-surface-container-lowest rounded-2xl shadow-xl w-full max-w-[24rem] p-lg border border-outline-variant/30 m-auto" onClick={(e) => e.stopPropagation()}>
+            <h3 className="font-headline-md text-headline-md text-on-surface mb-md">Escanear código</h3>
+            <video
+              ref={videoRef}
+              playsInline
+              muted
+              className={`w-full rounded-xl bg-black mb-md ${cameraOn ? '' : 'hidden'}`}
+            />
+            {!cameraOn && (
+              <button
+                onClick={startCamera}
+                className="w-full mb-md px-md py-sm rounded-xl bg-secondary text-on-secondary font-label-md text-label-md hover:opacity-90 transition-opacity cursor-pointer flex items-center justify-center gap-sm"
+              >
+                <span className="material-symbols-outlined text-[20px]">photo_camera</span>
+                Apuntá al código con la cámara
+              </button>
+            )}
+            {cameraError && (
+              <div className="bg-error-container text-on-error-container rounded-xl px-md py-sm font-body-md text-body-md mb-md">
+                {cameraError}
+              </div>
+            )}
+            <div className="flex flex-col gap-sm mb-md">
+              <label className="font-label-md text-label-md text-on-surface-variant">o dispará con la pistola acá</label>
+              <input
+                type="text"
+                value={scanValue}
+                onChange={(e) => setScanValue(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') submitScan(scanValue); }}
+                placeholder="El lector escribe acá y termina con Enter"
+                className="w-full bg-surface border border-outline-variant/50 rounded-lg px-md py-sm font-body-lg text-body-lg focus:ring-2 focus:ring-primary outline-none"
+                autoFocus
+              />
+            </div>
+            {scanError && (
+              <div className="bg-error-container text-on-error-container rounded-xl px-md py-sm font-body-md text-body-md mb-md">
+                {scanError}
+              </div>
+            )}
+            {scanNotice && !scanError && (
+              <div className="bg-tertiary-container text-on-tertiary-container rounded-xl px-md py-sm font-body-md text-body-md mb-md">
+                {scanNotice}
+              </div>
+            )}
+            <div className="flex gap-sm justify-end">
+              <button onClick={closeScanModal} className="px-md py-sm rounded-lg bg-surface-container-high text-on-surface hover:bg-surface-container-highest transition-colors cursor-pointer">Cerrar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Cash Received Modal */}
       {cashModal.open && (
         <div className="fixed inset-0 z-50 bg-black/40 flex p-md overflow-y-auto" onClick={() => setCashModal({ open: false, received: '' })}>
@@ -583,9 +766,9 @@ export const PosView: React.FC<PosViewProps> = ({
                     onChange={(e) => updateSplitRow(idx, 'method', e.target.value)}
                     className="flex-1 bg-surface border border-outline-variant/50 rounded-lg px-md py-sm font-body-md focus:ring-2 focus:ring-primary outline-none"
                   >
-                    <option value="Efectivo">Efectivo</option>
-                    <option value="Tarjeta">Tarjeta</option>
-                    <option value="QR / Transf.">QR / Transf.</option>
+                    {PAYMENT_METHODS.map((m) => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
                   </select>
                   <input
                     type="number"

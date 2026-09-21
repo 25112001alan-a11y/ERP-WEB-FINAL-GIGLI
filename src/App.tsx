@@ -468,6 +468,7 @@ export default function App() {
     items: CartItem[];
     method: string;
     clientName: string;
+    payments?: { method: string; amount: number }[];
   }
 
   const handleCompleteSale = async (payload: CompleteSalePayload): Promise<SaleTransaction> => {
@@ -502,7 +503,11 @@ export default function App() {
         series: 'A',
         clientName: payload.clientName,
         warehouseId,
-        paymentMethod: payload.method,
+        // Split sale: the payments array creates one Payment row per entry
+        // (server validates sum == total). Otherwise the legacy single method.
+        ...(payload.payments
+          ? { payments: payload.payments }
+          : { paymentMethod: payload.method }),
         items: payload.items.map((i) => ({
           productId: Number(i.product.id),
           quantity: i.quantity,
@@ -521,7 +526,9 @@ export default function App() {
       amount: Number(doc.total),
       paymentStatus: 'Pagado',
       fulfillmentStatus: 'Entregado',
-      paymentMethod: payload.method,
+      paymentMethod: payload.payments
+        ? payload.payments.map((p) => p.method).join(' + ')
+        : payload.method,
       itemsCount: totalItems,
       items: payload.items.map((i) => ({
         description: i.product.name,

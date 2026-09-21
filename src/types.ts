@@ -27,6 +27,7 @@ export type ViewPath =
 export interface Product {
   id: string;
   sku: string;
+  barcode?: string | null;
   name: string;
   category: string;
   stock: number;

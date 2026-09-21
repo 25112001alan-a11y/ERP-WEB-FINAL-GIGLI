@@ -116,6 +116,11 @@ const invoiceSchema = z.object({
   puntoVenta: z.number().int().positive().optional(),
 });
 
+const paymentSchema = z.object({
+  method: z.enum(['Efectivo', 'Tarjeta', 'QR / Transf.']),
+  amount: z.number().positive(),
+});
+
 const documentSchema = z.object({
   type: z.enum(['OC', 'COMPRA', 'VENTA', 'COTIZACION', 'REMITO', 'PEDIDO', 'FACTURA']),
   series: z.string().max(10).optional().default('A'),
@@ -130,6 +135,9 @@ const documentSchema = z.object({
   sourceDocumentId: z.number().int().positive().optional(),
   externalNumber: z.string().max(50).optional(),
   paymentMethod: z.string().max(30).optional(),
+  // Split payments (POS "Dividir Pago"). Optional: when present it wins over
+  // the legacy single paymentMethod and creates one Payment row per entry.
+  payments: z.array(paymentSchema).min(1).max(10).optional(),
   invoice: invoiceSchema.optional(),
   notes: z.string().optional(),
 });
@@ -226,6 +234,9 @@ router.get('/:id', requireAnyPermission('ventas.leer', 'compras.leer'), async (r
  *   - REMITO (egreso) : no stock effect (the chained VENTA already moved it)
  *   - FACTURA         : no stock effect; optionally creates a Payment and
  *                       persists fiscal data (invoiceType, CAE) in InvoiceData
+ * Payments: the legacy `paymentMethod` creates a single Payment row for the
+ * full total; the optional `payments: [{ method, amount }]` array creates one
+ * row per entry and must sum to the total (400 on mismatch).
  * Other types are created without stock side effects.
  * Fiscal numbering is auto-incremented per (companyId, type, series).
  */
@@ -455,7 +466,18 @@ router.post('/', requireAnyPermission('ventas.escribir', 'compras.escribir'), as
     const totalTax = lines.reduce((acc, l) => acc + l.taxAmount, 0);
     const total = subtotal + totalTax;
 
-    let status = data.paymentMethod ? 'Pagado' : 'Abierto';
+    // Split payments must add up to the document total (cent tolerance).
+    if (data.payments) {
+      const paid = data.payments.reduce((acc, p) => acc + p.amount, 0);
+      if (Math.abs(paid - total) > 0.01) {
+        throw Object.assign(
+          new Error(`La suma de los pagos ($${paid.toFixed(2)}) debe ser igual al total ($${total.toFixed(2)})`),
+          { status: 400 },
+        );
+      }
+    }
+
+    let status = data.paymentMethod || data.payments ? 'Pagado' : 'Abierto';
     if (type === DocumentType.COMPRA) status = 'Recibido';
     if (type === DocumentType.REMITO) status = hasSupplier ? 'Recibido' : 'Entregado';
     if (type === DocumentType.FACTURA && !data.paymentMethod) status = 'Pendiente';
@@ -509,18 +531,32 @@ router.post('/', requireAnyPermission('ventas.escribir', 'compras.escribir'), as
               },
             }
           : {}),
-        ...(data.paymentMethod && canCreatePayment
+        // Payment rows: the payments array wins over the legacy single
+        // paymentMethod. Both are skipped for a FACTURA chained to an
+        // already-paid source (no double payment).
+        ...(data.payments && canCreatePayment
           ? {
               payments: {
-                create: {
+                create: data.payments.map((p) => ({
                   companyId: req.authUser!.companyId,
-                  amount: total,
-                  method: data.paymentMethod,
+                  amount: p.amount,
+                  method: p.method,
                   status: 'Pagado',
-                },
+                })),
               },
             }
-          : {}),
+          : !data.payments && data.paymentMethod && canCreatePayment
+            ? {
+                payments: {
+                  create: {
+                    companyId: req.authUser!.companyId,
+                    amount: total,
+                    method: data.paymentMethod,
+                    status: 'Pagado',
+                  },
+                },
+              }
+            : {}),
       },
       include: { items: true, payments: true, invoiceData: true },
     });
