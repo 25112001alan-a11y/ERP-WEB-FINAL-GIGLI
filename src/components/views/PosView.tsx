@@ -194,9 +194,22 @@ export const PosView: React.FC<PosViewProps> = ({
     }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment' },
+        video: {
+          facingMode: 'environment',
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+        },
       });
       streamRef.current = stream;
+      // Foco continuo: los 1D (barras finas) no decodifican con el foco
+      // fijo de baja resolución que negocian algunos móviles.
+      try {
+        await stream.getVideoTracks()[0]?.applyConstraints({
+          advanced: [{ focusMode: 'continuous' } as MediaTrackConstraintSet],
+        });
+      } catch {
+        // focusMode no soportado — se sigue con el foco por defecto
+      }
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         try {
