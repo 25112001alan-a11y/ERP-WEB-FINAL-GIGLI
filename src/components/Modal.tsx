@@ -26,14 +26,14 @@ export const Modal: React.FC<ModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-md"
+      className="fixed inset-0 z-50 flex bg-black/40 p-md overflow-y-auto"
       onClick={onClose}
       role="dialog"
       aria-modal="true"
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className={`w-full ${maxWidth} max-h-[90vh] overflow-auto bg-surface-container-lowest rounded-xl shadow-lg border border-outline-variant/20 p-lg space-y-md`}
+        className={`m-auto w-full ${maxWidth} max-h-[90vh] overflow-auto bg-surface-container-lowest rounded-xl shadow-lg border border-outline-variant/20 p-lg space-y-md`}
       >
         <h2 className="font-headline-md text-headline-md text-on-surface">{title}</h2>
         {children}

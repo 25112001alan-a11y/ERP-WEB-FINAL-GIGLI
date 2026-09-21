@@ -475,13 +475,13 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ orders, suppliers,
       {/* Nuevo Proveedor Modal */}
       {showNewSupplier && (
         <div
-          className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-md"
+          className="fixed inset-0 z-50 bg-black/40 flex p-md overflow-y-auto"
           onClick={() => setShowNewSupplier(false)}
         >
           <form
             onSubmit={handleCreateSupplier}
             onClick={(e) => e.stopPropagation()}
-            className="bg-surface-container-lowest rounded-xl shadow-2xl w-full max-w-[672px] max-h-[90dvh] overflow-y-auto p-lg flex flex-col gap-md border border-outline-variant/20"
+            className="bg-surface-container-lowest rounded-xl shadow-2xl w-full max-w-[672px] max-h-[90dvh] overflow-y-auto p-lg flex flex-col gap-md border border-outline-variant/20 m-auto"
           >
             <div className="flex items-center justify-between">
               <h2 className="font-headline-md text-headline-md text-on-surface">Nuevo Proveedor</h2>

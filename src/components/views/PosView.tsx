@@ -544,8 +544,8 @@ export const PosView: React.FC<PosViewProps> = ({
 
       {/* Cash Received Modal */}
       {cashModal.open && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-md" onClick={() => setCashModal({ open: false, received: '' })}>
-          <div className="bg-surface-container-lowest rounded-2xl shadow-xl w-full max-w-sm p-lg border border-outline-variant/30" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 bg-black/40 flex p-md overflow-y-auto" onClick={() => setCashModal({ open: false, received: '' })}>
+          <div className="bg-surface-container-lowest rounded-2xl shadow-xl w-full max-w-sm p-lg border border-outline-variant/30 m-auto" onClick={(e) => e.stopPropagation()}>
             <h3 className="font-headline-md text-headline-md text-on-surface mb-md">Pago en Efectivo</h3>
             <p className="font-body-md text-on-surface-variant mb-md">Total: <span className="font-bold text-primary">${total.toFixed(2)}</span></p>
             <div className="flex flex-col gap-sm mb-md">
@@ -571,8 +571,8 @@ export const PosView: React.FC<PosViewProps> = ({
 
       {/* Split Payment Modal */}
       {splitModal.open && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-md" onClick={() => setSplitModal({ open: false, rows: [] })}>
-          <div className="bg-surface-container-lowest rounded-2xl shadow-xl w-full max-w-md p-lg border border-outline-variant/30" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 bg-black/40 flex p-md overflow-y-auto" onClick={() => setSplitModal({ open: false, rows: [] })}>
+          <div className="bg-surface-container-lowest rounded-2xl shadow-xl w-full max-w-md p-lg border border-outline-variant/30 m-auto" onClick={(e) => e.stopPropagation()}>
             <h3 className="font-headline-md text-headline-md text-on-surface mb-md">Dividir Pago</h3>
             <p className="font-body-md text-on-surface-variant mb-md">Total: <span className="font-bold text-primary">${total.toFixed(2)}</span></p>
             <div className="space-y-sm mb-md max-h-60 overflow-y-auto">
