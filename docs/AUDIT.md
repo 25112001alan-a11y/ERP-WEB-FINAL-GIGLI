@@ -449,6 +449,33 @@ d304543 feat(server): seed AR demo tambien en boot con RUN_DEMO_SEED
 `server build` ✓ · health prod `200 {"status":"ok"}` ✓ · seed AR en prod pendiente de redeploy + flag (verificar con login)
 - Front web verificado en vivo: bundle `index-DPaROJDI.js` contiene `BarcodeDetector` + storefront `/t/:slug` + `payments` → el QR y pagos reales están desplegados en https://erp-web-final-gigli.vercel.app (HTTPS, apto para cámara en el celu)
 
+---
+
+## Fix lector: formatos 1D + marco de apuntado (2026-09-19)
+
+### Reporte de campo (dueño, 3 dispositivos)
+
+Cámara abría pero no detectaba códigos de barras; QR sí (con "código no encontrado" = pipeline OK).
+
+### Causa
+
+`new BarcodeDetector({ formats: ['qr_code'] })` — los 1D de productos reales (EAN-13/8, UPC, Code128) eran invisibles.
+
+### Qué se hizo (`PosView.tsx`)
+
+- 11 formatos candidatos (qr + ean_13/8, upc_a/e, code_128/39, itf, codabar, data_matrix, aztec) filtrados por `getSupportedFormats()` del navegador (Safari trae menos; sin el guard, el constructor revienta).
+- Marco de apuntado sobre el video ("Apuntá el código dentro del marco") — antes no había feedback visual de dónde apuntar.
+
+### Registro de commits
+
+```text
+8afdb26 fix(pos): lector con formatos 1D y marco de apuntado
+```
+
+### Verificación
+
+`npm run lint` ✓ · `npm test` (19) ✓ · `npm run build` ✓ · pusheado (Vercel redeploya solo)
+
 ### Tanda 1 — commits por unidades de trabajo
 
 ```text
