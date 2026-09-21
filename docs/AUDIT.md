@@ -1,6 +1,6 @@
 # Nexus ERP — Informe de auditoría
 
-> Fecha: 2026-09-19 · Última actualización: 2026-09-19 (Causa raíz modales: colisión de tokens)
+> Fecha: 2026-09-19 · Última actualización: 2026-09-19 (Lote POS: QR + pagos reales)
 > Alcance: `src/` (frontend React 19 + Vite + Tailwind 4), `server/` (Express 5 + Prisma + Zod, MySQL), `server/prisma/schema.prisma`
 > Método: revisión de código por agentes de exploración (buenas prácticas, coherencia frontend↔backend, duplicación) + verificación cruzada del diff.
 > Estado: hallazgos marcados ✅ (resuelto), ⏳ (pendiente deliberado), ⚠️ (requiere decisión del usuario). Moneda ARS y datos reales resueltos en tanda 2. Fase 0 completada.
@@ -389,6 +389,34 @@ Reemplazo por valores arbitrarios (inmunes a la colisión, equivalen a los defau
 ### Verificación
 
 CSS compilado con 42/28/24rem ✓ · `npm run lint` ✓ · `npm test` (19) ✓ · `npm run build` ✓
+
+---
+
+## Lote POS: QR + pagos reales (2026-09-19)
+
+### Scanner (PosView, botón junto al buscador)
+
+| Modo | Cómo funciona |
+| --- | --- |
+| Cámara | `BarcodeDetector` nativo + `getUserMedia` (cámara trasera), cero dependencias; una lectura por activación; stream cortado al cerrar (sin cámaras zombie); fallback con mensaje si no hay soporte/permiso |
+| Pistola HID | Input con `autoFocus` donde la pistola escribe y cierra con Enter (actúa como teclado) |
+| Lookup | Client-side sobre productos en memoria: `barcode` exacto → `sku` exacto → nombre contiene; `barcode` expuesto por el mapper (el backend ya lo devolvía, se descartaba); no encontrado → error inline, sin `alert()` |
+
+### Pagos reales contra backend
+
+- `POST /api/documents` acepta `payments?: [{ method: 'Efectivo'\|'Tarjeta'\|'QR / Transf.', amount }]` (máx 10); suma ≠ total → 400; crea N filas `Payment` en `Pagado`. Sin el array, el comportamiento legacy queda intacto.
+- Efectivo (modal monto + vuelto), Tarjeta, QR/Transf. y Dividir (multi-fila validada client + server) ahora persisten pagos reales. Botón normalizado `'Tarjeta Crédito'` → `'Tarjeta'`.
+- Mock restante: únicamente Mercado Pago online (Fase E).
+
+### Registro de commits
+
+```text
+fad1ae9 feat(pos): lector QR camara+HID y pagos reales contra backend
+```
+
+### Verificación
+
+`npm run lint` ✓ · `npm test` (19) ✓ · `npm run build` ✓ · `server build` ✓ · `server test` (40 pass — 2 tests nuevos de pagos — 1 skip) ✓
 
 ### Tanda 1 — commits por unidades de trabajo
 
