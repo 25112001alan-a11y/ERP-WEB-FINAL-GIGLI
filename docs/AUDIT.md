@@ -1,6 +1,6 @@
 # Nexus ERP — Informe de auditoría
 
-> Fecha: 2026-09-19 · Última actualización: 2026-09-19 (Fix sucursales + Seed AR + Fase 2)
+> Fecha: 2026-09-19 · Última actualización: 2026-09-19 (Aislamiento plataforma + Modal compartida)
 > Alcance: `src/` (frontend React 19 + Vite + Tailwind 4), `server/` (Express 5 + Prisma + Zod, MySQL), `server/prisma/schema.prisma`
 > Método: revisión de código por agentes de exploración (buenas prácticas, coherencia frontend↔backend, duplicación) + verificación cruzada del diff.
 > Estado: hallazgos marcados ✅ (resuelto), ⏳ (pendiente deliberado), ⚠️ (requiere decisión del usuario). Moneda ARS y datos reales resueltos en tanda 2. Fase 0 completada.
@@ -252,6 +252,57 @@ c9bdb08 feat: seed demo con 3 empresas argentinas coherentes y cuentas por rol
 ### Verificación
 
 `npm run lint` ✓ · `npm test` (19) ✓ · `npm run build` ✓ · `server build` ✓ · `server test` (33 pass, 1 skip) ✓
+
+---
+
+## Aislamiento admin de plataforma (2026-09-19) — CRÍTICO resuelto
+
+### Problema (reportado por el dueño)
+
+El dueño de cada empresa (rol Super Admin) veía el panel de administración de Nexus con datos de OTRAS empresas (cantidad de empresas, MRR, lista de no suscriptas). Dueño de empresa ≠ administrador de Nexus.
+
+### Qué se hizo
+
+| Área | Antes | Ahora |
+| --- | --- | --- |
+| Permiso plataforma | `billing.manage` otorgado a todo dueño en el registro | Nuevo `PLATFORM_ONLY_PERMISSIONS = ['billing.manage']` (`middleware/auth.ts`); el registro lo excluye del rol Super Admin del dueño. `billing.leer` lo conservan (verificado: no filtra nada cross-tenant) |
+| Catálogo de permisos | Todos veían todo | `GET /permissions` oculta permisos plataforma a quien no los tiene |
+| Roles custom (Fase 2) | Un dueño podía auto-otorgarse `billing.manage` | `POST/PATCH /roles` → 400 ante auto-otorgamiento; invariante Super Admin corregido (set completo = no-plataforma + extras) |
+| Seed demo | Dueños demo con catálogo completo | `OWNER_PERMS` sin `billing.manage`; DB local reconciliada: **39 filas eliminadas** en tenants no-plataforma, 0 restantes, `ana.silva@empresa.com` intacta |
+| Endpoint overview | Gate por permiso que todos tenían | Sin cambios — el gate ahora es significativo |
+| Frontend | — | Sin cambios necesarios (verificado): el conteo cae a 1 ante 403 y la tab Facturación desaparece sin el permiso |
+| Tests | — | Nuevo `server/test/platform-permissions.test.ts` (5 tests de regresión) |
+
+Verificado en vivo: `dueno@lodemarta.test` → `GET /api/billing/admin/overview` → **403**; `ana.silva@empresa.com` → **200**.
+
+### Registro de commits
+
+```text
+3bdae00 fix(server): aislar admin de plataforma, billing.manage solo para Nexus
+```
+
+---
+
+## Modal compartida (2026-09-19)
+
+### Hallazgo honesto
+
+No existe modal de crear/editar usuario: la creación es la página `NewUserView` (`max-w-[672px]`, correcto) y los modales de `AdminView` ya estaban centrados. El aplastamiento reportado no reproduce desde código — si lo ves en un punto concreto, pasame la pantalla exacta y lo miro.
+
+### Qué se hizo (corta la clase de bug de raíz)
+
+- Nueva primitiva `src/components/Modal.tsx` (~45 líneas: overlay + panel centrado, prop `maxWidth`, cierre con ESC/click-outside).
+- Modales de crear/editar rol y confirmación de borrado migrados a ella (mismo texto y estilo). Resto de shells intactos.
+
+### Registro de commits
+
+```text
+5ab4329 fix(front): primitiva Modal compartida y migracion de modales de roles
+```
+
+### Verificación
+
+`npm run lint` ✓ · `npm test` (19) ✓ · `npm run build` ✓ · `server build` ✓ · `server test` (38 pass, 1 skip — 5 tests nuevos) ✓
 
 ### Tanda 1 — commits por unidades de trabajo
 
