@@ -554,7 +554,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, roles, permissions,
         <Modal
           title={editing ? `Editar rol «${editing.name}»` : 'Nuevo rol'}
           onClose={() => setModalOpen(false)}
-          maxWidth="max-w-2xl"
+          maxWidth="max-w-[42rem]"
           footer={
             <>
               <button
@@ -636,7 +636,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, roles, permissions,
         <Modal
           title={`Eliminar rol «${deleting.name}»`}
           onClose={() => setDeleting(null)}
-          maxWidth="max-w-md"
+          maxWidth="max-w-[28rem]"
           footer={
             <>
               <button

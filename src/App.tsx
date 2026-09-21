@@ -765,7 +765,7 @@ if (isPublicOrAuth) {
             <div className="min-h-screen flex flex-col items-center justify-center gap-md p-lg text-center">
               <span className="material-symbols-outlined text-[48px] text-on-surface-variant">storefront</span>
               <h1 className="font-headline-lg text-headline-lg">Tu tienda aún no tiene enlace público</h1>
-              <p className="font-body-md text-on-surface-variant max-w-md">
+              <p className="font-body-md text-on-surface-variant max-w-[28rem]">
                 Configurá el slug del storefront en Configuración → Datos de la Empresa para activar tu tienda pública.
               </p>
               <button

@@ -5,7 +5,7 @@ interface ModalProps {
   onClose: () => void;
   children: React.ReactNode;
   footer?: React.ReactNode;
-  maxWidth?: 'max-w-md' | 'max-w-lg' | 'max-w-2xl';
+  maxWidth?: 'max-w-[28rem]' | 'max-w-[32rem]' | 'max-w-[42rem]';
 }
 
 /** Shared modal shell: overlay + centered panel with sane width, ESC and click-outside close. */
@@ -14,7 +14,7 @@ export const Modal: React.FC<ModalProps> = ({
   onClose,
   children,
   footer,
-  maxWidth = 'max-w-lg',
+  maxWidth = 'max-w-[32rem]',
 }) => {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

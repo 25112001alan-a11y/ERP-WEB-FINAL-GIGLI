@@ -288,7 +288,7 @@ export const PublicClientStoreView: React.FC<PublicClientStoreViewProps> = ({ sl
           <div className="flex flex-col items-center justify-center gap-md px-lg py-20 text-center">
             <span className="material-symbols-outlined text-[64px] text-on-surface-variant">storefront</span>
             <h1 className="font-display-lg text-display-lg text-on-surface">Tienda no encontrada</h1>
-            <p className="font-body-lg text-body-lg text-on-surface-variant max-w-md">
+            <p className="font-body-lg text-body-lg text-on-surface-variant max-w-[28rem]">
               El enlace <span className="font-mono-sm">/t/{slug}</span> no corresponde a ninguna tienda.
               Revisá la dirección o pedile al comercio su enlace actualizado.
             </p>
