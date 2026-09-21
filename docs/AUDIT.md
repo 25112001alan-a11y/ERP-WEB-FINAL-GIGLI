@@ -1,6 +1,6 @@
 # Nexus ERP — Informe de auditoría
 
-> Fecha: 2026-09-19 · Última actualización: 2026-09-19 (Lote POS: QR + pagos reales)
+> Fecha: 2026-09-19 · Última actualización: 2026-09-19 (Seed AR en boot de producción)
 > Alcance: `src/` (frontend React 19 + Vite + Tailwind 4), `server/` (Express 5 + Prisma + Zod, MySQL), `server/prisma/schema.prisma`
 > Método: revisión de código por agentes de exploración (buenas prácticas, coherencia frontend↔backend, duplicación) + verificación cruzada del diff.
 > Estado: hallazgos marcados ✅ (resuelto), ⏳ (pendiente deliberado), ⚠️ (requiere decisión del usuario). Moneda ARS y datos reales resueltos en tanda 2. Fase 0 completada.
@@ -417,6 +417,36 @@ fad1ae9 feat(pos): lector QR camara+HID y pagos reales contra backend
 ### Verificación
 
 `npm run lint` ✓ · `npm test` (19) ✓ · `npm run build` ✓ · `server build` ✓ · `server test` (40 pass — 2 tests nuevos de pagos — 1 skip) ✓
+
+---
+
+## Seed AR en boot de producción (2026-09-19)
+
+### Problema
+
+Las 9 cuentas demo solo existían en MySQL local. En la web (Railway) no se podía entrar con ellas.
+
+### Qué se hizo
+
+- `server/src/bootstrap.ts` (`runDemoSeed`): además del seed incremental, ejecuta `prisma/seed-ar-demo.ts` — bajo el flag existente `RUN_DEMO_SEED=true`, idempotente, seguro en cada boot.
+- En Railway, el boot ya aplica migraciones pendientes (`migrate deploy`): al redeplear entran `user_branch_lock`, índices FK y defaults ARS.
+- API de producción verificada en vivo: `GET /api/health` → `{"status":"ok"}`.
+
+### Condición (requiere acción del dueño en Railway)
+
+1. Verificar que la variable `RUN_DEMO_SEED=true` exista en el servicio de Railway; si no, agregarla.
+2. El push a `main` ya dispara el redeploy (Vercel front + Railway API). Al bootear, migraciones + seed AR corren solos.
+3. Probar login en https://erp-web-final-gigli.vercel.app con `dueno@lodemarta.test` / `password123`.
+
+### Registro de commits
+
+```text
+d304543 feat(server): seed AR demo tambien en boot con RUN_DEMO_SEED
+```
+
+### Verificación
+
+`server build` ✓ · health prod `200 {"status":"ok"}` ✓ · seed AR en prod pendiente de redeploy + flag (verificar con login)
 
 ### Tanda 1 — commits por unidades de trabajo
 
