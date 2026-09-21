@@ -1,6 +1,6 @@
 # Nexus ERP — Informe de auditoría
 
-> Fecha: 2026-09-19 · Última actualización: 2026-09-19 (Aislamiento plataforma + Modal compartida)
+> Fecha: 2026-09-19 · Última actualización: 2026-09-19 (Fix sistémico de modales)
 > Alcance: `src/` (frontend React 19 + Vite + Tailwind 4), `server/` (Express 5 + Prisma + Zod, MySQL), `server/prisma/schema.prisma`
 > Método: revisión de código por agentes de exploración (buenas prácticas, coherencia frontend↔backend, duplicación) + verificación cruzada del diff.
 > Estado: hallazgos marcados ✅ (resuelto), ⏳ (pendiente deliberado), ⚠️ (requiere decisión del usuario). Moneda ARS y datos reales resueltos en tanda 2. Fase 0 completada.
@@ -303,6 +303,33 @@ No existe modal de crear/editar usuario: la creación es la página `NewUserView
 ### Verificación
 
 `npm run lint` ✓ · `npm test` (19) ✓ · `npm run build` ✓ · `server build` ✓ · `server test` (38 pass, 1 skip — 5 tests nuevos) ✓
+
+---
+
+## Fix sistémico de modales (2026-09-19)
+
+### Causa raíz (encontrada al revisar "agregar nuevo rol")
+
+Todos los modales usaban `flex items-center justify-center` en el overlay. Con contenido alto (el modal de roles tiene ~9 grupos de permisos y supera el viewport), el panel centrado se recorta arriba y abajo y se ve "aplastado al centro". No era el ancho — era el centrado vertical con overflow.
+
+### Qué se hizo
+
+Patrón de centrado `m-auto` en los 5 shells (centra cuando entra, scrollea desde arriba cuando no):
+- `src/components/Modal.tsx` (primitiva: overlay `flex` + `overflow-y-auto`, panel con `m-auto`)
+- `AdminView` roles/borrar (vía primitiva, ya aplicado)
+- `PurchasesView` nuevo proveedor, `PosView` efectivo/dividir, `SupplierVoucherModal` (mismo patrón in-place, contenido intacto)
+
+Regla: todo modal nuevo usa `<Modal>` o el patrón `m-auto`; `items-center` queda prohibido en overlays.
+
+### Registro de commits
+
+```text
+cf7726d fix(front): centrado m-auto en modales, fin del aplastamiento sistemico
+```
+
+### Verificación
+
+`npm run lint` ✓ · `npm test` (19) ✓ · `npm run build` ✓ (solo clases, sin cambios de lógica)
 
 ### Tanda 1 — commits por unidades de trabajo
 
