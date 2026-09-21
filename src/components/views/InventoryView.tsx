@@ -1,9 +1,13 @@
 import React, { useMemo, useState } from 'react';
 import { ViewPath, Product, WarehouseOption } from '../../types';
+import { branchStock, warehouseIdsForBranch } from '../../lib/branch';
 
 interface InventoryViewProps {
   products: Product[];
   warehouses: WarehouseOption[];
+  activeBranchId?: number | null;
+  activeBranchName?: string;
+  onClearBranch?: () => void;
   onNavigate: (view: ViewPath) => void;
 }
 
@@ -16,15 +20,31 @@ interface WarehouseStats {
   outOfStock: number;
 }
 
-export const InventoryView: React.FC<InventoryViewProps> = ({ products, warehouses, onNavigate }) => {
+export const InventoryView: React.FC<InventoryViewProps> = ({
+  products,
+  warehouses,
+  activeBranchId = null,
+  activeBranchName,
+  onClearBranch,
+  onNavigate,
+}) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('');
   const [selectedWarehouse, setSelectedWarehouse] = useState('');
+
+  // Branch scope: null = "Todas" (current behavior). Everything below filters
+  // client-side on the already-loaded rows.
+  const branchWarehouseIds = useMemo(
+    () => warehouseIdsForBranch(warehouses, activeBranchId),
+    [warehouses, activeBranchId],
+  );
+  const inBranch = (warehouseId: number) => branchWarehouseIds == null || branchWarehouseIds.has(warehouseId);
 
   const warehouseStats = useMemo<WarehouseStats[]>(() => {
     const map = new Map<number, WarehouseStats>();
     products.forEach((p) => {
       p.stocks.forEach((s) => {
+        if (!inBranch(s.warehouseId)) return;
         let st = map.get(s.warehouseId);
         if (!st) {
           st = {
@@ -44,20 +64,24 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ products, warehous
       });
     });
     return [...map.values()];
-  }, [products, warehouses]);
+  }, [products, warehouses, branchWarehouseIds]);
 
   const categories = useMemo(
     () => [...new Set(products.map((p) => p.category))].filter(Boolean).sort(),
     [products],
   );
 
-  const filteredProducts = products.filter((prod) => {
-    const matchesSearch = prod.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      prod.sku.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesCat = !selectedCategory || prod.category === selectedCategory;
-    const matchesWh = !selectedWarehouse || prod.stocks.some((s) => s.warehouseId === Number(selectedWarehouse));
-    return matchesSearch && matchesCat && matchesWh;
-  });
+  const filteredProducts = products
+    .filter((prod) => (branchWarehouseIds == null ? true : prod.stocks.some((s) => branchWarehouseIds.has(s.warehouseId))))
+    .filter((prod) => {
+      const matchesSearch = prod.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        prod.sku.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesCat = !selectedCategory || prod.category === selectedCategory;
+      const matchesWh = !selectedWarehouse || prod.stocks.some((s) => s.warehouseId === Number(selectedWarehouse));
+      return matchesSearch && matchesCat && matchesWh;
+    });
+  // Branch-scoped quantities for the table (null = global totals, current behavior).
+  const displayStock = (prod: Product) => branchStock(prod, branchWarehouseIds);
 
   const cardDecor = [
     'bg-tertiary-container/10 group-hover:bg-tertiary-container/20',
@@ -72,6 +96,17 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ products, warehous
         <div className="flex flex-col gap-xs">
           <h1 className="font-display-lg text-display-lg text-on-surface">Gestión de Inventario</h1>
           <p className="font-body-lg text-body-lg text-on-surface-variant">Control general de stock y depósitos.</p>
+          {activeBranchId != null && (
+            <button
+              onClick={onClearBranch}
+              title="Mostrar todas las sucursales"
+              className="self-start inline-flex items-center gap-xs px-sm py-xs rounded-full bg-secondary-container text-on-secondary-container font-label-md text-label-md hover:opacity-90 transition-opacity cursor-pointer"
+            >
+              <span className="material-symbols-outlined text-[16px]">store</span>
+              {activeBranchName ?? `Sucursal ${activeBranchId}`}
+              <span className="material-symbols-outlined text-[16px]">close</span>
+            </button>
+          )}
         </div>
         <div className="flex gap-md flex-wrap">
           <button
@@ -199,14 +234,14 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ products, warehous
                   </td>
                   <td className="p-md text-on-surface-variant font-mono-sm text-mono-sm">{product.sku}</td>
                   <td className="p-md">{product.category}</td>
-                  <td className="p-md text-right font-medium">{product.stock}</td>
+                  <td className="p-md text-right font-medium">{displayStock(product)}</td>
                   <td className="p-md text-right text-on-surface-variant">${product.price.toFixed(2)}</td>
                   <td className="p-md text-center">
-                    {product.stock > product.minStock ? (
+                    {displayStock(product) > product.minStock ? (
                       <span className="inline-flex items-center gap-xs px-sm py-xs rounded-full bg-tertiary-container/10 text-on-tertiary-container font-label-md text-label-md">
                         <span className="w-1.5 h-1.5 rounded-full bg-on-tertiary-container"></span> En Stock
                       </span>
-                    ) : product.stock > 0 ? (
+                    ) : displayStock(product) > 0 ? (
                       <span className="inline-flex items-center gap-xs px-sm py-xs rounded-full bg-error-container text-on-error-container font-label-md text-label-md">
                         <span className="w-1.5 h-1.5 rounded-full bg-error"></span> Bajo Stock
                       </span>

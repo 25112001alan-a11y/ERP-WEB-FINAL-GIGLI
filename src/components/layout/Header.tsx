@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ViewPath } from '../../types';
+import { ViewPath, BranchOption } from '../../types';
 import { useAuth } from '../../lib/auth';
 
 interface HeaderProps {
@@ -7,6 +7,9 @@ interface HeaderProps {
   onNavigate: (view: ViewPath) => void;
   onLogout: () => void;
   onMenuClick: () => void;
+  branches?: BranchOption[];
+  activeBranchId?: number | null;
+  onBranchChange?: (branchId: number | null) => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -14,6 +17,9 @@ export const Header: React.FC<HeaderProps> = ({
   onNavigate,
   onLogout,
   onMenuClick,
+  branches = [],
+  activeBranchId = null,
+  onBranchChange,
 }) => {
   const { user } = useAuth();
   const [showQuickNav, setShowQuickNav] = useState(false);
@@ -64,6 +70,23 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* Right User Actions */}
       <div className="flex items-center gap-lg">
+        {onBranchChange && branches.length > 0 && (
+          <label className="hidden sm:flex items-center gap-xs px-sm py-xs bg-surface-container-high rounded-lg font-label-md text-label-md text-on-surface-variant">
+            <span className="material-symbols-outlined text-[18px] text-secondary">store</span>
+            <select
+              value={activeBranchId == null ? '' : String(activeBranchId)}
+              onChange={(e) => onBranchChange(e.target.value === '' ? null : Number(e.target.value))}
+              aria-label="Sucursal activa"
+              title="¿En qué sucursal estoy trabajando?"
+              className="bg-transparent outline-none cursor-pointer text-on-surface max-w-[160px]"
+            >
+              <option value="">Todas</option>
+              {branches.map((b) => (
+                <option key={b.id} value={String(b.id)}>{b.name}</option>
+              ))}
+            </select>
+          </label>
+        )}
         <span className="font-label-md text-label-md text-on-surface-variant uppercase tracking-widest hidden md:inline-block max-w-[220px] truncate">
           {companyName}
         </span>

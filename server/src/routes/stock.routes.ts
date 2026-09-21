@@ -42,10 +42,13 @@ router.get('/', async (req, res) => {
   res.json(stocks);
 });
 
-/** GET /api/stock/warehouses — tenant-scoped warehouse catalog (for receipt/transfer pickers) */
+/** GET /api/stock/warehouses — tenant-scoped warehouse catalog (for receipt/transfer pickers).
+ * Includes the parent branch so the frontend can offer a branch filter without
+ * an extra endpoint. */
 router.get('/warehouses', async (_req, res) => {
   const warehouses = await prisma.warehouse.findMany({
     where: { companyId: _req.authUser!.companyId },
+    include: { branch: { select: { id: true, name: true } } },
     orderBy: { name: 'asc' },
   });
   res.json(warehouses);

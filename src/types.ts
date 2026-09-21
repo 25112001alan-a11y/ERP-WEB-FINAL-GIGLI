@@ -200,6 +200,13 @@ export interface PurchaseDocument {
 export interface WarehouseOption {
   id: number;
   name: string;
+  branchId?: number;
+  branch?: { id: number; name: string } | null;
+}
+
+export interface BranchOption {
+  id: number;
+  name: string;
 }
 
 // ---------------------------------------------------------------------------

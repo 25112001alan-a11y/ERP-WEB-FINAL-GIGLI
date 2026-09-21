@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { ViewPath, Product, CartItem, SaleTransaction } from '../../types';
+import { branchStock } from '../../lib/branch';
 
 export interface CompleteSalePayload {
   items: CartItem[];
@@ -9,11 +10,21 @@ export interface CompleteSalePayload {
 
 interface PosViewProps {
   products: Product[];
+  branchWarehouseIds?: Set<number> | null;
+  activeBranchName?: string;
+  onClearBranch?: () => void;
   onCompleteSale: (payload: CompleteSalePayload) => Promise<SaleTransaction>;
   onNavigate: (view: ViewPath) => void;
 }
 
-export const PosView: React.FC<PosViewProps> = ({ products, onCompleteSale, onNavigate }) => {
+export const PosView: React.FC<PosViewProps> = ({
+  products,
+  branchWarehouseIds = null,
+  activeBranchName,
+  onClearBranch,
+  onCompleteSale,
+  onNavigate,
+}) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('Todos');
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -37,15 +48,19 @@ export const PosView: React.FC<PosViewProps> = ({ products, onCompleteSale, onNa
 
   const categories = ['Todos', 'Electrónica', 'Ropa', 'Muebles', 'Bebidas', 'Snacks'];
 
+  // Branch-scoped availability (null = "Todas", current behavior).
+  const avail = (prod: Product) => branchStock(prod, branchWarehouseIds ?? null);
+
   const filteredProducts = products.filter((prod) => {
     const matchesSearch = prod.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       prod.sku.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesCat = selectedCategory === 'Todos' || prod.category === selectedCategory;
-    return matchesSearch && matchesCat;
+    const matchesBranch = branchWarehouseIds == null || avail(prod) > 0 || prod.allowOversell;
+    return matchesSearch && matchesCat && matchesBranch;
   });
 
   const addToCart = (product: Product) => {
-    if (product.stock <= 0) return;
+    if (avail(product) <= 0 && !product.allowOversell) return;
     setCart((prev) => {
       const existing = prev.find((item) => item.product.id === product.id);
       if (existing) {
@@ -372,6 +387,17 @@ export const PosView: React.FC<PosViewProps> = ({ products, onCompleteSale, onNa
 
             {/* Category Pills */}
             <div className="flex items-center gap-sm overflow-x-auto pb-sm no-scrollbar">
+              {branchWarehouseIds != null && (
+                <button
+                  onClick={onClearBranch}
+                  title="Mostrar todas las sucursales"
+                  className="inline-flex items-center gap-xs px-md py-sm rounded-full bg-secondary-container text-on-secondary-container font-label-md text-label-md whitespace-nowrap shrink-0 cursor-pointer"
+                >
+                  <span className="material-symbols-outlined text-[16px]">store</span>
+                  {activeBranchName ?? 'Sucursal'}
+                  <span className="material-symbols-outlined text-[16px]">close</span>
+                </button>
+              )}
               {categories.map((cat) => (
                 <button
                   key={cat}
@@ -396,7 +422,7 @@ export const PosView: React.FC<PosViewProps> = ({ products, onCompleteSale, onNa
                   key={prod.id}
                   onClick={() => addToCart(prod)}
                   className={`group flex flex-col bg-surface rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-all cursor-pointer transform hover:-translate-y-1 border border-outline-variant/20 ${
-                    prod.stock <= 0 ? 'opacity-50 cursor-not-allowed grayscale' : ''
+                    avail(prod) <= 0 && !prod.allowOversell ? 'opacity-50 cursor-not-allowed grayscale' : ''
                   }`}
                 >
                   <div className="aspect-square relative bg-surface-container-low p-sm flex items-center justify-center">
@@ -407,12 +433,12 @@ export const PosView: React.FC<PosViewProps> = ({ products, onCompleteSale, onNa
                     )}
                     <span
                       className={`absolute top-sm right-sm px-sm py-xs rounded font-mono-xs text-mono-xs font-bold ${
-                        prod.stock <= 0
+                        avail(prod) <= 0 && !prod.allowOversell
                           ? 'bg-error text-on-error'
                           : 'bg-surface/80 backdrop-blur text-on-surface'
                       }`}
                     >
-                      {prod.stock} un.
+                      {avail(prod)} un.
                     </span>
                   </div>
                   <div className="p-sm flex flex-col gap-xs bg-surface-container-lowest flex-1">

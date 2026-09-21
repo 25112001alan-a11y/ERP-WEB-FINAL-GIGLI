@@ -1,9 +1,10 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ViewPath, Product, PurchaseOrder, Supplier, SaleTransaction, PublicOrder, User, AuditLog, FinanceTransaction, PurchaseDocument, WarehouseOption, DashboardData, RoleOption, TaxRate,
 } from './types';
 import { useAuth } from './lib/auth';
 import { apiFetch } from './lib/api';
+import { deriveBranches, getStoredBranchId, setStoredBranchId, warehouseIdsForBranch } from './lib/branch';
 import { ApiProduct, ApiDocument, toFrontProduct, toFrontPurchaseOrder, toFrontPurchaseDocument, toFrontSale } from './lib/mappers';
 import { CartItem } from './types';
 
@@ -82,6 +83,27 @@ export default function App() {
   // Maps front product id -> first warehouse id (used for stock adjustments).
   const [productWarehouseIds, setProductWarehouseIds] = useState<Record<string, number>>({});
 
+  // Fase 1 — branch/sucursal selector: client-side only, persisted per company.
+  const companyId = user?.company?.id ?? null;
+  const branches = useMemo(() => deriveBranches(warehouses), [warehouses]);
+  const [activeBranchId, setActiveBranchId] = useState<number | null>(null);
+  useEffect(() => {
+    const stored = getStoredBranchId(companyId);
+    setActiveBranchId(stored != null && branches.some((b) => b.id === stored) ? stored : null);
+  }, [companyId, branches]);
+  const handleBranchChange = useCallback(
+    (branchId: number | null) => {
+      setStoredBranchId(companyId, branchId);
+      setActiveBranchId(branchId);
+    },
+    [companyId],
+  );
+  const branchWarehouseIds = useMemo(
+    () => warehouseIdsForBranch(warehouses, activeBranchId),
+    [warehouses, activeBranchId],
+  );
+  const activeBranchName = branches.find((b) => b.id === activeBranchId)?.name;
+
   const loadProducts = useCallback(async (): Promise<boolean> => {
     try {
       const data = await apiFetch<ApiProduct[]>('/api/products');
@@ -108,7 +130,7 @@ export default function App() {
         apiFetch<ApiDocument[]>('/api/documents?type=REMITO'),
         apiFetch<ApiDocument[]>('/api/documents?type=FACTURA'),
         apiFetch<{ id: number; name: string; email: string; phone: string | null; taxId: string | null; contact: string | null }[]>('/api/suppliers'),
-        apiFetch<{ id: number; name: string }[]>('/api/stock/warehouses'),
+        apiFetch<WarehouseOption[]>('/api/stock/warehouses'),
       ]);
       setSuppliers(
         sups.map((s) => ({
@@ -419,7 +441,19 @@ export default function App() {
   }
 
   const handleCompleteSale = async (payload: CompleteSalePayload): Promise<SaleTransaction> => {
-    const warehouseId = productWarehouseIds[payload.items[0]?.product.id ?? ''];
+    // With a branch selected, sell from a warehouse of that branch (first cart
+    // line with availability there); otherwise keep the historical behavior.
+    const pickWarehouse = (productId: string): number | undefined => {
+      if (branchWarehouseIds != null) {
+        const prod = products.find((p) => p.id === productId);
+        const inBranch = prod?.stocks.find(
+          (s) => branchWarehouseIds.has(s.warehouseId) && (s.quantity > 0 || prod.allowOversell),
+        );
+        if (inBranch) return inBranch.warehouseId;
+      }
+      return productWarehouseIds[productId];
+    };
+    const warehouseId = pickWarehouse(payload.items[0]?.product.id ?? '');
     if (!warehouseId) {
       throw new Error('No se encontró un depósito para los productos del carrito');
     }
@@ -721,6 +755,9 @@ if (isPublicOrAuth) {
             onNavigate={navigate}
             onLogout={handleLogout}
             onMenuClick={() => setSidebarOpen(true)}
+            branches={branches}
+            activeBranchId={activeBranchId}
+            onBranchChange={handleBranchChange}
           />
 
           {/* View Container — POS usa full-bleed (sin padding del shell) */}
@@ -756,7 +793,14 @@ if (isPublicOrAuth) {
               <>
             {currentView === 'dashboard' && <DashboardView dashboard={dashboard} onNavigate={navigate} />}
             {currentView === 'inventario' && (
-              <InventoryView products={products} warehouses={warehouses} onNavigate={navigate} />
+              <InventoryView
+                products={products}
+                warehouses={warehouses}
+                activeBranchId={activeBranchId}
+                activeBranchName={activeBranchName}
+                onClearBranch={() => handleBranchChange(null)}
+                onNavigate={navigate}
+              />
             )}
             {currentView === 'inventario-ajuste' && (
               <StockAdjustmentView products={products} onNavigate={navigate} onApplyAdjustment={handleApplyAdjustment} />
@@ -778,7 +822,14 @@ if (isPublicOrAuth) {
               />
             )}
             {currentView === 'pos' && (
-              <PosView products={products} onCompleteSale={handleCompleteSale} onNavigate={navigate} />
+              <PosView
+                products={products}
+                branchWarehouseIds={branchWarehouseIds}
+                activeBranchName={activeBranchName}
+                onClearBranch={() => handleBranchChange(null)}
+                onCompleteSale={handleCompleteSale}
+                onNavigate={navigate}
+              />
             )}
             {currentView === 'ventas' && (
               <SalesView sales={sales} onNavigate={navigate} onOpenRegistrarFactura={() => openRegistrarFactura('egreso')} />
