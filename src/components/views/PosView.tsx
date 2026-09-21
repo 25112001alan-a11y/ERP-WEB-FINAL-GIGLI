@@ -181,8 +181,11 @@ export const PosView: React.FC<PosViewProps> = ({
   const startCamera = async () => {
     setCameraError(null);
     const w = window as unknown as {
-      BarcodeDetector?: new (opts: { formats: string[] }) => {
-        detect(video: HTMLVideoElement): Promise<{ rawValue: string }[]>;
+      BarcodeDetector?: {
+        new (opts: { formats: string[] }): {
+          detect(video: HTMLVideoElement): Promise<{ rawValue: string }[]>;
+        };
+        getSupportedFormats?: () => Promise<string[]>;
       };
     };
     if (!w.BarcodeDetector || !navigator.mediaDevices?.getUserMedia) {
@@ -203,7 +206,27 @@ export const PosView: React.FC<PosViewProps> = ({
         }
       }
       setCameraOn(true);
-      const detector = new w.BarcodeDetector({ formats: ['qr_code'] });
+      // QR + 1D de productos reales (EAN-13/8, UPC, Code128/39, ITF...),
+      // filtrados por lo que el navegador soporta (Safari trae menos).
+      const CANDIDATE_FORMATS = [
+        'qr_code',
+        'ean_13', 'ean_8',
+        'upc_a', 'upc_e',
+        'code_128', 'code_39',
+        'itf', 'codabar',
+        'data_matrix', 'aztec',
+      ];
+      let formats = CANDIDATE_FORMATS;
+      try {
+        if (typeof w.BarcodeDetector?.getSupportedFormats === 'function') {
+          const supported = await w.BarcodeDetector.getSupportedFormats();
+          const filtered = CANDIDATE_FORMATS.filter((f) => supported.includes(f));
+          if (filtered.length > 0) formats = filtered;
+        }
+      } catch {
+        // keep candidates; the constructor below throws if truly unsupported
+      }
+      const detector = new w.BarcodeDetector({ formats });
       const tick = async () => {
         try {
           if (videoRef.current && videoRef.current.readyState >= 2) {
@@ -676,12 +699,20 @@ export const PosView: React.FC<PosViewProps> = ({
         <div className="fixed inset-0 z-50 bg-black/40 flex p-md overflow-y-auto" onClick={closeScanModal}>
           <div className="bg-surface-container-lowest rounded-2xl shadow-xl w-full max-w-[24rem] p-lg border border-outline-variant/30 m-auto" onClick={(e) => e.stopPropagation()}>
             <h3 className="font-headline-md text-headline-md text-on-surface mb-md">Escanear código</h3>
-            <video
-              ref={videoRef}
-              playsInline
-              muted
-              className={`w-full rounded-xl bg-black mb-md ${cameraOn ? '' : 'hidden'}`}
-            />
+            <div className="relative w-full mb-md">
+              <video
+                ref={videoRef}
+                playsInline
+                muted
+                className={`w-full rounded-xl bg-black ${cameraOn ? '' : 'hidden'}`}
+              />
+              {cameraOn && (
+                <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2">
+                  <div className="w-3/4 h-24 border-2 border-dashed border-white/80 rounded-lg" />
+                  <p className="text-white/90 text-xs bg-black/50 rounded px-2 py-1">Apuntá el código dentro del marco</p>
+                </div>
+              )}
+            </div>
             {!cameraOn && (
               <button
                 onClick={startCamera}
