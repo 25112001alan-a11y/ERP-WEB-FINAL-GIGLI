@@ -23,6 +23,10 @@ export const PosView: React.FC<PosViewProps> = ({ products, onCompleteSale, onNa
   const [checkingOut, setCheckingOut] = useState(false);
   const [cartOpen, setCartOpen] = useState(false);
 
+  // Modal states for checkout
+  const [cashModal, setCashModal] = useState<{ open: boolean; received: string }>({ open: false, received: '' });
+  const [splitModal, setSplitModal] = useState<{ open: boolean; rows: { method: string; amount: string }[] }>({ open: false, rows: [{ method: 'Efectivo', amount: '' }, { method: 'Tarjeta', amount: '' }] });
+
   // Bloquear el scroll de fondo mientras el carrito mobile está abierto.
   useEffect(() => {
     document.body.style.overflow = cartOpen ? 'hidden' : '';
@@ -78,6 +82,20 @@ export const PosView: React.FC<PosViewProps> = ({ products, onCompleteSale, onNa
 
   const handleCheckout = async (method: string) => {
     if (cart.length === 0 || checkingOut) return;
+
+    // Efectivo: open modal to ask for amount received
+    if (method === 'Efectivo') {
+      setCashModal({ open: true, received: total.toFixed(2) });
+      return;
+    }
+
+    // Dividir Pago: open split payment modal
+    if (method === 'Dividir Pago') {
+      setSplitModal({ open: true, rows: [{ method: 'Efectivo', amount: '' }, { method: 'Tarjeta', amount: '' }] });
+      return;
+    }
+
+    // Tarjeta / QR / Transf.: mock payment, create VENTA with status 'Pagado'
     setCheckingOut(true);
     setSaleError(null);
     try {
@@ -93,6 +111,81 @@ export const PosView: React.FC<PosViewProps> = ({ products, onCompleteSale, onNa
     } finally {
       setCheckingOut(false);
     }
+  };
+
+  const handleCashConfirm = async () => {
+    const received = parseFloat(cashModal.received);
+    if (isNaN(received) || received < total) {
+      setSaleError('El monto recibido debe ser mayor o igual al total');
+      return;
+    }
+    const change = received - total;
+    setCashModal({ open: false, received: '' });
+    setCheckingOut(true);
+    setSaleError(null);
+    try {
+      // Use onCompleteSale which creates VENTA document with payment
+      await onCompleteSale({ items: cart, method: 'Efectivo', clientName });
+      setSaleCompleted(true);
+      setCartOpen(false);
+      // TODO: show change to user (toast)
+      console.log('Vuelto:', change.toFixed(2));
+      setTimeout(() => {
+        setCart([]);
+        setSaleCompleted(false);
+      }, 1800);
+    } catch (err) {
+      setSaleError(err instanceof Error ? err.message : 'No se pudo completar la venta');
+    } finally {
+      setCheckingOut(false);
+    }
+  };
+
+  const handleSplitConfirm = async () => {
+    const sum = splitModal.rows.reduce((acc, r) => acc + parseFloat(r.amount || '0'), 0);
+    if (Math.abs(sum - total) > 0.01) {
+      setSaleError('La suma de los pagos debe ser igual al total');
+      return;
+    }
+    if (splitModal.rows.some((r) => !r.method || !r.amount || parseFloat(r.amount) <= 0)) {
+      setSaleError('Completa todos los métodos y montos');
+      return;
+    }
+    setSplitModal({ open: false, rows: [] });
+    setCheckingOut(true);
+    setSaleError(null);
+    try {
+      // For now, create VENTA with first payment method; multiple payments would need backend support
+      const primaryMethod = splitModal.rows[0].method;
+      await onCompleteSale({ items: cart, method: primaryMethod, clientName });
+      // TODO: backend supports multiple payments per document (Payment[] relation)
+      console.log('Pago dividido:', splitModal.rows);
+      setSaleCompleted(true);
+      setCartOpen(false);
+      setTimeout(() => {
+        setCart([]);
+        setSaleCompleted(false);
+      }, 1800);
+    } catch (err) {
+      setSaleError(err instanceof Error ? err.message : 'No se pudo completar la venta');
+    } finally {
+      setCheckingOut(false);
+    }
+  };
+
+  const addSplitRow = () => {
+    setSplitModal((prev) => ({ ...prev, rows: [...prev.rows, { method: 'Efectivo', amount: '' }] }));
+  };
+
+  const removeSplitRow = (idx: number) => {
+    setSplitModal((prev) => ({ ...prev, rows: prev.rows.filter((_, i) => i !== idx) }));
+  };
+
+  const updateSplitRow = (idx: number, field: 'method' | 'amount', value: string) => {
+    setSplitModal((prev) => ({
+      ...prev,
+      rows: prev.rows.map((r, i) => (i === idx ? { ...r, [field]: value } : r)),
+    }));
   };
 
   // Cuerpo del carrito — compartido entre desktop (panel fijo) y mobile (overlay).
@@ -283,7 +376,7 @@ export const PosView: React.FC<PosViewProps> = ({ products, onCompleteSale, onNa
                 <button
                   key={cat}
                   onClick={() => setSelectedCategory(cat)}
-                  className={`px-md py-sm rounded-full font-label-md text-label-md whitespace-nowrap transition-all cursor-pointer ${
+                  className={`px-md py-sm rounded-full font-label-md text-label-md whitespace-nowrap transition-all cursor-pointer shrink-0 ${
                     selectedCategory === cat
                       ? 'bg-primary text-on-primary shadow-md'
                       : 'bg-surface-container-high text-on-surface hover:bg-surface-variant'
@@ -296,8 +389,8 @@ export const PosView: React.FC<PosViewProps> = ({ products, onCompleteSale, onNa
           </div>
 
           {/* Product Grid */}
-          <div className="flex-1 overflow-y-auto p-lg bg-surface-container-lowest">
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-md">
+          <div className="flex-1 overflow-y-auto p-lg bg-surface-container-lowest min-h-[400px]">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-sm">
               {filteredProducts.map((prod) => (
                 <div
                   key={prod.id}
@@ -306,14 +399,14 @@ export const PosView: React.FC<PosViewProps> = ({ products, onCompleteSale, onNa
                     prod.stock <= 0 ? 'opacity-50 cursor-not-allowed grayscale' : ''
                   }`}
                 >
-                  <div className="aspect-square relative bg-surface-container-low p-md flex items-center justify-center">
+                  <div className="aspect-square relative bg-surface-container-low p-sm flex items-center justify-center">
                     {prod.imageUrl ? (
                       <img src={prod.imageUrl} alt={prod.name} className="w-full h-full object-contain mix-blend-multiply" />
                     ) : (
-                      <span className="material-symbols-outlined text-[40px] text-outline opacity-40">inventory_2</span>
+                      <span className="material-symbols-outlined text-[32px] text-outline opacity-40">inventory_2</span>
                     )}
                     <span
-                      className={`absolute top-sm right-sm px-sm py-xs rounded font-mono-sm text-mono-sm font-bold ${
+                      className={`absolute top-sm right-sm px-sm py-xs rounded font-mono-xs text-mono-xs font-bold ${
                         prod.stock <= 0
                           ? 'bg-error text-on-error'
                           : 'bg-surface/80 backdrop-blur text-on-surface'
@@ -322,12 +415,12 @@ export const PosView: React.FC<PosViewProps> = ({ products, onCompleteSale, onNa
                       {prod.stock} un.
                     </span>
                   </div>
-                  <div className="p-md flex flex-col gap-xs bg-surface-container-lowest flex-1">
-                    <span className="font-body-md text-body-md text-on-surface line-clamp-2 leading-tight font-medium">
+                  <div className="p-sm flex flex-col gap-xs bg-surface-container-lowest flex-1">
+                    <span className="font-body-sm text-body-sm text-on-surface line-clamp-2 leading-tight font-medium">
                       {prod.name}
                     </span>
-                    <div className="flex items-end justify-between mt-auto pt-sm">
-                      <span className="font-headline-md text-headline-md text-primary font-bold">
+                    <div className="flex items-end justify-between mt-auto pt-xs">
+                      <span className="font-headline-sm text-headline-sm text-primary font-bold">
                         ${prod.price.toFixed(2)}
                       </span>
                     </div>
@@ -372,6 +465,82 @@ export const PosView: React.FC<PosViewProps> = ({ products, onCompleteSale, onNa
           </div>
           <div className="flex-1 min-h-0 flex flex-col">
             {cartBody}
+          </div>
+        </div>
+      )}
+
+      {/* Cash Received Modal */}
+      {cashModal.open && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-md" onClick={() => setCashModal({ open: false, received: '' })}>
+          <div className="bg-surface-container-lowest rounded-2xl shadow-xl w-full max-w-sm p-lg border border-outline-variant/30" onClick={(e) => e.stopPropagation()}>
+            <h3 className="font-headline-md text-headline-md text-on-surface mb-md">Pago en Efectivo</h3>
+            <p className="font-body-md text-on-surface-variant mb-md">Total: <span className="font-bold text-primary">${total.toFixed(2)}</span></p>
+            <div className="flex flex-col gap-sm mb-md">
+              <label className="font-label-md text-label-md text-on-surface-variant">Monto recibido</label>
+              <input
+                type="number"
+                step="0.01"
+                min={total}
+                value={cashModal.received}
+                onChange={(e) => setCashModal({ ...cashModal, received: e.target.value })}
+                className="w-full bg-surface border border-outline-variant/50 rounded-lg px-md py-sm font-body-lg text-body-lg focus:ring-2 focus:ring-primary outline-none"
+                autoFocus
+              />
+            </div>
+            <p className="font-body-md text-on-surface-variant mb-md">Vuelto: <span className="font-bold">${(parseFloat(cashModal.received) - total).toFixed(2)}</span></p>
+            <div className="flex gap-sm justify-end">
+              <button onClick={() => setCashModal({ open: false, received: '' })} className="px-md py-sm rounded-lg bg-surface-container-high text-on-surface hover:bg-surface-container-highest transition-colors cursor-pointer">Cancelar</button>
+              <button onClick={handleCashConfirm} disabled={checkingOut} className="px-md py-sm rounded-lg bg-primary text-on-primary hover:opacity-90 transition-opacity cursor-pointer disabled:opacity-50">Confirmar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Split Payment Modal */}
+      {splitModal.open && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-md" onClick={() => setSplitModal({ open: false, rows: [] })}>
+          <div className="bg-surface-container-lowest rounded-2xl shadow-xl w-full max-w-md p-lg border border-outline-variant/30" onClick={(e) => e.stopPropagation()}>
+            <h3 className="font-headline-md text-headline-md text-on-surface mb-md">Dividir Pago</h3>
+            <p className="font-body-md text-on-surface-variant mb-md">Total: <span className="font-bold text-primary">${total.toFixed(2)}</span></p>
+            <div className="space-y-sm mb-md max-h-60 overflow-y-auto">
+              {splitModal.rows.map((row, idx) => (
+                <div key={idx} className="flex items-center gap-sm">
+                  <select
+                    value={row.method}
+                    onChange={(e) => updateSplitRow(idx, 'method', e.target.value)}
+                    className="flex-1 bg-surface border border-outline-variant/50 rounded-lg px-md py-sm font-body-md focus:ring-2 focus:ring-primary outline-none"
+                  >
+                    <option value="Efectivo">Efectivo</option>
+                    <option value="Tarjeta">Tarjeta</option>
+                    <option value="QR / Transf.">QR / Transf.</option>
+                  </select>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    placeholder="Monto"
+                    value={row.amount}
+                    onChange={(e) => updateSplitRow(idx, 'amount', e.target.value)}
+                    className="w-28 bg-surface border border-outline-variant/50 rounded-lg px-md py-sm font-body-md text-right focus:ring-2 focus:ring-primary outline-none"
+                  />
+                  {splitModal.rows.length > 2 && (
+                    <button onClick={() => removeSplitRow(idx)} className="text-error hover:text-on-error-container p-sm rounded-lg hover:bg-error-container/10 cursor-pointer" aria-label="Eliminar">
+                      <span className="material-symbols-outlined text-[18px]">delete</span>
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+            <p className="font-body-sm text-on-surface-variant mb-md">Suma: <span className="font-bold ${splitModal.rows.reduce((acc, r) => acc + parseFloat(r.amount || '0'), 0) === total ? 'text-tertiary' : 'text-error'}">${splitModal.rows.reduce((acc, r) => acc + parseFloat(r.amount || '0'), 0).toFixed(2)}</span></p>
+            <div className="flex gap-sm justify-between">
+              <button onClick={addSplitRow} className="px-md py-sm rounded-lg bg-surface-container-high text-on-surface hover:bg-surface-container-highest transition-colors cursor-pointer flex items-center gap-xs">
+                <span className="material-symbols-outlined text-[16px]">add</span> Agregar método
+              </button>
+              <div className="flex gap-sm">
+                <button onClick={() => setSplitModal({ open: false, rows: [] })} className="px-md py-sm rounded-lg bg-surface-container-high text-on-surface hover:bg-surface-container-highest transition-colors cursor-pointer">Cancelar</button>
+                <button onClick={handleSplitConfirm} disabled={checkingOut} className="px-md py-sm rounded-lg bg-primary text-on-primary hover:opacity-90 transition-opacity cursor-pointer disabled:opacity-50">Confirmar</button>
+              </div>
+            </div>
           </div>
         </div>
       )}

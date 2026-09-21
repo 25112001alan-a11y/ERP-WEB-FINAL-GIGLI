@@ -18,6 +18,9 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, roles, permissions,
   const [overviewLoading, setOverviewLoading] = useState(false);
   const [overviewError, setOverviewError] = useState('');
 
+  // Company count for header
+  const [companyCount, setCompanyCount] = useState<number | null>(null);
+
   useEffect(() => {
     if (!canViewBilling || activeTab !== 'billing') return;
     let cancelled = false;
@@ -37,6 +40,26 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, roles, permissions,
     };
   }, [canViewBilling, activeTab]);
 
+  // Fetch company count for header (SuperAdmin gets total, regular admin gets 1)
+  useEffect(() => {
+    let cancelled = false;
+    if (canViewBilling) {
+      apiFetch<BillingAdminOverview>('/api/billing/admin/overview')
+        .then((data) => {
+          if (!cancelled) setCompanyCount(data.totals.companies);
+        })
+        .catch(() => {
+          if (!cancelled) setCompanyCount(1);
+        });
+    } else {
+      // Regular admin: their own company
+      setCompanyCount(1);
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [canViewBilling]);
+
   return (
     <div className="flex flex-col w-full h-full gap-lg font-body-md text-on-surface">
       {/* Header */}
@@ -44,7 +67,11 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, roles, permissions,
         <div>
           <span className="font-label-md text-label-md text-primary tracking-widest uppercase">Administración del Sistema</span>
           <h1 className="font-display-lg text-display-lg text-on-surface">Panel de Administración</h1>
-          <p className="font-body-lg text-body-lg text-on-surface-variant">Gestión de usuarios, roles, permisos y seguridad de la plataforma.</p>
+          <p className="font-body-lg text-body-lg text-on-surface-variant">
+            {companyCount !== null
+              ? `${companyCount} ${companyCount === 1 ? 'empresa' : 'empresas'} • Gestión de usuarios, roles, permisos y seguridad.`
+              : 'Gestión de usuarios, roles, permisos y seguridad de la plataforma.'}
+          </p>
         </div>
         <div className="flex gap-md flex-wrap">
           <button

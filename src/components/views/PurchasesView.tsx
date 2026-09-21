@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { ViewPath, PurchaseOrder, Supplier } from '../../types';
 import { SupplierVoucherModal, SupplierVoucherData } from '../SupplierVoucherModal';
 import { apiFetch } from '../../lib/api';
@@ -22,6 +22,86 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ orders, suppliers,
   const [newSupplier, setNewSupplier] = useState({ name: '', taxId: '', email: '', phone: '' });
   const [supplierSaving, setSupplierSaving] = useState(false);
   const [supplierError, setSupplierError] = useState('');
+
+  // Dropdown menu state for order actions
+  const [dropdownAnchor, setDropdownAnchor] = useState<{ order: PurchaseOrder; rect: DOMRect } | null>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setDropdownAnchor(null);
+      }
+    };
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setDropdownAnchor(null);
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleEscape);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, []);
+
+  const openDropdown = (order: PurchaseOrder, rect: DOMRect) => {
+    setDropdownAnchor({ order, rect });
+  };
+
+  const closeDropdown = () => setDropdownAnchor(null);
+
+  const handleVer = (order: PurchaseOrder) => {
+    closeDropdown();
+    // TODO: navigate to detail view when it exists
+    console.log('Ver', order.id);
+  };
+
+  const handleEditar = (order: PurchaseOrder) => {
+    closeDropdown();
+    if (order.paymentStatus === 'No Pagado' || order.receiptStatus === 'Pendiente') {
+      // TODO: navigate to edit view when it exists
+      console.log('Editar', order.id);
+    }
+  };
+
+  const handleDuplicar = async (order: PurchaseOrder) => {
+    closeDropdown();
+    try {
+      // Create new order (OC) pre-filled with same lines/supplier
+      // Need to fetch full document details first
+      const doc = await apiFetch<{ id: number; supplierId?: number; items: { productId: number; quantity: number; unitPrice: number }[] }>(`/api/documents/${order.documentId}`);
+      await apiFetch('/api/documents', {
+        method: 'POST',
+        body: {
+          type: 'OC',
+          series: 'A',
+          supplierId: doc.supplierId,
+          items: doc.items.map((i) => ({ productId: i.productId, quantity: i.quantity, unitPrice: i.unitPrice })),
+        },
+      });
+      // Refresh purchases list
+      onSupplierCreated(); // reuse existing callback to reload
+    } catch (err) {
+      console.error('Error duplicando orden:', err);
+    }
+  };
+
+  const handleAnular = async (order: PurchaseOrder) => {
+    closeDropdown();
+    if (order.paymentStatus === 'Pagado' && order.receiptStatus === 'Recibido') return;
+    try {
+      await apiFetch(`/api/documents/${order.documentId}`, {
+        method: 'PATCH',
+        body: { status: 'Anulado' },
+      });
+      onSupplierCreated();
+    } catch (err) {
+      console.error('Error anulando orden:', err);
+    }
+  };
+
+  const canEdit = (order: PurchaseOrder) => order.paymentStatus === 'No Pagado' || order.receiptStatus === 'Pendiente';
+  const canAnular = (order: PurchaseOrder) => order.paymentStatus !== 'Pagado' && order.receiptStatus !== 'Recibido';
 
   const handleCreateSupplier = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -227,9 +307,66 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ orders, suppliers,
                             >
                               <span className="material-symbols-outlined text-[18px]">document_scanner</span>
                             </button>
-                            <button className="text-outline hover:text-primary cursor-pointer tap-target">
+                            <button
+                              title="Más acciones"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openDropdown(merged, e.currentTarget.getBoundingClientRect());
+                              }}
+                              className="text-outline hover:text-primary cursor-pointer tap-target"
+                              aria-haspopup="true"
+                              aria-expanded={dropdownAnchor?.order.id === merged.id}
+                            >
                               <span className="material-symbols-outlined text-[18px]">more_vert</span>
                             </button>
+                            {dropdownAnchor?.order.id === merged.id && (
+                              <div
+                                ref={dropdownRef}
+                                className="fixed z-50 bg-surface-container-lowest rounded-xl shadow-xl border border-outline-variant/30 min-w-[160px] py-1"
+                                style={{
+                                  top: dropdownAnchor.rect.bottom + 4,
+                                  left: dropdownAnchor.rect.right - 160,
+                                }}
+                                role="menu"
+                              >
+                                <button
+                                  onClick={() => handleVer(merged)}
+                                  className="w-full px-md py-sm text-left font-body-md text-body-md text-on-surface hover:bg-surface-container-low cursor-pointer"
+                                  role="menuitem"
+                                >
+                                  <span className="material-symbols-outlined text-[16px] inline-block align-middle mr-2">visibility</span>
+                                  Ver
+                                </button>
+                                {canEdit(merged) && (
+                                  <button
+                                    onClick={() => handleEditar(merged)}
+                                    className="w-full px-md py-sm text-left font-body-md text-body-md text-on-surface hover:bg-surface-container-low cursor-pointer"
+                                    role="menuitem"
+                                  >
+                                    <span className="material-symbols-outlined text-[16px] inline-block align-middle mr-2">edit</span>
+                                    Editar
+                                  </button>
+                                )}
+                                <button
+                                  onClick={() => handleDuplicar(merged)}
+                                  className="w-full px-md py-sm text-left font-body-md text-body-md text-on-surface hover:bg-surface-container-low cursor-pointer"
+                                  role="menuitem"
+                                >
+                                  <span className="material-symbols-outlined text-[16px] inline-block align-middle mr-2">content_copy</span>
+                                  Duplicar
+                                </button>
+                                {canAnular(merged) && (
+                                  <button
+                                    onClick={() => handleAnular(merged)}
+                                    className="w-full px-md py-sm text-left font-body-md text-body-md text-error hover:bg-error-container/10 cursor-pointer"
+                                    role="menuitem"
+                                  >
+                                    <span className="material-symbols-outlined text-[16px] inline-block align-middle mr-2">cancel</span>
+                                    Anular
+                                  </button>
+                                )}
+                              </div>
+                            )}
                           </div>
                         </td>
                       </tr>

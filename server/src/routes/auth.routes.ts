@@ -27,7 +27,7 @@ const registerSchema = z.object({
   lastName: z.string().min(2, 'lastName es requerido').max(80),
   email: z.string().email('Email inválido'),
   password: z.string().min(8, 'La contraseña debe tener al menos 8 caracteres').max(100),
-  currency: z.string().length(3).optional().default('USD'),
+  currency: z.string().length(3).optional().default('ARS'),
   // Honeypot: hidden in the form, so only automated submissions fill it.
   _gotcha: z.string().optional(),
 });
