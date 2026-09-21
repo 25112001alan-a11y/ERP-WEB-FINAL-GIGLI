@@ -1,9 +1,9 @@
 # Nexus ERP — Informe de auditoría
 
-> Fecha: 2026-09-19 · Última actualización: 2026-09-19 (tanda 2: decisiones + datos reales)
+> Fecha: 2026-09-19 · Última actualización: 2026-09-19 (Fase 0: quick wins)
 > Alcance: `src/` (frontend React 19 + Vite + Tailwind 4), `server/` (Express 5 + Prisma + Zod, MySQL), `server/prisma/schema.prisma`
 > Método: revisión de código por agentes de exploración (buenas prácticas, coherencia frontend↔backend, duplicación) + verificación cruzada del diff.
-> Estado: hallazgos marcados ✅ (resuelto), ⏳ (pendiente deliberado), ⚠️ (requiere decisión del usuario). Las decisiones de moneda y datos inventados quedaron resueltas en la tanda 2.
+> Estado: hallazgos marcados ✅ (resuelto), ⏳ (pendiente deliberado), ⚠️ (requiere decisión del usuario). Moneda ARS y datos reales resueltos en tanda 2. Fase 0 completada.
 
 ## Veredicto
 
@@ -39,14 +39,17 @@ El código está **bien encuadrado**: señales de nivel senior en seguridad y co
 | `formatMoney`: 4 locales distintos + ~40 `toFixed` sueltos (el mismo monto se ve distinto según vista) | ⏳ Desbloqueado en tanda 2 (moneda canónica decidida: **ARS, locale es-AR**) — falta aplicar el helper unificado como parte de la tanda de duplicación |
 | `parseBody` (zod-safeParse→400 repetido 15+ veces), CRUD factory clients/suppliers, line-math, doc-number padding, `getUserPermissions` reutilizable | ⏳ Pendiente — simplificaciones seguras de tanda propia |
 | -7 dependencias sin imports en el frontend (`lucide-react`, `motion`, `@google/genai`, `express`, `dotenv`, `autoprefixer`, `esbuild`) y rename de `"react-example"` | ⏳ Pendiente — mecánico, sin riesgo |
-| `currency`/`exchangeRate` siempre USD al persistir documentos, ignorando la moneda de la empresa | ⚠️ Requiere decisión de negocio (moneda por tenant en documentos) |
 | `loadAll` pide 3 endpoints (users/roles/audit) a todo usuario autenticado → banner de error para no-admins; navegación sin gating de permisos | ⏳ Pendiente — UX (el backend ya falla cerrado, no es riesgo de seguridad) |
-| Datos inventados en UI: KPIs de InventoryView, ReportsView (+18.4%), gráficos de Purchases/Pedidos, "v2.4.0 Enterprise Cloud" en sidebar | ⏳ Pendiente — reemplazar literales por datos reales o quitar; requiere decisión de alcance por vista |
 | Endpoints vivos sin UI: `/api/clients`, edit/delete de products/suppliers | ⏳ Pendiente — producto (¿traer las vistas o quitarlas de la API?) |
 | `imageUrl` renderizado sin columna en el schema | ⏳ Pendiente — o se agrega el campo o se quita de la UI |
 | Test de webhook MP con fixture grabado (body + firma reales) | ⚠️ Recomendado antes de depender de producción — hoy la suite ejerce el path con firmas sintéticas |
 | `trust proxy 1` | ✅ Verificado por topología: la API corre en Railway tras exactamente un proxy TLS; no es un defecto en ese despliegue |
 | Webhook `eventId` fallback `evt-${Date.now()}` rompe idempotencia si faltan ambos IDs | ⚠️ Menor — decidir si rechazar el evento en vez de inventar ID |
+| Registro: `registerSchema` defaulteaba `USD` pese a moneda canónica ARS | ✅ Resuelto (Fase 0): default → `ARS` en `server/src/routes/auth.routes.ts` |
+| Admin panel mostraba "26 empresas" hardcodeado | ✅ Resuelto (Fase 0): conteo real vía `/api/billing/admin/overview` (SuperAdmin) o 1 (admin regular) en `AdminView.tsx` |
+| Compras ▸ 3 puntitos sin acción | ✅ Resuelto (Fase 0): menú con Ver/Editar/Duplicar/Anular en `PurchasesView.tsx` |
+| POS catálogo: "carrito vacío" pequeño, 1 producto visible, scroll forzado | ✅ Resuelto (Fase 0): panel `min-h-[400px]`, grid `2→5` cols, cards compactas en `PosView.tsx` |
+| POS checkout por método (Efectivo/Tarjeta/QR/Dividir) no funcional | ✅ Resuelto (Fase 0): `handleCheckout` por método — Efectivo con modal de monto vuelto, Tarjeta/QR mock, Dividir con modal multi-pago en `PosView.tsx` |
 
 ---
 
@@ -121,6 +124,27 @@ cd server && npx prisma migrate dev --name add_fk_indexes
 ```text
 fbb99d9 feat(server): moneda canonica en pesos argentinos (ARS)
 7e10ad4 feat(front): reemplazar datos inventados por metricas reales
+```
+
+---
+
+## Fase 0 — quick wins (2026-09-19)
+
+### Qué se hizo
+
+| Área | Antes | Ahora |
+| --- | --- | --- |
+| Compras ▸ 3 puntitos | Botón `more_vert` sin `onClick` | Menú accesible (overlay + ESC/click-outside) con Ver / Editar (si no pagado) / Duplicar (POST OC) / Anular (si no pagado/recibido) |
+| POS catálogo | Panel chico, 1 producto visible, scroll forzado | `min-h-[400px]`, grid `2→5` cols, cards `p-sm` + `line-clamp-2`, pills con scroll horizontal |
+| POS checkout | `handleCheckout` incompleto | Efectivo → modal monto recibido + vuelto → `onCompleteSale`; Tarjeta/QR → mock VENTA Pagado; Dividir Pago → modal multi-fila con validación de suma |
+| Admin panel | "26 empresas" hardcodeado | Conteo real: SuperAdmin vía `overview.totals.companies`, regular → `1` |
+| Registro | `registerSchema` default `USD` | Default `ARS` coherente con moneda canónica |
+| Auth arquitectura | Propuesta "1 email + passwords por rol" | Decisión: **Opción A** — modelo estándar (1 user = 1 email + 1 password + roles), selector de sucursal en UI (Fase 1) |
+
+### Registro de commits (Fase 0)
+
+```text
+343b071 feat: Fase 0 - menu Compras, catalogo y checkout POS, admin real y registro ARS
 ```
 
 ### Tanda 1 — commits por unidades de trabajo
