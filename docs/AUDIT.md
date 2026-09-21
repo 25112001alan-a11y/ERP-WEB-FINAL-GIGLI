@@ -447,6 +447,7 @@ d304543 feat(server): seed AR demo tambien en boot con RUN_DEMO_SEED
 ### Verificación
 
 `server build` ✓ · health prod `200 {"status":"ok"}` ✓ · seed AR en prod pendiente de redeploy + flag (verificar con login)
+- Front web verificado en vivo: bundle `index-DPaROJDI.js` contiene `BarcodeDetector` + storefront `/t/:slug` + `payments` → el QR y pagos reales están desplegados en https://erp-web-final-gigli.vercel.app (HTTPS, apto para cámara en el celu)
 
 ### Tanda 1 — commits por unidades de trabajo
 
