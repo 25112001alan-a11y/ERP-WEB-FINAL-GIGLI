@@ -61,5 +61,7 @@ export function runDemoSeed(): void {
   }
   console.log('[bootstrap] RUN_DEMO_SEED=true — running incremental demo seed...');
   execFileSync(process.execPath, [TSX_CLI, 'prisma/seed-demo-incremental.ts'], { stdio: 'inherit', cwd: CWD });
+  console.log('[bootstrap] RUN_DEMO_SEED=true — running AR demo companies seed...');
+  execFileSync(process.execPath, [TSX_CLI, 'prisma/seed-ar-demo.ts'], { stdio: 'inherit', cwd: CWD });
   console.log('[bootstrap] demo seed complete');
 }
