@@ -1,6 +1,6 @@
 # Nexus ERP — Informe de auditoría
 
-> Fecha: 2026-09-19 · Última actualización: 2026-09-19 (Fase 0: quick wins)
+> Fecha: 2026-09-19 · Última actualización: 2026-09-19 (Fase 1: selector de sucursal)
 > Alcance: `src/` (frontend React 19 + Vite + Tailwind 4), `server/` (Express 5 + Prisma + Zod, MySQL), `server/prisma/schema.prisma`
 > Método: revisión de código por agentes de exploración (buenas prácticas, coherencia frontend↔backend, duplicación) + verificación cruzada del diff.
 > Estado: hallazgos marcados ✅ (resuelto), ⏳ (pendiente deliberado), ⚠️ (requiere decisión del usuario). Moneda ARS y datos reales resueltos en tanda 2. Fase 0 completada.
@@ -146,6 +146,38 @@ fbb99d9 feat(server): moneda canonica en pesos argentinos (ARS)
 ```text
 343b071 feat: Fase 0 - menu Compras, catalogo y checkout POS, admin real y registro ARS
 ```
+
+---
+
+## Fase 1 — selector de sucursal (2026-09-19)
+
+### Decisión de arquitectura auth (confirmada por el dueño)
+
+**Opción A — modelo estándar**: 1 usuario = 1 email + 1 password + N roles. Cada persona tiene su cuenta propia. Se descarta la propuesta "1 email compartido + passwords por rol/persona" (anti-patrón: rompe recovery, auditoría, 2FA/SSO, compliance).
+
+### Qué se hizo
+
+| Área | Antes | Ahora |
+| --- | --- | --- |
+| Selector de sucursal | No existía | Dropdown en Header (icono `store`, solo si hay sucursales) + opción "Todas"; persistencia per-company en `localStorage nexus:activeBranchId:<companyId>` |
+| Filtro por sucursal | Tablas mostraban todo mezclado | InventoryView (cards, tabla, dropdown de depósitos, badges) y PosView (grilla, disponibilidad, `allowOversell` respetado) filtran por `warehouseId ∈ sucursal`; chip con X para limpiar; POS vende desde depósito de la sucursal activa |
+| Backend | `GET /api/stock/warehouses` no traía nombre de sucursal | Mismo endpoint ahora hace `include: { branch: { id, name } }`. Cero cambios de schema, cero endpoints nuevos |
+| Lógica compartida | — | Nuevo `src/lib/branch.ts` (`deriveBranches`, `warehouseIdsForBranch`, `branchStock`) + `branch.test.ts` (5 tests) |
+| Tipos | `WarehouseOption` sin sucursal | Suma `branchId?`/`branch?` opcionales + nuevo `BranchOption` (cero breakage) |
+
+### Pendiente (anotado por el implementador, no bloquea)
+
+- Filtro por sucursal en Ventas (`toFrontSale` descarta `branchId` — hay que propagarlo) y en reportes/dashboard.
+
+### Registro de commits (Fase 1)
+
+```text
+dd6e785 feat: Fase 1 - selector de sucursal con filtro de stock y ventas
+```
+
+### Verificación
+
+`npm run lint` ✓ · `npm test` (19 passed, 2 files) ✓ · `npm run build` ✓ · `server build` ✓
 
 ### Tanda 1 — commits por unidades de trabajo
 
