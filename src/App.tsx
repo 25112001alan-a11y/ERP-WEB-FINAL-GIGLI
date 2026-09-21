@@ -41,9 +41,20 @@ import { AuthRegisterView } from './components/views/AuthRegisterView';
 // ---- API -> front mapper ------------------------------------------------
 // Mappers live in src/lib/mappers.ts (unit-tested). Imported above.
 
+// Public storefront entry: /t/:slug boots straight into that tenant's portal
+// with no login. No react-router in this codebase (state-based navigation), so
+// the pathname is parsed once at boot.
+function getPublicStoreSlug(): string | null {
+  const match = window.location.pathname.match(/^\/t\/([^/]+)\/?$/);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
 export default function App() {
   const { user, logout, loading } = useAuth();
-  const [currentView, setCurrentView] = useState<ViewPath>(user ? 'dashboard' : 'auth-login');
+  // bootSlug is the anonymous entry (/t/:slug). It wins over the session's own
+  // company slug: whoever opens that link sees THAT tenant's storefront.
+  const [bootSlug] = useState<string | null>(getPublicStoreSlug);
+  const [currentView, setCurrentView] = useState<ViewPath>(bootSlug ? 'portal-clientes' : 'auth-login');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   // The entry point decides the invoice direction: Compras -> compra (ingreso),
   // Ventas -> venta (egreso). The form no longer asks for it.
@@ -392,15 +403,18 @@ export default function App() {
     };
   }, [sidebarOpen]);
 
-  // Keep the view consistent with the session state.
+  // Keep the view consistent with the session state. The anonymous storefront
+  // (/t/:slug) is the exception: it never requires a session.
   useEffect(() => {
     if (user && (currentView === 'auth-login' || currentView === 'auth-register')) {
       setCurrentView('dashboard');
     }
     if (!user && currentView !== 'auth-login' && currentView !== 'auth-register') {
-      setCurrentView('auth-login');
+      if (!(currentView === 'portal-clientes' && bootSlug)) {
+        setCurrentView('auth-login');
+      }
     }
-  }, [user, currentView]);
+  }, [user, currentView, bootSlug]);
 
   // Handlers --------------------------------------------------------------
 
@@ -736,11 +750,32 @@ export default function App() {
   }
 
 if (isPublicOrAuth) {
+    // Anonymous /t/:slug entry wins; otherwise the logged-in portal shows the
+    // session's own company storefront. Either way no auth is needed to BUY.
+    const storeSlug = bootSlug ?? user?.company?.slug ?? null;
     return (
       <div className="min-h-screen bg-surface font-sans text-on-surface">
-{currentView === 'portal-clientes' && user?.company?.slug && (
-  <PublicClientStoreView slug={user.company.slug} onNavigate={navigate} />
-)}
+          {currentView === 'portal-clientes' && storeSlug && (
+            <PublicClientStoreView slug={storeSlug} onNavigate={navigate} />
+          )}
+          {currentView === 'portal-clientes' && !storeSlug && !user && (
+            <AuthLoginView onNavigate={navigate} onLoginSuccess={() => setCurrentView('dashboard')} />
+          )}
+          {currentView === 'portal-clientes' && !storeSlug && user && (
+            <div className="min-h-screen flex flex-col items-center justify-center gap-md p-lg text-center">
+              <span className="material-symbols-outlined text-[48px] text-on-surface-variant">storefront</span>
+              <h1 className="font-headline-lg text-headline-lg">Tu tienda aún no tiene enlace público</h1>
+              <p className="font-body-md text-on-surface-variant max-w-md">
+                Configurá el slug del storefront en Configuración → Datos de la Empresa para activar tu tienda pública.
+              </p>
+              <button
+                onClick={() => navigate('configuracion')}
+                className="px-md py-sm bg-primary text-on-primary rounded-lg font-label-md text-label-md cursor-pointer"
+              >
+                Ir a Configuración
+              </button>
+            </div>
+          )}
           {currentView === 'auth-login' && !user && (
             <AuthLoginView onNavigate={navigate} onLoginSuccess={() => setCurrentView('dashboard')} />
           )}

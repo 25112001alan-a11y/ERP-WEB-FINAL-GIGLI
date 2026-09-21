@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { ViewPath } from '../../types';
-import { apiFetch } from '../../lib/api';
+import { ApiError, apiFetch } from '../../lib/api';
+import { useAuth } from '../../lib/auth';
 
 interface PublicProduct {
   id: number;
@@ -24,9 +25,12 @@ interface PublicClientStoreViewProps {
 }
 
 export const PublicClientStoreView: React.FC<PublicClientStoreViewProps> = ({ slug, onNavigate }) => {
+  const { user } = useAuth();
   const [products, setProducts] = useState<PublicProduct[]>([]);
   const [companyName, setCompanyName] = useState('Portal de Clientes');
+  const [currency, setCurrency] = useState('');
   const [loading, setLoading] = useState(true);
+  const [notFound, setNotFound] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState('Todos');
   const [cart, setCart] = useState<CartItem[]>([]);
   const [fullName, setFullName] = useState('');
@@ -40,15 +44,20 @@ export const PublicClientStoreView: React.FC<PublicClientStoreViewProps> = ({ sl
 
   useEffect(() => {
     setLoading(true);
-    apiFetch<{ company: { name: string; slug: string }; products: PublicProduct[] }>(
+    setNotFound(false);
+    apiFetch<{ company: { name: string; slug: string; currency: string }; products: PublicProduct[] }>(
       `/api/public/store/${slug}/products`,
       { auth: false },
     )
       .then((data) => {
         setProducts(data.products);
         setCompanyName(data.company.name);
+        setCurrency(data.company.currency ?? '');
       })
-      .catch(() => setProducts([]))
+      .catch((err) => {
+        setProducts([]);
+        if (err instanceof ApiError && err.status === 404) setNotFound(true);
+      })
       .finally(() => setLoading(false));
   }, [slug]);
 
@@ -114,7 +123,8 @@ export const PublicClientStoreView: React.FC<PublicClientStoreViewProps> = ({ sl
       setCartOpen(false);
       setTimeout(() => {
         setConfirmedOrder(null);
-        onNavigate('pedidos-publicos');
+        // Anonymous buyers stay on the storefront; staff go back to the queue.
+        if (user) onNavigate('pedidos-publicos');
       }, 2500);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo registrar el pedido');
@@ -176,15 +186,15 @@ export const PublicClientStoreView: React.FC<PublicClientStoreViewProps> = ({ sl
           <div className="flex flex-col gap-xs font-body-md text-body-md text-on-surface-variant">
             <div className="flex justify-between">
               <span>Subtotal</span>
-              <span>${subtotal.toFixed(2)}</span>
+              <span>${subtotal.toFixed(2)}{currency ? ` ${currency}` : ''}</span>
             </div>
             <div className="flex justify-between">
               <span>Impuestos</span>
-              <span>${tax.toFixed(2)}</span>
+              <span>${tax.toFixed(2)}{currency ? ` ${currency}` : ''}</span>
             </div>
             <div className="flex justify-between font-headline-lg text-headline-lg text-on-surface mt-sm pt-sm border-t border-outline-variant/30">
               <span>Total</span>
-              <span>${total.toFixed(2)}</span>
+              <span>${total.toFixed(2)}{currency ? ` ${currency}` : ''}</span>
             </div>
           </div>
 
@@ -262,7 +272,7 @@ export const PublicClientStoreView: React.FC<PublicClientStoreViewProps> = ({ sl
       <header className="fixed top-0 left-0 right-0 h-16 bg-surface-container-lowest/90 backdrop-blur-md z-50 flex items-center justify-between gap-md px-lg border-b border-outline-variant/30">
         <div className="flex items-center gap-md min-w-0">
           <div className="w-8 h-8 bg-primary rounded flex items-center justify-center text-on-primary font-bold text-headline-md shrink-0">N</div>
-          <span className="font-headline-md text-headline-md text-on-surface truncate">{companyName}<span className="hidden sm:inline"> • Nexus Storefront</span></span>
+          <span className="font-headline-md text-headline-md text-on-surface truncate">{notFound ? 'Nexus Storefront' : companyName}<span className="hidden sm:inline"> • Nexus Storefront</span></span>
         </div>
         <button
           onClick={() => onNavigate('pedidos-publicos')}
@@ -274,6 +284,17 @@ export const PublicClientStoreView: React.FC<PublicClientStoreViewProps> = ({ sl
       </header>
 
       <main className="relative pt-16 bg-surface min-h-screen">
+        {notFound ? (
+          <div className="flex flex-col items-center justify-center gap-md px-lg py-20 text-center">
+            <span className="material-symbols-outlined text-[64px] text-on-surface-variant">storefront</span>
+            <h1 className="font-display-lg text-display-lg text-on-surface">Tienda no encontrada</h1>
+            <p className="font-body-lg text-body-lg text-on-surface-variant max-w-md">
+              El enlace <span className="font-mono-sm">/t/{slug}</span> no corresponde a ninguna tienda.
+              Revisá la dirección o pedile al comercio su enlace actualizado.
+            </p>
+          </div>
+        ) : (
+        <>
         {/* Hero Section */}
         <div className="relative w-full h-[320px] flex items-center justify-center bg-primary overflow-hidden">
           <div className="absolute inset-0 opacity-20 bg-gradient-to-br from-tertiary-fixed via-primary-fixed to-secondary-fixed mix-blend-overlay"></div>
@@ -283,6 +304,11 @@ export const PublicClientStoreView: React.FC<PublicClientStoreViewProps> = ({ sl
             <p className="font-body-lg text-body-lg text-inverse-primary max-w-[576px] mx-auto">
               Navegá nuestro catálogo, seleccioná tus productos favoritos y recibilos directo en tu puerta. Rápido, fácil y seguro.
             </p>
+            {currency && (
+              <p className="font-label-md text-label-md text-tertiary-fixed tracking-widest uppercase mt-sm">
+                Precios en {currency}
+              </p>
+            )}
           </div>
         </div>
 
@@ -353,6 +379,8 @@ export const PublicClientStoreView: React.FC<PublicClientStoreViewProps> = ({ sl
             {cartPanel}
           </div>
         </div>
+        </>
+        )}
       </main>
 
       {/* Modal Mobile: barra flotante + overlay de carrito */}

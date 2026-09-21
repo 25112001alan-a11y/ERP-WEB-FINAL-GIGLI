@@ -15,7 +15,7 @@ async function storeCompany(slug: string) {
   if (!slug) return null;
   return prisma.company.findUnique({
     where: { slug },
-    select: { id: true, name: true, slug: true },
+    select: { id: true, name: true, slug: true, currency: true },
   });
 }
 
@@ -38,7 +38,7 @@ router.get('/store/:slug/products', async (req, res) => {
   });
 
   res.json({
-    company: { name: company.name, slug: company.slug },
+    company: { name: company.name, slug: company.slug, currency: company.currency },
     products: products.map((p) => ({
       id: p.id,
       name: p.name,

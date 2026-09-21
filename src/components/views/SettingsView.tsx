@@ -51,6 +51,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ taxes, onAddTax, onT
   const [currency, setCurrency] = useState('USD');
   const [timezone, setTimezone] = useState('America/Argentina/Buenos_Aires');
   const [savedMsg, setSavedMsg] = useState(false);
+  const [copiedMsg, setCopiedMsg] = useState(false);
 
   // Billing state (backed by GET /api/billing/subscription + plans)
   const [subscription, setSubscription] = useState<BillingSubscription | null>(null);
@@ -258,7 +259,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ taxes, onAddTax, onT
                   <div className="flex flex-col gap-xs">
                     <label className="font-label-md text-label-md uppercase text-on-surface-variant">Slug del Storefront</label>
                     <div className="flex items-center gap-xs">
-                      <span className="font-mono-sm text-on-surface-variant">{window.location.origin}/tienda/</span>
+                      <span className="font-mono-sm text-on-surface-variant">{window.location.origin}/t/</span>
                       <input
                         type="text"
                         value={companySlug}
@@ -270,6 +271,36 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ taxes, onAddTax, onT
                     <p className="text-xs text-on-surface-variant">
                       Identificador público de tu tienda. Solo minúsculas, números y guiones; debe ser único.
                     </p>
+                    {companySlug.trim() && (
+                      <div className="flex flex-wrap items-center gap-sm mt-xs">
+                        <a
+                          href={`${window.location.origin}/t/${companySlug.trim()}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="px-md py-xs bg-secondary-container text-on-secondary-container font-label-md text-label-md rounded-lg hover:opacity-90 transition-opacity flex items-center gap-xs"
+                        >
+                          <span className="material-symbols-outlined text-[18px]">storefront</span>
+                          Ver mi tienda pública
+                        </a>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const url = `${window.location.origin}/t/${companySlug.trim()}`;
+                            navigator.clipboard?.writeText(url).then(
+                              () => {
+                                setCopiedMsg(true);
+                                setTimeout(() => setCopiedMsg(false), 2000);
+                              },
+                              () => setCompanyError('No se pudo copiar el enlace. Copialo manualmente desde la barra del navegador.'),
+                            );
+                          }}
+                          className="px-md py-xs border border-outline-variant/50 text-on-surface font-label-md text-label-md rounded-lg hover:bg-surface-container-low transition-colors flex items-center gap-xs cursor-pointer"
+                        >
+                          <span className="material-symbols-outlined text-[18px]">content_copy</span>
+                          {copiedMsg ? '¡Enlace copiado!' : 'Copiar enlace'}
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   <div className="flex flex-col gap-xs">

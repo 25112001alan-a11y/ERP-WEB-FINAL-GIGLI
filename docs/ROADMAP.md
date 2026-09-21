@@ -55,8 +55,8 @@ docs/              Documentación
 | `GET /api/users` · `POST /api/users` · `GET /api/users/roles` | token | Usuarios y roles |
 | `GET /api/audit-logs` | token | Auditoría |
 | `GET/PATCH /api/company` | token | Perfil de empresa |
-| `GET /api/public/products` | — | Catálogo público |
-| `POST /api/public/orders` · `GET /api/public/orders?email=` | — | Checkout público + seguimiento |
+| `GET /api/public/store/:slug/products` | — | Catálogo público por empresa |
+| `POST /api/public/store/:slug/orders` · `GET /api/public/store/:slug/orders?email=` | — | Checkout público + seguimiento por empresa |
 
 ## Ejecución local
 
