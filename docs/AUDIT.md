@@ -476,6 +476,28 @@ Cámara abría pero no detectaba códigos de barras; QR sí (con "código no enc
 
 `npm run lint` ✓ · `npm test` (19) ✓ · `npm run build` ✓ · pusheado (Vercel redeploya solo)
 
+---
+
+## Fix cámara: alta resolución + foco continuo (2026-09-19)
+
+### Reporte de campo (dueño, 3 dispositivos)
+
+Barras dentro del marco, la cámara nativa las lee, la web no. QR sí.
+
+### Causa
+
+Stream pedido sin resolución (muchos móviles negocian 640×480) y sin foco continuo: los módulos grandes del QR decodifican igual, las barras finas del EAN-13 no. La app nativa usa full-res + autofocus.
+
+### Qué se hizo (`PosView.tsx`, `4a8d197`, pusheado)
+
+- `getUserMedia` con `width/height: ideal 1920×1080`.
+- `applyConstraints({ advanced: [{ focusMode: 'continuous' }] })` en try/catch (si el navegador no lo soporta, se sigue con foco por defecto).
+- Si algún dispositivo sigue sin leer 1D (p. ej. iPhone con `BarcodeDetector` solo-QR), el paso siguiente es decodificador JS (ZXing) como fallback — avisar con modelo y versión iOS/Android.
+
+### Verificación
+
+`npm run lint` ✓ · `npm test` (19) ✓ · `npm run build` ✓
+
 ### Tanda 1 — commits por unidades de trabajo
 
 ```text
