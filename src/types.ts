@@ -141,7 +141,16 @@ export interface User {
 export interface RoleOption {
   id: number;
   name: string;
-  description?: string;
+  description?: string | null;
+  permissions?: string[];
+  permissionCount?: number;
+  userCount?: number;
+}
+
+export interface PermissionOption {
+  id: number;
+  name: string;
+  description?: string | null;
 }
 
 export interface TaxRate {

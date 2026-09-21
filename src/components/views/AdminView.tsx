@@ -1,17 +1,57 @@
-import React, { useEffect, useState } from 'react';
-import { ViewPath, User, RoleOption, BillingAdminOverview } from '../../types';
-import { apiFetch } from '../../lib/api';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { ViewPath, User, RoleOption, PermissionOption, BillingAdminOverview } from '../../types';
+import { apiFetch, ApiError } from '../../lib/api';
 
 interface AdminViewProps {
   users: User[];
   roles: RoleOption[];
   permissions: string[];
   onNavigate: (view: ViewPath) => void;
+  onRolesChanged?: () => void;
 }
 
-export const AdminView: React.FC<AdminViewProps> = ({ users, roles, permissions, onNavigate }) => {
-  const [activeTab, setActiveTab] = useState<'usuarios' | 'roles' | 'billing'>('usuarios');
+interface RoleDetail extends RoleOption {
+  permissions: string[];
+  permissionCount: number;
+  userCount: number;
+}
+
+const MODULE_ORDER = [
+  'inventario',
+  'ventas',
+  'compras',
+  'finanzas',
+  'configuracion',
+  'usuarios',
+  'auditoria',
+  'reportes',
+  'billing',
+];
+
+function groupByPrefix(names: PermissionOption[] | string[]): Map<string, string[]> {
+  const map = new Map<string, string[]>();
+  const list = names.map((n) => (typeof n === 'string' ? n : n.name));
+  for (const name of list) {
+    const prefix = name.includes('.') ? name.split('.')[0] : 'otros';
+    if (!map.has(prefix)) map.set(prefix, []);
+    map.get(prefix)!.push(name);
+  }
+  for (const [, arr] of map) arr.sort();
+  return new Map(
+    [...map.entries()].sort(
+      (a, b) => MODULE_ORDER.indexOf(a[0]) - MODULE_ORDER.indexOf(b[0]),
+    ),
+  );
+}
+
+function describePermission(name: string, catalog: PermissionOption[]): string {
+  return catalog.find((p) => p.name === name)?.description ?? '';
+}
+
+export const AdminView: React.FC<AdminViewProps> = ({ users, roles, permissions, onNavigate, onRolesChanged }) => {
+  const [activeTab, setActiveTab] = useState<'usuarios' | 'roles' | 'permisos' | 'billing'>('usuarios');
   const canViewBilling = permissions.includes('billing.manage');
+  const canManageRoles = permissions.includes('usuarios.escribir');
 
   // Billing overview (SuperAdmin – billing.manage)
   const [overview, setOverview] = useState<BillingAdminOverview | null>(null);
@@ -20,6 +60,136 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, roles, permissions,
 
   // Company count for header
   const [companyCount, setCompanyCount] = useState<number | null>(null);
+
+  // Roles + global permission catalog (Fase 2: custom roles)
+  const [roleDetails, setRoleDetails] = useState<RoleDetail[]>([]);
+  const [catalog, setCatalog] = useState<PermissionOption[]>([]);
+  const [rolesLoading, setRolesLoading] = useState(false);
+  const [rolesError, setRolesError] = useState('');
+
+  // Role modal (create / edit)
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editing, setEditing] = useState<RoleDetail | null>(null);
+  const [formName, setFormName] = useState('');
+  const [formDescription, setFormDescription] = useState('');
+  const [formPerms, setFormPerms] = useState<Set<string>>(new Set());
+  const [formError, setFormError] = useState('');
+  const [formSaving, setFormSaving] = useState(false);
+
+  // Delete confirm
+  const [deleting, setDeleting] = useState<RoleDetail | null>(null);
+  const [deleteError, setDeleteError] = useState('');
+  const [deleteSaving, setDeleteSaving] = useState(false);
+
+  const loadRoles = useCallback(async () => {
+    setRolesLoading(true);
+    setRolesError('');
+    try {
+      const [detailed, perms] = await Promise.all([
+        apiFetch<RoleDetail[]>('/api/users/roles'),
+        apiFetch<PermissionOption[]>('/api/users/permissions'),
+      ]);
+      setRoleDetails(detailed);
+      setCatalog(perms);
+    } catch {
+      setRolesError('No se pudieron cargar los roles y permisos.');
+    } finally {
+      setRolesLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'roles' || activeTab === 'permisos') void loadRoles();
+  }, [activeTab, loadRoles]);
+
+  // Fallback: props roles (id/name/description) until the detailed fetch lands.
+  const visibleRoles: RoleDetail[] = useMemo(() => {
+    if (roleDetails.length > 0) return roleDetails;
+    return roles.map((r) => ({
+      ...r,
+      permissions: r.permissions ?? [],
+      permissionCount: r.permissionCount ?? r.permissions?.length ?? 0,
+      userCount: r.userCount ?? 0,
+    }));
+  }, [roleDetails, roles]);
+
+  const groupedCatalog = useMemo(() => groupByPrefix(catalog), [catalog]);
+
+  const openCreate = () => {
+    setEditing(null);
+    setFormName('');
+    setFormDescription('');
+    setFormPerms(new Set());
+    setFormError('');
+    setModalOpen(true);
+  };
+
+  const openEdit = (role: RoleDetail) => {
+    setEditing(role);
+    setFormName(role.name);
+    setFormDescription(role.description ?? '');
+    setFormPerms(new Set(role.permissions));
+    setFormError('');
+    setModalOpen(true);
+  };
+
+  const togglePerm = (name: string) => {
+    setFormPerms((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  };
+
+  const handleSaveRole = async () => {
+    const name = formName.trim();
+    if (name.length < 2 || name.length > 50) {
+      setFormError('El nombre debe tener entre 2 y 50 caracteres.');
+      return;
+    }
+    if (formPerms.size === 0) {
+      setFormError('El rol debe tener al menos un permiso.');
+      return;
+    }
+    setFormSaving(true);
+    setFormError('');
+    try {
+      const body = {
+        name,
+        description: formDescription.trim() || null,
+        permissionNames: [...formPerms],
+      };
+      if (editing) {
+        await apiFetch(`/api/users/roles/${editing.id}`, { method: 'PATCH', body });
+      } else {
+        await apiFetch('/api/users/roles', { method: 'POST', body });
+      }
+      setModalOpen(false);
+      await loadRoles();
+      onRolesChanged?.();
+    } catch (err) {
+      setFormError(err instanceof ApiError ? err.message : 'No se pudo guardar el rol.');
+    } finally {
+      setFormSaving(false);
+    }
+  };
+
+  const handleDeleteRole = async () => {
+    if (!deleting) return;
+    setDeleteSaving(true);
+    setDeleteError('');
+    try {
+      await apiFetch(`/api/users/roles/${deleting.id}`, { method: 'DELETE' });
+      setDeleting(null);
+      await loadRoles();
+      onRolesChanged?.();
+    } catch (err) {
+      setDeleteError(err instanceof ApiError ? err.message : 'No se pudo eliminar el rol.');
+    } finally {
+      setDeleteSaving(false);
+    }
+  };
 
   useEffect(() => {
     if (!canViewBilling || activeTab !== 'billing') return;
@@ -108,7 +278,15 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, roles, permissions,
               activeTab === 'roles' ? 'border-primary text-primary font-bold' : 'border-transparent text-on-surface-variant hover:text-on-surface'
             }`}
           >
-            Roles y Permisos
+            Roles ({visibleRoles.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('permisos')}
+            className={`py-sm px-md font-label-md text-label-md uppercase tracking-wider border-b-2 cursor-pointer transition-colors whitespace-nowrap ${
+              activeTab === 'permisos' ? 'border-primary text-primary font-bold' : 'border-transparent text-on-surface-variant hover:text-on-surface'
+            }`}
+          >
+            Permisos ({catalog.length})
           </button>
           {canViewBilling && (
             <button
@@ -177,21 +355,115 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, roles, permissions,
 
           {activeTab === 'roles' && (
             <div className="space-y-md">
-              <p className="font-body-md text-on-surface-variant">Roles configurados y sus permisos en la plataforma.</p>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-md">
-                {roles.map((r) => (
-                  <div key={r.id} className="p-md rounded-xl bg-surface-container-low border border-outline-variant/30 flex flex-col gap-xs">
-                    <div className="flex items-center justify-between">
-                      <span className="font-headline-md text-headline-md text-primary">{r.name}</span>
-                      <span className="material-symbols-outlined text-outline">verified_user</span>
-                    </div>
-                    <p className="font-body-md text-xs text-on-surface-variant">{r.description ?? 'Sin descripción.'}</p>
-                  </div>
-                ))}
-                {roles.length === 0 && (
-                  <p className="text-on-surface-variant text-sm">No hay roles configurados.</p>
+              <div className="flex justify-between items-center flex-wrap gap-sm">
+                <p className="font-body-md text-on-surface-variant">Roles de la empresa. Cada rol combina permisos del catálogo global.</p>
+                {canManageRoles && (
+                  <button
+                    onClick={openCreate}
+                    className="px-md py-xs bg-primary text-on-primary font-label-md text-xs rounded-lg cursor-pointer"
+                  >
+                    + Nuevo rol
+                  </button>
                 )}
               </div>
+
+              {rolesError && (
+                <p className="text-sm text-on-error-container bg-error-container/20 rounded-lg p-sm">{rolesError}</p>
+              )}
+
+              {rolesLoading ? (
+                <p className="text-on-surface-variant text-sm">Cargando roles…</p>
+              ) : (
+                <div className="overflow-x-auto rounded-lg border border-outline-variant/20">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-surface-container-low border-b border-outline-variant/20 font-label-md text-label-md text-on-surface-variant uppercase">
+                        <th className="py-sm px-md">Rol</th>
+                        <th className="py-sm px-md text-center">Usuarios</th>
+                        <th className="py-sm px-md text-center">Permisos</th>
+                        {canManageRoles && <th className="py-sm px-md text-right">Acciones</th>}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-outline-variant/10 text-body-md">
+                      {visibleRoles.map((r) => (
+                        <tr key={r.id} className="hover:bg-surface-container/20">
+                          <td className="py-sm px-md">
+                            <p className="font-semibold text-on-surface">{r.name}</p>
+                            {r.description && <p className="text-xs text-on-surface-variant">{r.description}</p>}
+                          </td>
+                          <td className="py-sm px-md text-center text-on-surface-variant">{r.userCount}</td>
+                          <td className="py-sm px-md text-center text-on-surface-variant">{r.permissionCount}</td>
+                          {canManageRoles && (
+                            <td className="py-sm px-md text-right whitespace-nowrap">
+                              <button
+                                onClick={() => openEdit(r)}
+                                className="px-sm py-xs text-primary font-label-md text-xs rounded-lg hover:bg-primary/10 cursor-pointer"
+                              >
+                                Editar
+                              </button>
+                              <button
+                                onClick={() => { setDeleting(r); setDeleteError(''); }}
+                                disabled={r.name === 'Super Admin'}
+                                title={r.name === 'Super Admin' ? "El rol 'Super Admin' no puede eliminarse" : 'Eliminar rol'}
+                                className="px-sm py-xs text-error font-label-md text-xs rounded-lg hover:bg-error-container/20 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                              >
+                                Eliminar
+                              </button>
+                            </td>
+                          )}
+                        </tr>
+                      ))}
+                      {visibleRoles.length === 0 && (
+                        <tr>
+                          <td colSpan={canManageRoles ? 4 : 3} className="py-sm px-md text-on-surface-variant text-sm">
+                            No hay roles configurados.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {!canManageRoles && (
+                <p className="text-xs text-on-surface-variant">Necesitás el permiso «usuarios.escribir» para crear o editar roles.</p>
+              )}
+            </div>
+          )}
+
+          {activeTab === 'permisos' && (
+            <div className="space-y-md">
+              <p className="font-body-md text-on-surface-variant">
+                Catálogo global de permisos: estos permisos se asignan a los roles. Solo lectura.
+              </p>
+              {rolesError && (
+                <p className="text-sm text-on-error-container bg-error-container/20 rounded-lg p-sm">{rolesError}</p>
+              )}
+              {rolesLoading ? (
+                <p className="text-on-surface-variant text-sm">Cargando permisos…</p>
+              ) : (
+                <div className="space-y-md">
+                  {[...groupedCatalog.entries()].map(([module, names]) => (
+                    <div key={module} className="rounded-lg border border-outline-variant/20 overflow-hidden">
+                      <div className="bg-surface-container-low px-md py-sm font-label-md text-label-md text-on-surface-variant uppercase">
+                        {module} ({names.length})
+                      </div>
+                      <ul className="divide-y divide-outline-variant/10">
+                        {names.map((name) => (
+                          <li key={name} className="px-md py-sm flex flex-col gap-xs">
+                            <span className="font-mono-sm text-on-surface">{name}</span>
+                            {describePermission(name, catalog) && (
+                              <span className="text-xs text-on-surface-variant">{describePermission(name, catalog)}</span>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                  {catalog.length === 0 && (
+                    <p className="text-on-surface-variant text-sm">No hay permisos en el catálogo.</p>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
@@ -275,6 +547,118 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, roles, permissions,
           )}
         </div>
       </div>
+
+      {/* Role create/edit modal */}
+      {modalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-md" role="dialog" aria-modal="true">
+          <div className="w-full max-w-2xl max-h-[90vh] overflow-auto bg-surface-container-lowest rounded-xl shadow-lg border border-outline-variant/20 p-lg space-y-md">
+            <h2 className="font-headline-md text-headline-md text-on-surface">
+              {editing ? `Editar rol «${editing.name}»` : 'Nuevo rol'}
+            </h2>
+            <div className="space-y-sm">
+              <label className="block">
+                <span className="font-label-md text-label-md text-on-surface-variant">Nombre</span>
+                <input
+                  value={formName}
+                  onChange={(e) => setFormName(e.target.value)}
+                  maxLength={50}
+                  disabled={editing?.name === 'Super Admin'}
+                  placeholder="Ej. Encargado de depósito"
+                  className="mt-xs w-full px-md py-sm rounded-lg border border-outline-variant/40 bg-surface text-on-surface"
+                />
+              </label>
+              <label className="block">
+                <span className="font-label-md text-label-md text-on-surface-variant">Descripción (opcional)</span>
+                <input
+                  value={formDescription}
+                  onChange={(e) => setFormDescription(e.target.value)}
+                  maxLength={500}
+                  placeholder="Qué puede hacer este rol"
+                  className="mt-xs w-full px-md py-sm rounded-lg border border-outline-variant/40 bg-surface text-on-surface"
+                />
+              </label>
+            </div>
+            <div className="space-y-sm">
+              <p className="font-label-md text-label-md text-on-surface-variant">
+                Permisos ({formPerms.size} seleccionados)
+              </p>
+              {[...groupByPrefix(catalog).entries()].map(([module, names]) => (
+                <div key={module} className="rounded-lg border border-outline-variant/20 overflow-hidden">
+                  <div className="bg-surface-container-low px-md py-sm font-label-md text-label-md text-on-surface-variant uppercase">
+                    {module}
+                  </div>
+                  <div className="p-md grid grid-cols-1 sm:grid-cols-2 gap-sm">
+                    {names.map((name) => (
+                      <label key={name} className="flex items-center gap-sm text-sm text-on-surface cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={formPerms.has(name)}
+                          onChange={() => togglePerm(name)}
+                          className="w-4 h-4 accent-primary"
+                        />
+                        <span className="font-mono-sm">{name}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              ))}
+              {catalog.length === 0 && (
+                <p className="text-on-surface-variant text-sm">Sin catálogo disponible.</p>
+              )}
+            </div>
+            {formError && (
+              <p className="text-sm text-on-error-container bg-error-container/20 rounded-lg p-sm">{formError}</p>
+            )}
+            <div className="flex justify-end gap-sm">
+              <button
+                onClick={() => setModalOpen(false)}
+                disabled={formSaving}
+                className="px-md py-sm rounded-lg border border-outline-variant/40 text-on-surface font-label-md text-label-md cursor-pointer disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => void handleSaveRole()}
+                disabled={formSaving}
+                className="px-md py-sm rounded-lg bg-primary text-on-primary font-label-md text-label-md cursor-pointer disabled:opacity-50"
+              >
+                {formSaving ? 'Guardando…' : editing ? 'Guardar cambios' : 'Crear rol'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete confirm */}
+      {deleting && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-md" role="dialog" aria-modal="true">
+          <div className="w-full max-w-md bg-surface-container-lowest rounded-xl shadow-lg border border-outline-variant/20 p-lg space-y-md">
+            <h2 className="font-headline-md text-headline-md text-on-surface">Eliminar rol «{deleting.name}»</h2>
+            <p className="text-sm text-on-surface-variant">
+              Esta acción no se puede deshacer. Si el rol tiene usuarios asignados, el servidor lo rechaza.
+            </p>
+            {deleteError && (
+              <p className="text-sm text-on-error-container bg-error-container/20 rounded-lg p-sm">{deleteError}</p>
+            )}
+            <div className="flex justify-end gap-sm">
+              <button
+                onClick={() => setDeleting(null)}
+                disabled={deleteSaving}
+                className="px-md py-sm rounded-lg border border-outline-variant/40 text-on-surface font-label-md text-label-md cursor-pointer disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => void handleDeleteRole()}
+                disabled={deleteSaving}
+                className="px-md py-sm rounded-lg bg-error text-on-error font-label-md text-label-md cursor-pointer disabled:opacity-50"
+              >
+                {deleteSaving ? 'Eliminando…' : 'Eliminar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

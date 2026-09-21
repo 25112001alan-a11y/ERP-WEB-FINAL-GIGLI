@@ -919,7 +919,7 @@ if (isPublicOrAuth) {
               />
             )}
             {currentView === 'administracion' && (
-              <AdminView users={users} roles={userRoles} permissions={user?.permissions ?? []} onNavigate={navigate} />
+              <AdminView users={users} roles={userRoles} permissions={user?.permissions ?? []} onNavigate={navigate} onRolesChanged={() => void loadUsers()} />
             )}
             {currentView === 'nuevo-usuario' && (
               <NewUserView
