@@ -8,7 +8,8 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "test": "node --import tsx --import ./test/setup.ts --test test/*.test.ts",
-    "prisma:seed": "tsx prisma/seed.ts"
+    "prisma:seed": "tsx prisma/seed.ts",
+    "prisma:seed:ar": "tsx prisma/seed-ar-demo.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
