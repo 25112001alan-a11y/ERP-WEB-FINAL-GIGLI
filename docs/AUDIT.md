@@ -1,6 +1,6 @@
 # Nexus ERP — Informe de auditoría
 
-> Fecha: 2026-09-19 · Última actualización: 2026-09-19 (Fix sistémico de modales)
+> Fecha: 2026-09-19 · Última actualización: 2026-09-19 (Rutas por empresa + push remoto)
 > Alcance: `src/` (frontend React 19 + Vite + Tailwind 4), `server/` (Express 5 + Prisma + Zod, MySQL), `server/prisma/schema.prisma`
 > Método: revisión de código por agentes de exploración (buenas prácticas, coherencia frontend↔backend, duplicación) + verificación cruzada del diff.
 > Estado: hallazgos marcados ✅ (resuelto), ⏳ (pendiente deliberado), ⚠️ (requiere decisión del usuario). Moneda ARS y datos reales resueltos en tanda 2. Fase 0 completada.
@@ -330,6 +330,39 @@ cf7726d fix(front): centrado m-auto en modales, fin del aplastamiento sistemico
 ### Verificación
 
 `npm run lint` ✓ · `npm test` (19) ✓ · `npm run build` ✓ (solo clases, sin cambios de lógica)
+
+---
+
+## Push remoto + rutas por empresa (2026-09-19)
+
+### Push (deuda operativa saldada)
+
+25 commits estaban solo locales — Vercel/Railway despliegan desde `main`, así que nada era visible. Push realizado (`37ffacb..eab705e`). **Regla desde ahora: pushear al cerrar cada tanda.** Si el modal de roles sigue viéndose aplastado tras el redeploy de Vercel (tarda unos minutos + hard-refresh), avisar con captura: el código ya tiene el fix `m-auto`.
+
+### Rutas por empresa — `/t/:slug`
+
+Hallazgo: el backend YA estaba por slug (`GET/POST /api/public/store/:slug/...`); el hueco era solo la entrada del frontend.
+
+| Área | Antes | Ahora |
+| --- | --- | --- |
+| Entrada directa | Solo con sesión o portal genérico | `/t/:slug` bootea directo en el portal de ESA empresa, sin login (parseo de pathname al boot, sin react-router) |
+| Slug desconocido | Catálogo vacío | Vista "Tienda no encontrada" |
+| Pedido anónimo | Navegaba a vista con sesión | Se queda en la tienda (solo con sesión va a `pedidos-publicos`) |
+| Moneda | No se mostraba | Visible en el storefront (+ `currency` en payload compañía) |
+| Settings | Prefijo `/tienda/` (incorrecto) | Prefijo `/t/` + botón "Copiar enlace" + "Ver mi tienda pública" |
+| Deploy | — | Verificado: `vercel.json` ya reescribe `/(.*) → /index.html` (deep links funcionan) |
+
+Aislamiento verificado en DB dev: tenant nuevo ve catálogo vacío, pedido con producto ajeno rechazado, lookup por email con scope. Esto desbloquea el portal público multi-tenant (#12 de la lista del dueño).
+
+### Registro de commits
+
+```text
+8b9d672 feat: rutas publicas por empresa con slug y entrada directa /t/:slug
+```
+
+### Verificación
+
+`npm run lint` ✓ · `npm test` (19) ✓ · `npm run build` ✓ · `server build` ✓ · `server test` (38 pass, 1 skip) ✓
 
 ### Tanda 1 — commits por unidades de trabajo
 
