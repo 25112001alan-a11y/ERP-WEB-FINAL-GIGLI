@@ -135,6 +135,7 @@ export interface User {
   lastAccess: string;
   status: 'Activo' | 'Pendiente' | 'Inactivo';
   username?: string;
+  branchId?: number | null;
 }
 
 export interface RoleOption {

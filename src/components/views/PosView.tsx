@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ViewPath, Product, CartItem, SaleTransaction } from '../../types';
+import { ViewPath, Product, CartItem, SaleTransaction, BranchOption } from '../../types';
 import { branchStock } from '../../lib/branch';
 
 export interface CompleteSalePayload {
@@ -10,18 +10,26 @@ export interface CompleteSalePayload {
 
 interface PosViewProps {
   products: Product[];
+  branches?: BranchOption[];
+  activeBranchId?: number | null;
   branchWarehouseIds?: Set<number> | null;
   activeBranchName?: string;
   onClearBranch?: () => void;
+  onSelectBranch?: (branchId: number) => void;
+  branchLocked?: boolean;
   onCompleteSale: (payload: CompleteSalePayload) => Promise<SaleTransaction>;
   onNavigate: (view: ViewPath) => void;
 }
 
 export const PosView: React.FC<PosViewProps> = ({
   products,
+  branches = [],
+  activeBranchId = null,
   branchWarehouseIds = null,
   activeBranchName,
   onClearBranch,
+  onSelectBranch,
+  branchLocked = false,
   onCompleteSale,
   onNavigate,
 }) => {
@@ -59,7 +67,12 @@ export const PosView: React.FC<PosViewProps> = ({
     return matchesSearch && matchesCat && matchesBranch;
   });
 
+  // POS happens at ONE physical point of sale: without a branch selected
+  // (owner on "Todas") the grid and checkout stay disabled behind a prompt.
+  const needsBranch = activeBranchId == null;
+
   const addToCart = (product: Product) => {
+    if (needsBranch) return;
     if (avail(product) <= 0 && !product.allowOversell) return;
     setCart((prev) => {
       const existing = prev.find((item) => item.product.id === product.id);
@@ -96,7 +109,7 @@ export const PosView: React.FC<PosViewProps> = ({
   const total = subtotal + tax;
 
   const handleCheckout = async (method: string) => {
-    if (cart.length === 0 || checkingOut) return;
+    if (cart.length === 0 || checkingOut || needsBranch) return;
 
     // Efectivo: open modal to ask for amount received
     if (method === 'Efectivo') {
@@ -314,28 +327,32 @@ export const PosView: React.FC<PosViewProps> = ({
         <div className="grid grid-cols-2 gap-sm">
           <button
             onClick={() => handleCheckout('Efectivo')}
-            className="bg-primary text-on-primary rounded-xl p-md flex flex-col items-center justify-center gap-xs shadow-md hover:shadow-lg transition-all hover:-translate-y-1 cursor-pointer"
+            disabled={needsBranch}
+            className="bg-primary text-on-primary rounded-xl p-md flex flex-col items-center justify-center gap-xs shadow-md hover:shadow-lg transition-all hover:-translate-y-1 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <span className="material-symbols-outlined text-[28px]" style={{ fontVariationSettings: "'FILL' 1" }}>payments</span>
             <span className="font-label-md text-label-md">Efectivo</span>
           </button>
           <button
             onClick={() => handleCheckout('Tarjeta Crédito')}
-            className="bg-surface-container-lowest text-on-surface rounded-xl p-md flex flex-col items-center justify-center gap-xs shadow-sm hover:shadow-md transition-all border border-surface-container-high hover:-translate-y-1 cursor-pointer"
+            disabled={needsBranch}
+            className="bg-surface-container-lowest text-on-surface rounded-xl p-md flex flex-col items-center justify-center gap-xs shadow-sm hover:shadow-md transition-all border border-surface-container-high hover:-translate-y-1 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <span className="material-symbols-outlined text-[28px]">credit_card</span>
             <span className="font-label-md text-label-md">Tarjeta</span>
           </button>
           <button
             onClick={() => handleCheckout('QR / Transf.')}
-            className="bg-surface-container-lowest text-on-surface rounded-xl p-md flex flex-col items-center justify-center gap-xs shadow-sm hover:shadow-md transition-all border border-surface-container-high hover:-translate-y-1 cursor-pointer"
+            disabled={needsBranch}
+            className="bg-surface-container-lowest text-on-surface rounded-xl p-md flex flex-col items-center justify-center gap-xs shadow-sm hover:shadow-md transition-all border border-surface-container-high hover:-translate-y-1 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <span className="material-symbols-outlined text-[28px]">qr_code_scanner</span>
             <span className="font-label-md text-label-md">QR / Transf.</span>
           </button>
           <button
             onClick={() => handleCheckout('Dividir Pago')}
-            className="bg-surface-container-lowest text-on-surface rounded-xl p-md flex flex-col items-center justify-center gap-xs shadow-sm hover:shadow-md transition-all border border-surface-container-high hover:-translate-y-1 cursor-pointer"
+            disabled={needsBranch}
+            className="bg-surface-container-lowest text-on-surface rounded-xl p-md flex flex-col items-center justify-center gap-xs shadow-sm hover:shadow-md transition-all border border-surface-container-high hover:-translate-y-1 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <span className="material-symbols-outlined text-[28px]">splitscreen</span>
             <span className="font-label-md text-label-md">Dividir Pago</span>
@@ -352,7 +369,7 @@ export const PosView: React.FC<PosViewProps> = ({
           </button>
           <button
             onClick={() => handleCheckout('Efectivo')}
-            disabled={checkingOut}
+            disabled={checkingOut || needsBranch}
             className="flex-1 rounded-xl bg-secondary text-on-secondary flex items-center justify-center font-label-md text-label-md uppercase tracking-wider shadow-md hover:shadow-lg transition-all cursor-pointer py-3 disabled:opacity-60 disabled:cursor-not-allowed min-w-0"
           >
             {checkingOut ? 'Procesando...' : `Cobrar ${total.toFixed(2)}`}
@@ -388,6 +405,12 @@ export const PosView: React.FC<PosViewProps> = ({
             {/* Category Pills */}
             <div className="flex items-center gap-sm overflow-x-auto pb-sm no-scrollbar">
               {branchWarehouseIds != null && (
+                branchLocked ? (
+                  <span className="inline-flex items-center gap-xs px-md py-sm rounded-full bg-secondary-container text-on-secondary-container font-label-md text-label-md whitespace-nowrap shrink-0">
+                    <span className="material-symbols-outlined text-[16px]">store</span>
+                    {activeBranchName ?? 'Sucursal'}
+                  </span>
+                ) : (
                 <button
                   onClick={onClearBranch}
                   title="Mostrar todas las sucursales"
@@ -397,6 +420,7 @@ export const PosView: React.FC<PosViewProps> = ({
                   {activeBranchName ?? 'Sucursal'}
                   <span className="material-symbols-outlined text-[16px]">close</span>
                 </button>
+                )
               )}
               {categories.map((cat) => (
                 <button
@@ -414,8 +438,30 @@ export const PosView: React.FC<PosViewProps> = ({
             </div>
           </div>
 
-          {/* Product Grid */}
+          {/* Product Grid — blocked until a branch is chosen */}
           <div className="flex-1 overflow-y-auto p-lg bg-surface-container-lowest min-h-[400px]">
+            {needsBranch ? (
+              <div className="h-full flex flex-col items-center justify-center text-center gap-md py-10">
+                <span className="material-symbols-outlined text-[48px] text-outline opacity-60">store</span>
+                <h3 className="font-headline-md text-headline-md text-on-surface">
+                  Seleccioná la sucursal del punto de venta para operar
+                </h3>
+                <p className="font-body-md text-body-md text-on-surface-variant max-w-[420px]">
+                  Cada venta ocurre en una sucursal física. Elegí una para ver su stock y cobrar.
+                </p>
+                <div className="flex flex-wrap justify-center gap-sm mt-sm">
+                  {branches.map((b) => (
+                    <button
+                      key={b.id}
+                      onClick={() => onSelectBranch?.(b.id)}
+                      className="px-md py-sm rounded-xl bg-primary text-on-primary font-label-md text-label-md shadow-sm hover:shadow-md transition-shadow cursor-pointer"
+                    >
+                      {b.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-sm">
               {filteredProducts.map((prod) => (
                 <div
@@ -454,6 +500,7 @@ export const PosView: React.FC<PosViewProps> = ({
                 </div>
               ))}
             </div>
+            )}
           </div>
         </div>
 

@@ -1,16 +1,18 @@
 import React, { useState } from 'react';
-import { ViewPath, RoleOption } from '../../types';
+import { ViewPath, RoleOption, BranchOption } from '../../types';
 
 interface NewUserViewProps {
   roles: RoleOption[];
-  onAddUser: (payload: { name: string; email: string; password: string; roleId: number }) => Promise<void>;
+  branches?: BranchOption[];
+  onAddUser: (payload: { name: string; email: string; password: string; roleId: number; branchId?: number | null }) => Promise<void>;
   onNavigate: (view: ViewPath) => void;
 }
 
-export const NewUserView: React.FC<NewUserViewProps> = ({ roles, onAddUser, onNavigate }) => {
+export const NewUserView: React.FC<NewUserViewProps> = ({ roles, branches = [], onAddUser, onNavigate }) => {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [roleId, setRoleId] = useState<number>(roles[0]?.id ?? 0);
+  const [branchId, setBranchId] = useState<string>('');
   const [password, setPassword] = useState('');
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -22,7 +24,7 @@ export const NewUserView: React.FC<NewUserViewProps> = ({ roles, onAddUser, onNa
     setSaving(true);
     setError('');
     try {
-      await onAddUser({ name, email, password, roleId });
+      await onAddUser({ name, email, password, roleId, branchId: branchId === '' ? null : Number(branchId) });
       setSaved(true);
       setTimeout(() => {
         onNavigate('configuracion');
@@ -119,6 +121,25 @@ export const NewUserView: React.FC<NewUserViewProps> = ({ roles, onAddUser, onNa
                 className="bg-surface border border-outline-variant/50 rounded-lg p-sm outline-none focus:border-primary font-mono-sm"
               />
             </div>
+
+            {branches.length > 0 && (
+              <div className="flex flex-col gap-xs md:col-span-2">
+                <label className="font-label-md text-label-md uppercase text-on-surface-variant">Sucursal asignada</label>
+                <select
+                  value={branchId}
+                  onChange={(e) => setBranchId(e.target.value)}
+                  className="bg-surface border border-outline-variant/50 rounded-lg p-sm outline-none cursor-pointer"
+                >
+                  <option value="">Todas (acceso total)</option>
+                  {branches.map((b) => (
+                    <option key={b.id} value={String(b.id)}>{b.name}</option>
+                  ))}
+                </select>
+                <p className="font-body-md text-xs text-on-surface-variant">
+                  Solo el Super Admin puede fijar sucursal; el usuario quedará bloqueado a ella.
+                </p>
+              </div>
+            )}
           </div>
 
           <div className="flex justify-end gap-md pt-md border-t border-outline-variant/20">

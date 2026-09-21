@@ -248,6 +248,7 @@ router.get('/me', requireAuth, async (req, res) => {
       email: true,
       status: true,
       lastAccess: true,
+      branchId: true,
       company: { select: { id: true, name: true, slug: true, currency: true, timezone: true } },
       roles: {
         select: {
@@ -271,6 +272,23 @@ router.get('/me', requireAuth, async (req, res) => {
   const permissions = new Set(
     user.roles.flatMap((ur) => ur.role.permissions.map((rp) => rp.permission.name)),
   );
+  const roleNames = user.roles.map((ur) => ur.role.name);
+  // Owner = Super Admin role OR branchId null (all-access). Regular users are
+  // locked to their assigned branch. Existing accounts keep branchId null.
+  const isOwner = roleNames.includes('Super Admin') || user.branchId == null;
+
+  // Owner/all-access users get the company branch list so they can switch;
+  // locked users only see their assigned branch.
+  const allowedBranches = isOwner
+    ? await prisma.branch.findMany({
+        where: { companyId: user.company.id },
+        select: { id: true, name: true },
+        orderBy: { name: 'asc' },
+      })
+    : await prisma.branch.findMany({
+        where: { companyId: user.company.id, id: user.branchId ?? -1 },
+        select: { id: true, name: true },
+      });
 
   res.json({
     id: user.id,
@@ -279,8 +297,11 @@ router.get('/me', requireAuth, async (req, res) => {
     email: user.email,
     status: user.status,
     lastAccess: user.lastAccess,
+    branchId: user.branchId,
+    isOwner,
+    allowedBranches,
     company: user.company,
-    roles: user.roles.map((ur) => ur.role.name),
+    roles: roleNames,
     permissions: [...permissions],
   });
 });

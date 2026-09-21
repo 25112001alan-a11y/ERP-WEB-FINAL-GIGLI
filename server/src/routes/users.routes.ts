@@ -31,6 +31,8 @@ router.get('/', requirePermission('usuarios.leer'), async (req, res) => {
       status: true,
       createdAt: true,
       lastAccess: true,
+      branchId: true,
+      branch: { select: { id: true, name: true } },
       roles: { select: { role: { select: { id: true, name: true } } } },
     },
     orderBy: { createdAt: 'asc' },
@@ -46,6 +48,8 @@ router.get('/', requirePermission('usuarios.leer'), async (req, res) => {
       status: u.status,
       createdAt: u.createdAt,
       lastAccess: u.lastAccess,
+      branchId: u.branchId,
+      branch: u.branch,
       roles: u.roles.map((ur) => ur.role.name),
     })),
   );
@@ -57,7 +61,27 @@ const createUserSchema = z.object({
   email: z.string().email('Email inválido'),
   password: z.string().min(8, 'La contraseña debe tener al menos 8 caracteres').max(100),
   roleId: z.number().int().positive(),
+  // Branch lock: null = all-access (owner). Only a Super Admin may set it.
+  branchId: z.number().int().positive().nullable().optional(),
 });
+
+/**
+ * True when the caller holds the Super Admin role in their company.
+ * Branch assignment is an ownership act, not a regular 'usuarios.escribir' one.
+ */
+async function callerIsSuperAdmin(companyId: number, userId: number): Promise<boolean> {
+  const caller = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { roles: { select: { role: { select: { name: true } } } } },
+  });
+  return caller?.roles.some((ur) => ur.role.name === 'Super Admin') ?? false;
+}
+
+async function resolveBranchOr400(companyId: number, branchId: number | null | undefined) {
+  if (branchId === undefined || branchId === null) return null;
+  const branch = await prisma.branch.findFirst({ where: { id: branchId, companyId } });
+  return branch ?? 'invalid';
+}
 
 /** POST /api/users — creates a user inside the caller's company with a role */
 router.post('/', requirePermission('usuarios.escribir'), async (req, res) => {
@@ -83,6 +107,19 @@ router.post('/', requirePermission('usuarios.escribir'), async (req, res) => {
     return;
   }
 
+  // Only a Super Admin may lock a user to a branch.
+  if (data.branchId !== undefined && data.branchId !== null) {
+    if (!(await callerIsSuperAdmin(companyId, req.authUser!.userId))) {
+      res.status(403).json({ error: 'Solo el Super Admin puede asignar sucursal' });
+      return;
+    }
+  }
+  const branch = await resolveBranchOr400(companyId, data.branchId);
+  if (branch === 'invalid') {
+    res.status(400).json({ error: 'Sucursal no válida para esta empresa' });
+    return;
+  }
+
   const passwordHash = await bcrypt.hash(data.password, 10);
 
   const result = await prisma.$transaction(async (tx) => {
@@ -94,6 +131,7 @@ router.post('/', requirePermission('usuarios.escribir'), async (req, res) => {
         email: data.email,
         passwordHash,
         status: 'Activo',
+        branchId: branch?.id ?? null,
         roles: { create: [{ roleId: role.id }] },
       },
       select: { id: true },
@@ -122,6 +160,64 @@ router.post('/', requirePermission('usuarios.escribir'), async (req, res) => {
     email: data.email,
     role: role.name,
   });
+});
+
+const setBranchSchema = z.object({
+  // null = unlock (all-access / owner behavior).
+  branchId: z.number().int().positive().nullable(),
+});
+
+/** PATCH /api/users/:id/branch — lock/unlock a user to a branch (Super Admin only) */
+router.patch('/:id/branch', requirePermission('usuarios.escribir'), async (req, res) => {
+  const parsed = setBranchSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
+    return;
+  }
+  const companyId = req.authUser!.companyId;
+  if (!(await callerIsSuperAdmin(companyId, req.authUser!.userId))) {
+    res.status(403).json({ error: 'Solo el Super Admin puede asignar sucursal' });
+    return;
+  }
+
+  const targetId = Number(req.params.id);
+  if (!Number.isInteger(targetId) || targetId <= 0) {
+    res.status(400).json({ error: 'Usuario no válido' });
+    return;
+  }
+  const target = await prisma.user.findFirst({ where: { id: targetId, companyId } });
+  if (!target) {
+    res.status(404).json({ error: 'Usuario no encontrado' });
+    return;
+  }
+
+  const branch = await resolveBranchOr400(companyId, parsed.data.branchId);
+  if (branch === 'invalid') {
+    res.status(400).json({ error: 'Sucursal no válida para esta empresa' });
+    return;
+  }
+
+  const updated = await prisma.user.update({
+    where: { id: targetId },
+    data: { branchId: branch?.id ?? null },
+    select: { id: true, branchId: true },
+  });
+
+  await logAudit(
+    prisma,
+    companyId,
+    req.authUser!.userId,
+    {
+      action: 'Asignación de Sucursal',
+      module: 'Configuración',
+      entity: 'User',
+      entityId: targetId,
+      details: `Sucursal de ${target.email} -> ${branch?.name ?? 'todas'}`,
+    },
+    clientIp(req),
+  );
+
+  res.json(updated);
 });
 
 export default router;

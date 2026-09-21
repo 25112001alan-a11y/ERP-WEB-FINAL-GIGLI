@@ -14,6 +14,11 @@ export interface AuthCompany {
   currency: string;
 }
 
+export interface AllowedBranch {
+  id: number;
+  name: string;
+}
+
 export interface AuthUser {
   id: number;
   firstName: string;
@@ -22,6 +27,10 @@ export interface AuthUser {
   company: AuthCompany | null;
   roles: string[];
   permissions: string[];
+  // Branch lock: set = user locked to that branch; null = owner/all-access.
+  branchId: number | null;
+  isOwner: boolean;
+  allowedBranches: AllowedBranch[];
 }
 
 interface LoginPayload {
@@ -110,6 +119,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         company: AuthCompany | null;
         roles: string[];
         permissions: string[];
+        branchId: number | null;
+        isOwner: boolean;
+        allowedBranches: AllowedBranch[];
       }>('/api/auth/me');
       const authUser: AuthUser = me;
       setUser(authUser);
@@ -143,6 +155,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         company: AuthCompany | null;
         roles: string[];
         permissions: string[];
+        branchId: number | null;
+        isOwner: boolean;
+        allowedBranches: AllowedBranch[];
       }>('/api/auth/me');
       const authUser: AuthUser = me;
       setUser(authUser);

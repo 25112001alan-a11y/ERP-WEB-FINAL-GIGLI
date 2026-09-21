@@ -56,9 +56,12 @@ model User {
   // Brute-force protection: consecutive failed logins and the temporary lock.
   failedAttempts Int     @default(0)
   lockedUntil  DateTime?
+  // Branch lock: null = owner/all-access, set = locked to that branch.
+  branchId     Int?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
   company      Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  branch       Branch?   @relation(fields: [branchId], references: [id])
 
   roles          UserRole[]
   auditLogs      AuditLog[]
@@ -67,6 +70,7 @@ model User {
   verifiedInvoices InvoiceData[] @relation("InvoiceDataVerifiedBy")
 
   @@index([companyId])
+  @@index([branchId])
   @@map("usuarios")
 }
 
@@ -126,6 +130,7 @@ model Branch {
   warehouses Warehouse[]
   documents  Document[]
   cashBoxes  CashBox[]
+  users      User[]
 
   @@map("sucursales")
 }

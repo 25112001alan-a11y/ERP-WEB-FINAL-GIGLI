@@ -53,6 +53,11 @@ export const Header: React.FC<HeaderProps> = ({
 
   const displayName = user ? `${user.firstName} ${user.lastName}`.trim() : 'Admin User';
   const companyName = user?.company?.name ?? 'SaaS Enterprise Tenant';
+  // Locked user (branchId set) sees a fixed badge; only the owner switches.
+  const isLocked = user?.branchId != null;
+  const lockedBranchName = isLocked
+    ? (branches.find((b) => b.id === user!.branchId)?.name ?? 'Mi sucursal')
+    : null;
 
   return (
     <header className="fixed top-0 left-0 lg:left-64 right-0 h-16 bg-surface-container-lowest/90 backdrop-blur-xl shadow-[0_1px_8px_rgba(0,0,0,0.04)] z-40 flex items-center justify-between px-lg border-b border-outline-variant/20">
@@ -70,7 +75,16 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* Right User Actions */}
       <div className="flex items-center gap-lg">
-        {onBranchChange && branches.length > 0 && (
+        {isLocked ? (
+          <span
+            title="Tu usuario está asignado a esta sucursal"
+            className="hidden sm:flex items-center gap-xs px-sm py-xs bg-surface-container-high rounded-lg font-label-md text-label-md text-on-surface"
+          >
+            <span className="material-symbols-outlined text-[18px] text-secondary">store</span>
+            {lockedBranchName}
+          </span>
+        ) : (
+          onBranchChange && branches.length > 0 && (
           <label className="hidden sm:flex items-center gap-xs px-sm py-xs bg-surface-container-high rounded-lg font-label-md text-label-md text-on-surface-variant">
             <span className="material-symbols-outlined text-[18px] text-secondary">store</span>
             <select
@@ -86,6 +100,7 @@ export const Header: React.FC<HeaderProps> = ({
               ))}
             </select>
           </label>
+          )
         )}
         <span className="font-label-md text-label-md text-on-surface-variant uppercase tracking-widest hidden md:inline-block max-w-[220px] truncate">
           {companyName}

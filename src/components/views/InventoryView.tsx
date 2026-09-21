@@ -7,6 +7,7 @@ interface InventoryViewProps {
   warehouses: WarehouseOption[];
   activeBranchId?: number | null;
   activeBranchName?: string;
+  branchLocked?: boolean;
   onClearBranch?: () => void;
   onNavigate: (view: ViewPath) => void;
 }
@@ -25,6 +26,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   warehouses,
   activeBranchId = null,
   activeBranchName,
+  branchLocked = false,
   onClearBranch,
   onNavigate,
 }) => {
@@ -97,6 +99,12 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
           <h1 className="font-display-lg text-display-lg text-on-surface">Gestión de Inventario</h1>
           <p className="font-body-lg text-body-lg text-on-surface-variant">Control general de stock y depósitos.</p>
           {activeBranchId != null && (
+            branchLocked ? (
+              <span className="self-start inline-flex items-center gap-xs px-sm py-xs rounded-full bg-secondary-container text-on-secondary-container font-label-md text-label-md">
+                <span className="material-symbols-outlined text-[16px]">store</span>
+                {activeBranchName ?? `Sucursal ${activeBranchId}`}
+              </span>
+            ) : (
             <button
               onClick={onClearBranch}
               title="Mostrar todas las sucursales"
@@ -106,6 +114,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
               {activeBranchName ?? `Sucursal ${activeBranchId}`}
               <span className="material-symbols-outlined text-[16px]">close</span>
             </button>
+            )
           )}
         </div>
         <div className="flex gap-md flex-wrap">

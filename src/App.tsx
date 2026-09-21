@@ -84,19 +84,33 @@ export default function App() {
   const [productWarehouseIds, setProductWarehouseIds] = useState<Record<string, number>>({});
 
   // Fase 1 — branch/sucursal selector: client-side only, persisted per company.
+  // Locked users (user.branchId set) are forced to their branch: stored value
+  // is ignored and overwritten. Owners keep the free selector ("Todas" = null).
   const companyId = user?.company?.id ?? null;
+  const lockedBranchId = user?.branchId ?? null;
   const branches = useMemo(() => deriveBranches(warehouses), [warehouses]);
   const [activeBranchId, setActiveBranchId] = useState<number | null>(null);
   useEffect(() => {
+    if (lockedBranchId != null) {
+      setStoredBranchId(companyId, lockedBranchId);
+      setActiveBranchId(
+        branches.length === 0 || branches.some((b) => b.id === lockedBranchId)
+          ? lockedBranchId
+          : null,
+      );
+      return;
+    }
     const stored = getStoredBranchId(companyId);
     setActiveBranchId(stored != null && branches.some((b) => b.id === stored) ? stored : null);
-  }, [companyId, branches]);
+  }, [companyId, branches, lockedBranchId]);
   const handleBranchChange = useCallback(
     (branchId: number | null) => {
+      // Locked users cannot switch branches — ignore silently.
+      if (lockedBranchId != null) return;
       setStoredBranchId(companyId, branchId);
       setActiveBranchId(branchId);
     },
-    [companyId],
+    [companyId, lockedBranchId],
   );
   const branchWarehouseIds = useMemo(
     () => warehouseIdsForBranch(warehouses, activeBranchId),
@@ -239,6 +253,7 @@ export default function App() {
           status: string;
           lastAccess: string | null;
           roles: string[];
+          branchId: number | null;
         }[]>('/api/users'),
         apiFetch<RoleOption[]>('/api/users/roles'),
       ]);
@@ -251,6 +266,7 @@ export default function App() {
           roles: u.roles,
           lastAccess: u.lastAccess ? new Date(u.lastAccess).toLocaleString('es-ES') : 'Nunca',
           status: u.status === 'Activo' ? 'Activo' : u.status === 'Inactivo' ? 'Inactivo' : 'Pendiente',
+          branchId: u.branchId,
         })),
       );
       setUserRoles(roles);
@@ -441,15 +457,15 @@ export default function App() {
   }
 
   const handleCompleteSale = async (payload: CompleteSalePayload): Promise<SaleTransaction> => {
-    // With a branch selected, sell from a warehouse of that branch (first cart
-    // line with availability there); otherwise keep the historical behavior.
+    // POS always runs on one branch: the sale must come from a warehouse of
+    // the active branch (first cart line with availability there). No
+    // cross-branch fallback — without stock in branch there is no sale.
     const pickWarehouse = (productId: string): number | undefined => {
       if (branchWarehouseIds != null) {
         const prod = products.find((p) => p.id === productId);
-        const inBranch = prod?.stocks.find(
+        return prod?.stocks.find(
           (s) => branchWarehouseIds.has(s.warehouseId) && (s.quantity > 0 || prod.allowOversell),
-        );
-        if (inBranch) return inBranch.warehouseId;
+        )?.warehouseId;
       }
       return productWarehouseIds[productId];
     };
@@ -509,6 +525,7 @@ export default function App() {
     email: string;
     password: string;
     roleId: number;
+    branchId?: number | null;
   }
 
   const handleAddUser = async (payload: AddUserPayload) => {
@@ -518,7 +535,7 @@ export default function App() {
     try {
       await apiFetch('/api/users', {
         method: 'POST',
-        body: { firstName, lastName, email: payload.email, password: payload.password, roleId: payload.roleId },
+        body: { firstName, lastName, email: payload.email, password: payload.password, roleId: payload.roleId, branchId: payload.branchId ?? null },
       });
       await loadUsers();
     } catch (err) {
@@ -798,6 +815,7 @@ if (isPublicOrAuth) {
                 warehouses={warehouses}
                 activeBranchId={activeBranchId}
                 activeBranchName={activeBranchName}
+                branchLocked={lockedBranchId != null}
                 onClearBranch={() => handleBranchChange(null)}
                 onNavigate={navigate}
               />
@@ -824,9 +842,13 @@ if (isPublicOrAuth) {
             {currentView === 'pos' && (
               <PosView
                 products={products}
+                branches={branches}
+                activeBranchId={activeBranchId}
                 branchWarehouseIds={branchWarehouseIds}
                 activeBranchName={activeBranchName}
                 onClearBranch={() => handleBranchChange(null)}
+                onSelectBranch={handleBranchChange}
+                branchLocked={lockedBranchId != null}
                 onCompleteSale={handleCompleteSale}
                 onNavigate={navigate}
               />
@@ -902,6 +924,7 @@ if (isPublicOrAuth) {
             {currentView === 'nuevo-usuario' && (
               <NewUserView
                 roles={userRoles}
+                branches={branches}
                 onAddUser={handleAddUser}
                 onNavigate={navigate}
               />
