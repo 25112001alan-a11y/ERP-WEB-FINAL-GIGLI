@@ -6,6 +6,7 @@ import {
   getToken,
   AUTH_UNAUTHORIZED_EVENT,
 } from './api';
+import type { ViewPath } from '../types';
 
 export interface AuthCompany {
   id: number;
@@ -193,3 +194,53 @@ export function useAuth(): AuthContextValue {
   }
   return ctx;
 }
+
+// ---- Frontend permission gating -------------------------------------------
+// The backend enforces fail-closed 403; these helpers only decide what the UI
+// fetches and renders so restricted users never see phantom error banners or
+// nav items they cannot open.
+
+/** True when the session holds the required permission (string = all, array = any). */
+export function can(
+  permissions: string[] | undefined | null,
+  required: string | string[] | null | undefined,
+): boolean {
+  if (required == null) return true;
+  if (!permissions) return false;
+  return Array.isArray(required)
+    ? required.some((r) => permissions.includes(r))
+    : permissions.includes(required);
+}
+
+/**
+ * Required `.leer` permission per view. `null` = visible to any authenticated
+ * user (dashboard) or public (portal/auth). Mirrors the backend route guards:
+ * documents endpoints accept ventas.leer OR compras.leer, dashboard accepts
+ * any of ventas/compras/finanzas/reportes.
+ */
+export const VIEW_PERMISSIONS: Record<ViewPath, string | string[] | null> = {
+  dashboard: null,
+  inventario: 'inventario.leer',
+  'inventario-ajuste': 'inventario.leer',
+  'inventario-transferencia': 'inventario.leer',
+  'inventario-nuevo-producto': 'inventario.leer',
+  pos: 'ventas.leer',
+  ventas: 'ventas.leer',
+  'remito-salida': 'ventas.leer',
+  'pedidos-publicos': ['ventas.leer', 'compras.leer'],
+  'nuevo-pedido-manual': ['ventas.leer', 'compras.leer'],
+  compras: 'compras.leer',
+  'nueva-orden-compra': 'compras.leer',
+  'registrar-remito': 'compras.leer',
+  'registrar-factura': ['ventas.leer', 'compras.leer'],
+  finanzas: 'finanzas.leer',
+  reportes: 'reportes.leer',
+  configuracion: 'configuracion.leer',
+  administracion: 'usuarios.leer',
+  'nuevo-usuario': 'usuarios.leer',
+  'log-auditoria': 'auditoria.leer',
+  'portal-clientes': null,
+  'auth-login': null,
+  'auth-register': null,
+  pricing: null,
+};

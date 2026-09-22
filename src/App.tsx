@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ViewPath, Product, PurchaseOrder, Supplier, SaleTransaction, PublicOrder, User, AuditLog, FinanceTransaction, PurchaseDocument, WarehouseOption, DashboardData, RoleOption, TaxRate,
 } from './types';
-import { useAuth } from './lib/auth';
+import { useAuth, can, VIEW_PERMISSIONS } from './lib/auth';
 import { apiFetch } from './lib/api';
 import { deriveBranches, getStoredBranchId, setStoredBranchId, warehouseIdsForBranch } from './lib/branch';
 import { ApiProduct, ApiDocument, toFrontProduct, toFrontPurchaseOrder, toFrontPurchaseDocument, toFrontSale } from './lib/mappers';
@@ -339,16 +339,25 @@ export default function App() {
   const loadAll = useCallback(async () => {
     setDataLoading(true);
     setDataError(null);
+    // Gate each fetch on the session permissions (already loaded via /me
+    // before loadAll runs — see the useEffect on `user` below). A skipped
+    // fetch resolves true: it is not an error, so restricted users never see
+    // the "no se pudieron cargar" banner for data they may not see anyway.
+    // Guards mirror the backend: products/stock/taxes → inventario.leer,
+    // suppliers → compras.leer, finance → finanzas.leer, users/roles →
+    // usuarios.leer, audit → auditoria.leer, documents → ventas.leer OR
+    // compras.leer, dashboard → any of ventas/compras/finanzas/reportes.
+    const p = user?.permissions ?? [];
     const results = await Promise.all([
-      loadProducts(),
-      loadPurchases(),
-      loadSales(),
-      loadPublicOrders(),
-      loadFinance(),
-      loadDashboard(),
-      loadUsers(),
-      loadAudit(),
-      loadTaxes(),
+      can(p, 'inventario.leer') ? loadProducts() : true,
+      can(p, 'compras.leer') ? loadPurchases() : true,
+      can(p, ['ventas.leer', 'compras.leer']) ? loadSales() : true,
+      can(p, ['ventas.leer', 'compras.leer']) ? loadPublicOrders() : true,
+      can(p, 'finanzas.leer') ? loadFinance() : true,
+      can(p, ['ventas.leer', 'compras.leer', 'finanzas.leer', 'reportes.leer']) ? loadDashboard() : true,
+      can(p, 'usuarios.leer') ? loadUsers() : true,
+      can(p, 'auditoria.leer') ? loadAudit() : true,
+      can(p, 'inventario.leer') ? loadTaxes() : true,
     ]);
     const failed = results.filter((ok) => !ok).length;
     if (failed === results.length) {
@@ -357,7 +366,7 @@ export default function App() {
       setDataError('Algunos datos no se pudieron cargar. Se muestra la información disponible.');
     }
     setDataLoading(false);
-  }, [loadProducts, loadPurchases, loadSales, loadPublicOrders, loadFinance, loadDashboard, loadUsers, loadAudit, loadTaxes]);
+  }, [user, loadProducts, loadPurchases, loadSales, loadPublicOrders, loadFinance, loadDashboard, loadUsers, loadAudit, loadTaxes]);
 
   useEffect(() => {
     if (user) {
@@ -740,6 +749,11 @@ export default function App() {
     setCurrentView('auth-login');
   };
 
+  // Defensa en profundidad: el backend ya responde 403, pero si el usuario
+  // llega a una vista sin permiso (navegación directa, estado viejo) se muestra
+  // un panel amigable en lugar de tablas vacías + banner de error.
+  const canViewCurrent = can(user?.permissions, VIEW_PERMISSIONS[currentView]);
+
   // Views that don't display the admin shell (Sidebar + Header)
   const isPublicOrAuth = ['portal-clientes', 'auth-login', 'auth-register', 'pricing'].includes(currentView);
 
@@ -847,6 +861,20 @@ if (isPublicOrAuth) {
                   aria-label="Cargando datos"
                 />
                 <p className="font-body-lg text-body-lg text-on-surface-variant">Cargando datos...</p>
+              </div>
+            ) : !canViewCurrent ? (
+              <div className="flex-1 flex flex-col items-center justify-center gap-md py-20 text-center">
+                <span className="material-symbols-outlined text-[48px] text-on-surface-variant">lock</span>
+                <h1 className="font-headline-lg text-headline-lg">No tenés permiso para ver esta sección</h1>
+                <p className="font-body-md text-body-md text-on-surface-variant max-w-[28rem]">
+                  Tu rol no incluye acceso a esta parte del sistema. Si necesitás entrar, pedile a un administrador que actualice tus permisos.
+                </p>
+                <button
+                  onClick={() => navigate('dashboard')}
+                  className="px-md py-sm bg-primary text-on-primary rounded-lg font-label-md text-label-md cursor-pointer"
+                >
+                  Volver al Dashboard
+                </button>
               </div>
             ) : (
               <>
