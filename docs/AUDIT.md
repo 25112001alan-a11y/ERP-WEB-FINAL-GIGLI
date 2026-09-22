@@ -432,11 +432,12 @@ Las 9 cuentas demo solo existían en MySQL local. En la web (Railway) no se pod�
 - En Railway, el boot ya aplica migraciones pendientes (`migrate deploy`): al redeplear entran `user_branch_lock`, índices FK y defaults ARS.
 - API de producción verificada en vivo: `GET /api/health` → `{"status":"ok"}`.
 
-### Condición (requiere acción del dueño en Railway)
+### Condición (verificado por el dueño en Railway)
 
-1. Verificar que la variable `RUN_DEMO_SEED=true` exista en el servicio de Railway; si no, agregarla.
-2. El push a `main` ya dispara el redeploy (Vercel front + Railway API). Al bootear, migraciones + seed AR corren solos.
-3. Probar login en https://erp-web-final-gigli.vercel.app con `dueno@lodemarta.test` / `password123`.
+- `RUN_DEMO_SEED=true` ya existía desde antes ✅ (nada que agregar).
+- Pero el flag solo no alcanzaba: el código en producción era anterior al cableado del seed AR, así que cada boot corría solo el incremental. Además el auto-deploy GitHub está caído ("Could not load branches") → los pushes no llegaban.
+- Camino adoptado: deploy manual con Railway CLI (`railway up` desde la raíz; desde `server/` falla porque el Root Directory `/server` no existe en el fuente subido). Al bootear el deploy nuevo: migraciones + incremental + AR corren solos.
+- Probar login en https://erp-web-final-gigli.vercel.app con `dueno@lodemarta.test` / `password123`.
 
 ### Registro de commits
 
