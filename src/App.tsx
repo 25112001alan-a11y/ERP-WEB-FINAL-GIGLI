@@ -505,6 +505,9 @@ export default function App() {
     method: string;
     clientName: string;
     payments?: { method: string; amount: number }[];
+    // Cobro online (Fase E): crea la VENTA sin pagos (queda 'Abierto'); el
+    // intento de cobro MP + el webhook la marcan 'Pagado' al aprobarse.
+    pending?: boolean;
   }
 
   const handleCompleteSale = async (payload: CompleteSalePayload): Promise<SaleTransaction> => {
@@ -539,11 +542,14 @@ export default function App() {
         series: 'A',
         clientName: payload.clientName,
         warehouseId,
+        // Venta pendiente (cobro online): sin pagos → el servidor la deja 'Abierto'.
         // Split sale: the payments array creates one Payment row per entry
         // (server validates sum == total). Otherwise the legacy single method.
-        ...(payload.payments
-          ? { payments: payload.payments }
-          : { paymentMethod: payload.method }),
+        ...(payload.pending
+          ? {}
+          : payload.payments
+            ? { payments: payload.payments }
+            : { paymentMethod: payload.method }),
         items: payload.items.map((i) => ({
           productId: Number(i.product.id),
           quantity: i.quantity,
@@ -560,7 +566,7 @@ export default function App() {
       clientName: payload.clientName,
       clientType: 'Retail',
       amount: Number(doc.total),
-      paymentStatus: 'Pagado',
+      paymentStatus: payload.pending ? 'Pendiente' : 'Pagado',
       fulfillmentStatus: 'Entregado',
       paymentMethod: payload.payments
         ? payload.payments.map((p) => p.method).join(' + ')

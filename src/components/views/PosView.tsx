@@ -1,12 +1,15 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ViewPath, Product, CartItem, SaleTransaction, BranchOption } from '../../types';
 import { branchStock } from '../../lib/branch';
+import { ApiError, apiFetch } from '../../lib/api';
 
 export interface CompleteSalePayload {
   items: CartItem[];
   method: string;
   clientName: string;
   payments?: { method: string; amount: number }[];
+  // Cobro online: crea la VENTA pendiente (sin pagos) para cobrarla por MP.
+  pending?: boolean;
 }
 
 // Fixed payment method set accepted by POST /api/documents (payments array).
@@ -49,6 +52,24 @@ export const PosView: React.FC<PosViewProps> = ({
   // Modal states for checkout
   const [cashModal, setCashModal] = useState<{ open: boolean; received: string }>({ open: false, received: '' });
   const [splitModal, setSplitModal] = useState<{ open: boolean; rows: { method: string; amount: string }[] }>({ open: false, rows: [{ method: 'Efectivo', amount: '' }, { method: 'Tarjeta', amount: '' }] });
+  // Cobro online Mercado Pago: link a pagar + polling hasta aprobado/rechazado.
+  const [mpModal, setMpModal] = useState<{ open: boolean; initPoint: string; code: string; paymentId: number | null; status: string }>(
+    { open: false, initPoint: '', code: '', paymentId: null, status: 'pending' },
+  );
+  // Aviso no bloqueante (p. ej. "MP no configurado" cuando se registra manual).
+  const [mpNote, setMpNote] = useState<string | null>(null);
+  const pollRef = useRef<number | null>(null);
+
+  const stopMpPoll = () => {
+    if (pollRef.current != null) {
+      window.clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+  };
+  const closeMpModal = () => {
+    stopMpPoll();
+    setMpModal({ open: false, initPoint: '', code: '', paymentId: null, status: 'pending' });
+  };
 
   // Scanner modal: camera (native BarcodeDetector) + HID pistol (keyboard input).
   const [scanOpen, setScanOpen] = useState(false);
@@ -86,6 +107,7 @@ export const PosView: React.FC<PosViewProps> = ({
       if (scanTimerRef.current != null) window.clearTimeout(scanTimerRef.current);
       streamRef.current?.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
+      if (pollRef.current != null) window.clearInterval(pollRef.current);
     };
   }, []);
 

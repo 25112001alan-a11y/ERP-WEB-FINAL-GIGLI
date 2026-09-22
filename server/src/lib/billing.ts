@@ -7,7 +7,7 @@
  * a payment URL.
  */
 import crypto from 'node:crypto';
-import { PrismaClient } from '@prisma/client';
+import { type Prisma } from '@prisma/client';
 import { prisma } from './prisma.js';
 
 // ---------------------------------------------------------------------------
@@ -187,8 +187,200 @@ export async function createMpCheckout(opts: {
 }
 
 // ---------------------------------------------------------------------------
-// Mercado Pago webhook verification
+// POS collection via Mercado Pago (Fase E — cobro real, NO suscripciones)
 // ---------------------------------------------------------------------------
+//
+// Se usa Checkout Pro / preferences con UN solo POST: devuelve init_point
+// (link pagable con tarjeta/dinero en cuenta, válido en AR) y el
+// external_reference viaja de ida y vuelta para matchear el webhook con la
+// venta, sin agregar columnas ni SDK. El POS muestra el link y pollea.
+
+export interface MpCollectionIntent {
+  initPoint: string;
+  preferenceId: string;
+}
+
+/** `nexus:<companyId>:<documentId>` — la única clave de matcheo webhook↔venta. */
+export function collectionReference(companyId: number, documentId: number): string {
+  return `nexus:${companyId}:${documentId}`;
+}
+
+/** Inversa de collectionReference; null si el formato no es nuestro. */
+export function parseCollectionReference(ref: string): { companyId: number; documentId: number } | null {
+  const m = /^nexus:(\d+):(\d+)$/.exec((ref ?? '').trim());
+  if (!m) return null;
+  return { companyId: Number(m[1]), documentId: Number(m[2]) };
+}
+
+function mpTokenOrThrow(): string {
+  const accessToken = process.env.MP_ACCESS_TOKEN;
+  if (!accessToken) {
+    throw Object.assign(
+      new Error('Mercado Pago no está configurado en este entorno (falta MP_ACCESS_TOKEN)'),
+      { status: 503 },
+    );
+  }
+  return accessToken;
+}
+
+/** True cuando hay credenciales MP cargadas (el frontend lo usa para elegir flujo). */
+export function isMpConfigured(): boolean {
+  return Boolean(process.env.MP_ACCESS_TOKEN);
+}
+
+/**
+ * Crea una preferencia de cobro para UNA venta del POS.
+ * @returns `{ initPoint, preferenceId }` — el link que paga el cliente.
+ * @throws `{ message, status }` (503 sin token, 502 si MP falla).
+ */
+export async function createMpPayment(opts: {
+  amount: number;
+  currency: string;
+  description: string;
+  externalReference: string;
+  payerEmail?: string;
+}): Promise<MpCollectionIntent> {
+  const accessToken = mpTokenOrThrow();
+
+  if (!Number.isFinite(opts.amount) || opts.amount <= 0) {
+    throw Object.assign(new Error('El monto a cobrar debe ser mayor a cero'), { status: 400 });
+  }
+
+  const frontend = process.env.FRONTEND_URL ?? 'http://localhost:3000';
+  const res = await fetch(`${MP_BASE}/checkout/preferences`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+    body: JSON.stringify({
+      items: [
+        {
+          title: opts.description.slice(0, 120) || 'Venta mostrador',
+          quantity: 1,
+          unit_price: Math.round(opts.amount * 100) / 100,
+          currency_id: opts.currency || 'ARS',
+        },
+      ],
+      external_reference: opts.externalReference,
+      payer: opts.payerEmail ? { email: opts.payerEmail } : undefined,
+      back_urls: {
+        success: process.env.MP_SUCCESS_URL ?? `${frontend}/pos?cobro=exitoso`,
+        pending: `${frontend}/pos?cobro=pendiente`,
+        failure: process.env.MP_FAILURE_URL ?? `${frontend}/pos?cobro=fallido`,
+      },
+    }),
+  });
+
+  if (!res.ok) {
+    throw Object.assign(
+      new Error(`No se pudo crear el cobro en Mercado Pago (${res.status})`),
+      { status: 502 },
+    );
+  }
+
+  const pref = (await res.json()) as { init_point?: string; sandbox_init_point?: string; id?: string };
+  const initPoint = pref.init_point ?? pref.sandbox_init_point ?? '';
+  if (!initPoint) {
+    throw Object.assign(new Error('Mercado Pago no devolvió el enlace de pago'), { status: 502 });
+  }
+  return { initPoint, preferenceId: String(pref.id ?? '') };
+}
+
+export type MpCollectionStatus = 'approved' | 'pending' | 'rejected' | 'unknown';
+
+/**
+ * Estado del cobro según MP, buscando por external_reference.
+ * Nunca lanza por fallas de red/MP: devuelve 'unknown' y el POS sigue polleando.
+ * @throws 503 solo cuando no hay token (el caller lo convierte en honest 503).
+ */
+export async function fetchMpCollectionStatus(
+  externalReference: string,
+): Promise<{ status: MpCollectionStatus; mpPaymentId?: string }> {
+  const accessToken = mpTokenOrThrow();
+
+  let res: Response;
+  try {
+    res = await fetch(
+      `${MP_BASE}/v1/payments/search?external_reference=${encodeURIComponent(externalReference)}&sort=date_created&criteria=desc`,
+      { headers: { Authorization: `Bearer ${accessToken}` } },
+    );
+  } catch {
+    return { status: 'unknown' };
+  }
+  if (!res.ok) return { status: 'unknown' };
+
+  const data = (await res.json()) as {
+    results?: { id?: number | string; status?: string; date_created?: string }[];
+  };
+  const latest = (data.results ?? [])
+    .filter((r) => r?.status)
+    .sort((a, b) => String(b.date_created ?? '').localeCompare(String(a.date_created ?? '')))[0];
+  if (!latest?.status) return { status: 'unknown' };
+
+  if (latest.status === 'approved') {
+    return { status: 'approved', mpPaymentId: String(latest.id ?? '') };
+  }
+  if (latest.status === 'pending' || latest.status === 'in_process' || latest.status === 'in_mediation') {
+    return { status: 'pending', mpPaymentId: String(latest.id ?? '') };
+  }
+  if (latest.status === 'rejected' || latest.status === 'cancelled' || latest.status === 'expired') {
+    return { status: 'rejected', mpPaymentId: String(latest.id ?? '') };
+  }
+  return { status: 'unknown', mpPaymentId: String(latest.id ?? '') };
+}
+
+/** Detalle de UN pago de MP (lo usa el webhook para no confiar en el body). */
+async function fetchMpPaymentDetail(mpPaymentId: string): Promise<{
+  status?: string;
+  externalReference?: string;
+} | null> {
+  const accessToken = process.env.MP_ACCESS_TOKEN;
+  if (!accessToken) return null;
+  let res: Response;
+  try {
+    res = await fetch(`${MP_BASE}/v1/payments/${encodeURIComponent(mpPaymentId)}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+  } catch {
+    return null;
+  }
+  if (!res.ok) return null;
+  const data = (await res.json()) as { status?: string; external_reference?: string };
+  return { status: data.status, externalReference: data.external_reference };
+}
+
+/**
+ * Marca la venta como cobrada (idempotente: repetir no duplica nada).
+ * Pasa los Payment 'Pendiente' del documento a 'Pagado' y el documento a 'Pagado'.
+ */
+export async function markCollectionApproved(
+  tx: Prisma.TransactionClient,
+  companyId: number,
+  documentId: number,
+): Promise<{ paymentsSettled: number; alreadyPaid: boolean }> {
+  const document = await tx.document.findFirst({
+    where: { id: documentId, companyId },
+    select: { id: true, status: true },
+  });
+  if (!document) return { paymentsSettled: 0, alreadyPaid: false };
+
+  const pending = await tx.payment.findMany({
+    where: { documentId, companyId, status: 'Pendiente' },
+    select: { id: true },
+  });
+  if (pending.length === 0 && document.status === 'Pagado') {
+    return { paymentsSettled: 0, alreadyPaid: true };
+  }
+
+  if (pending.length > 0) {
+    await tx.payment.updateMany({
+      where: { documentId, companyId, status: 'Pendiente' },
+      data: { status: 'Pagado' },
+    });
+  }
+  if (document.status !== 'Pagado') {
+    await tx.document.update({ where: { id: documentId }, data: { status: 'Pagado' } });
+  }
+  return { paymentsSettled: pending.length, alreadyPaid: false };
+}
 
 /**
  * Verifies the X-Signature header from Mercado Pago.
@@ -247,9 +439,30 @@ export async function applyWebhookEvent(
   let companyId: number | undefined;
   let newStatus: string | undefined;
 
-  if (topic === 'payment') {
-    // Payment events are logged but don't drive subscription status.
-    // Subscription state is controlled by the subscription_* topics.
+  if (topic === 'payment' || topic.startsWith('payment.')) {
+    // Cobro POS/storefront: el body solo trae el id; el estado real se lee de
+    // la API de MP y el external_reference `nexus:<company>:<doc>` matchea la
+    // venta. Sin token o si MP falla, el evento solo queda registrado (el POS
+    // también pollea, así que nada se pierde).
+    let collection: { companyId: number; documentId: number } | null = null;
+    try {
+      const data = JSON.parse(payload).data as { id?: unknown; live_mode?: boolean };
+      const detail = data?.id != null ? await fetchMpPaymentDetail(String(data.id)) : null;
+      if (detail?.status === 'approved' && detail.externalReference) {
+        collection = parseCollectionReference(detail.externalReference);
+      }
+    } catch {
+      collection = null;
+    }
+    if (collection) {
+      const matched = collection;
+      companyId = matched.companyId;
+      await prisma.$transaction(async (tx) => {
+        await tx.billingEvent.create({ data: { eventId, topic, payload } });
+        await markCollectionApproved(tx, matched.companyId, matched.documentId);
+      });
+      return { action: 'collection_approved', companyId };
+    }
   } else {
     // subscription_authorized / subscription_updated / subscription_cancelled
     const data = JSON.parse(payload).data;
