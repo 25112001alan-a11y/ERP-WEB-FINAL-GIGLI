@@ -680,3 +680,29 @@ El botón ahora abre `/t/<slug-de-tu-empresa>` en pestaña nueva (icono `open_in
 ### Verificación
 
 `npm run lint` ✓ · `npm run build` ✓
+
+---
+
+## Fase E: cobro MP real (2026-09-19)
+
+### Qué se hizo (`2c3ca65`)
+
+**Backend**: `createMpPayment` (Checkout Pro preferences por REST, sin SDK) + `POST /api/billing/payments` (crea Payment `Pendiente` + preferencia, 503 honesto sin token, 409 si ya pagado) + `GET /api/billing/payments/:id` (local primero, consulta MP y aplica aprobado) + webhook extendido a pagos (`payment` → `markCollectionApproved` idempotente por `nexus:<company>:<doc>`). `GET /mp-config` dice si hay credenciales (sin exponer tokens).
+
+**Frontend**: POS Tarjeta/QR con MP configurado → crea VENTA pendiente + modal con link/init_point + polling ~3s hasta aprobado/rechazado; sin MP → flujo manual idéntico a hoy + nota. Efectivo/Dividir/HID/cámara intactos.
+
+### Tests
+
+Nueva suite `mp-collection.test.ts` (6 tests: reference round-trip, mp-config con/sin token, 503 sin escritura, intent 201 + Pendiente, polling approved marca Pagado, webhook approved + replay duplicate + 409). Server total: **47 pass / 0 fail**.
+
+### Incidente en la suite (resuelto, lección)
+
+Los 5 tests con auth fallaban con 401 y payload perfecto: mi helper `api()` ya prefijaba `Bearer ` y yo pasaba el token prefijado → `Bearer Bearer ...`. Logins pasaban (sin header) y me hicieron perder 30 min persiguiendo secretos/duplicación de módulos. Regla: el helper pone el prefijo, los call sites pasan el token crudo.
+
+### Pendiente del dueño (credenciales MP reales)
+
+1. Crear credenciales de prueba en developers.mercadopago.com (Access Token de TEST).
+2. Railway → servicio API → Variables: `MP_ACCESS_TOKEN=<test-token>` (+ opcional `FRONTEND_URL`, `MP_SUCCESS_URL`, `MP_FAILURE_URL`). Redeploy.
+3. En MP: registrar webhook `https://erp-web-final-gigli-production.up.railway.app/api/billing/webhook` para tópicos de pagos.
+4. Probar con tarjetas de prueba de MP (aprobada/rechazada/pendiente) desde el POS → ver Pagado automático.
+5. Producción real: repetir con credenciales productivas cuando decidas cobrar de verdad.
