@@ -129,4 +129,20 @@ body {
   justify-content: center;
 }
 
+/* Impresión de pedidos: solo el detalle del pedido llega al papel. */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .print-order,
+  .print-order * {
+    visibility: visible;
+  }
+  .print-order {
+    position: absolute;
+    inset: 0;
+    padding: 24px;
+  }
+}
+
 

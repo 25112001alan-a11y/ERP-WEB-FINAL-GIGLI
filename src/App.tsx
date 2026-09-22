@@ -210,17 +210,25 @@ export default function App() {
   const loadPublicOrders = useCallback(async (): Promise<boolean> => {
     try {
       const data = await apiFetch<ApiDocument[]>('/api/documents?type=PEDIDO');
+      // Truthful mapping of the backend PEDIDO lifecycle:
+      // Abierto (nuevo) -> En Proceso -> Enviado (terminal) / Anulado.
+      const PEDIDO_STATUS: Record<string, PublicOrder['logisticsStatus']> = {
+        Abierto: 'Nuevo',
+        'En Proceso': 'En Proceso',
+        Enviado: 'Enviado',
+        Anulado: 'Anulado',
+      };
       setPublicOrders(
         data.map((d) => ({
           id: `${d.type} ${d.series}-${String(d.number).padStart(4, '0')}`,
+          documentId: d.id,
           client: d.client?.name ?? 'Sin cliente',
           clientType: d.client?.type ?? 'Mayorista',
           date: new Date(d.date).toLocaleDateString('es-ES'),
           createdAt: d.date,
           total: Number(d.total),
           paymentStatus: d.status === 'Pagado' ? 'Pagado' : 'Pendiente',
-          logisticsStatus:
-            d.status === 'Recibido' ? 'Enviado' : d.status === 'Parcial' ? 'En Proceso' : 'Nuevo',
+          logisticsStatus: PEDIDO_STATUS[d.status] ?? 'Nuevo',
         })),
       );
       return true;
@@ -937,7 +945,7 @@ if (isPublicOrAuth) {
               <SalesView sales={sales} onNavigate={navigate} onOpenRegistrarFactura={() => openRegistrarFactura('egreso')} />
             )}
             {currentView === 'pedidos-publicos' && (
-              <PublicOrdersView orders={publicOrders} onNavigate={navigate} />
+              <PublicOrdersView orders={publicOrders} onNavigate={navigate} onRefresh={() => void loadPublicOrders()} />
             )}
             {currentView === 'nuevo-pedido-manual' && <NewManualOrderView products={products} onNavigate={navigate} />}
             {currentView === 'compras' && (

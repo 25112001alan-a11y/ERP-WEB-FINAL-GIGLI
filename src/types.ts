@@ -116,13 +116,14 @@ export interface DashboardData {
 
 export interface PublicOrder {
   id: string;
+  documentId: number;
   client: string;
   clientType: string;
   date: string;
   createdAt: string;
   total: number;
   paymentStatus: 'Pagado' | 'Pendiente';
-  logisticsStatus: 'Nuevo' | 'En Proceso' | 'Enviado';
+  logisticsStatus: 'Nuevo' | 'En Proceso' | 'Enviado' | 'Anulado';
   address?: string;
 }
 

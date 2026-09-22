@@ -26,6 +26,7 @@ export interface ApiDocument {
   totalTax: string | number;
   total: string | number;
   externalNumber?: string | null;
+  notes?: string | null;
   supplier: { id: number; name: string } | null;
   client: { id: number; name: string; type: string | null } | null;
   invoiceData?: {
