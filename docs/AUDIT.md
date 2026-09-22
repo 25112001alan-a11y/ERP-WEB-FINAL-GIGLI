@@ -502,6 +502,8 @@ Banner eterno "Algunos datos no se pudieron cargar" + todas las cuentas navegaba
 ### Verificación
 
 `npm run lint` ✓ · `npm test` (19) ✓ · `npm run build` ✓ · cadena backend como cajero verificada a mano (login/permisos/20 productos con stock) ✓
+- **Confirmado en campo por el dueño**: productos visibles de nuevo. ✅ Cerrado.
+- Nota: `REMITO`/`FACTURA` siguen cargándose dentro de `loadPurchases` (compras) y `loadSales` (ventas) por separado — un usuario solo-ventas no ve FACTURAs en Ventas. Granularidad fina pendiente, no bloquea.
 
 ---
 
