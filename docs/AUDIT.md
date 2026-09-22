@@ -443,7 +443,15 @@ Las 9 cuentas demo solo existían en MySQL local. En la web (Railway) no se pod�
 
 ```text
 d304543 feat(server): seed AR demo tambien en boot con RUN_DEMO_SEED
+8520745 fix(seed): cuentas demo .test siempre con password123 y reconciliacion
 ```
+
+### Incidente: login demo fallaba en producción (resuelto)
+
+- Síntoma: seed AR corría en prod con `+0` en todo pero `dueno@lodemarta.test` / `password123` → 401.
+- Causa: `PASSWORD = ADMIN_PASSWORD ?? 'password123'` — en Railway `ADMIN_PASSWORD` existe, así que las 9 cuentas se hashearon con tu ADMIN_PASSWORD (un auto-deploy anterior las había creado antes de caerse la conexión GitHub).
+- Fix: cuentas `.test` (RFC-reservadas, nunca reales) siempre con `password123` fijo + reconciliación en cada corrida (resetea hash + rol faltante solo en esas). Tradeoff explícito: quien adivine `*@*.test` + `password123` entra a tenants demo (datos falsos, aislados, sin permisos plataforma).
+- Reparación sin redeploy: `railway run npx tsx prisma/seed-ar-demo.ts` desde `server/` (corre el archivo local contra la DB de Railway; esperar `users +9`).
 
 ### Verificación
 
