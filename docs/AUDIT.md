@@ -114,6 +114,7 @@ Potencial medido: **~850-950 líneas menos y −7 dependencias** sin cambiar com
 - 2026-09-19 (estado final confirmado): en **Installed GitHub Apps solo está Vercel** (sin Railway); en **Authorized OAuth Apps sí está Railway App** (solo login, con Revoke). Conclusión definitiva: la GitHub App de Railway **no está instalada** en la cuenta → no hay Configure posible. Fix: instalar desde Railway (avatar → Account Settings → Integrations → GitHub → Connect, autorizar e incluir el repo), luego Retry en el servicio. La referencia vieja al repo en el servicio es residual de una instalación anterior.
 - 2026-09-19 (corrección: la cuenta SÍ está conectada — "Connected as 25112001alan-a11y" + link "Configure repo access" en Integrations). Acción real: click en **Configure repo access** → incluir `ERP-WEB-FINAL-GIGLI` → Save → Retry en el servicio. Conexión de cuenta ≠ acceso al repo; ese link es el que otorga el acceso.
 - 2026-09-19 (resuelto): el servicio muestra **"Auto deploys when pushed to GitHub"** (antes: "Auto deploy unavailable"). Integración restaurada vía Configure repo access. Verificación pendiente: próximo push debe disparar deploy solo.
+- 2026-09-19 (verificado por el dueño): apareció el deploy automático tras el push. **Auto-deploy restaurado y funcionando.** Deploys: frontend por Vercel solo, backend por Railway solo. `railway up` queda como plan B.
 - Botón Disconnect bloqueado: irrelevante, no se necesita.
 - NO actualizar MySQL 9.4 → 9.7.2 hasta cerrar el trabajo activo.
 
