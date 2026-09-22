@@ -524,6 +524,28 @@ Banner eterno "Algunos datos no se pudieron cargar" + todas las cuentas navegaba
 
 ---
 
+## Pedidos hechos invisibles (2026-09-19) — no era bug de creación
+
+### Reporte (dueño)
+
+"No aparecen los pedidos hechos."
+
+### Causa (verificada empíricamente)
+
+1. DB: 2 PEDIDOs `Abierto` recién creados en lo-de-marta (los tests del dueño).
+2. API como dueño: `GET /api/documents?type=PEDIDO` → los 2. API como `ana.silva` (otra empresa): 0 — tenancy correcto.
+3. Conclusión: creación y scope perfectos. Causas posibles del lado visible: cuenta de otra empresa (ana ve 0 por diseño) o vista cargada antes del pedido (sin re-fetch).
+
+### Qué se hizo (`511b2d1`)
+
+- Re-fetch de pedidos públicos al entrar a la vista (gateado a `ventas/compras.leer`): pedidos hechos con la pestaña abierta aparecen solos.
+
+### Verificación
+
+`npm run lint` ✓ · `npm test` (19) ✓ · `npm run build` ✓ · API como dueño trae 2/2, como ana 0/0 ✓
+
+---
+
 ## Fix lector: formatos 1D + marco de apuntado (2026-09-19)
 
 ### Reporte de campo (dueño, 3 dispositivos)
