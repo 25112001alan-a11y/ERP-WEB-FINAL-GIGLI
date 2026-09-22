@@ -497,6 +497,7 @@ Stream pedido sin resolución (muchos móviles negocian 640×480) y sin foco con
 ### Verificación
 
 `npm run lint` ✓ · `npm test` (19) ✓ · `npm run build` ✓
+- **Confirmado en campo por el dueño (3 dispositivos)**: barras detectadas tras el fix. ✅ Cerrado.
 
 ### Tanda 1 — commits por unidades de trabajo
 
