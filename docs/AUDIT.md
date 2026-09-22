@@ -97,9 +97,18 @@ Potencial medido: **~850-950 líneas menos y −7 dependencias** sin cambiar com
 ## Comandos pendientes para el mantenedor
 
 ```bash
-# Aplicar los índices en la DB (schema ya actualizado y validado)
-cd server && npx prisma migrate dev --name add_fk_indexes
+# ✅ RESUELTO 2026-09-19 (verificado contra information_schema local):
+# - currency defaults ARS en empresas y comprobantes
+# - los 14 índices FK presentes (clientes, comprobantes×3, items, movimientos×4, pagos×2, proveedores, roles, usuarios×2)
+# - branchId nullable en usuarios
+# Ya no hace falta correr ninguna migración local.
 ```
+
+## Deploy Railway (estado 2026-09-19)
+
+- Auto-deploy GitHub caído ("Could not load branches") → backend a producción sale SOLO por `railway up` desde la raíz. Frontend (Vercel) sí auto-deploya `main`.
+- Botón Disconnect bloqueado: irrelevante, no se necesita. Vías: Retry en Railway, permisos de la GitHub App (Settings → Applications → Railway → incluir el repo), o seguir con CLI.
+- NO actualizar MySQL 9.4 → 9.7.2 hasta cerrar el trabajo activo.
 
 ---
 
