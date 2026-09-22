@@ -481,6 +481,30 @@ Banner eterno "Algunos datos no se pudieron cargar" + todas las cuentas navegaba
 
 ---
 
+## Fix: productos invisibles por warehouses mal gateados (2026-09-19)
+
+### Reporte (dueño)
+
+"No se ven los productos" tras el gating por permisos.
+
+### Causa (verificada empíricamente, no adivinada)
+
+1. Datos OK: script Prisma temporal confirmó roles y permisos correctos (cajero 3, encargado 8, dueño 15, ana 16).
+2. Backend OK: login + `/me` + `GET /api/products` como cajero → 20 productos con stock.
+3. Bug real en frontend: `warehouses` se cargaba solo dentro de `loadPurchases` (gateado a `compras.leer`), pero lo consumen vistas de inventario. Cajero/Vendedor (sin `compras.leer`) quedaban con `warehouses = []` → `warehouseIdsForBranch([], sucursal)` = set vacío → tabla filtrada a cero. Productos invisibles.
+
+### Qué se hizo (`ec4ce09`)
+
+- `loadPurchases` vuelve a proveedores + documentos únicamente.
+- Nuevo `loadWarehouses` gateado a `inventario.leer` (igual que el endpoint `/api/stock/warehouses`), sumado al `loadAll` + deps.
+- Limpieza: eliminado script temporal de verificación.
+
+### Verificación
+
+`npm run lint` ✓ · `npm test` (19) ✓ · `npm run build` ✓ · cadena backend como cajero verificada a mano (login/permisos/20 productos con stock) ✓
+
+---
+
 ## Fix lector: formatos 1D + marco de apuntado (2026-09-19)
 
 ### Reporte de campo (dueño, 3 dispositivos)
