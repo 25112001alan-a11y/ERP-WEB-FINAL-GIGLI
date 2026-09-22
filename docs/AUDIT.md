@@ -611,3 +611,23 @@ d1aaaa6 feat(front): procesar, imprimir y seguimiento real de pedidos publicos
 
 `npm run lint` ✓ · `npm test` (19) ✓ · `npm run build` ✓ · `server build` ✓ · `server test` (41 pass — suite nueva pedido-status: checkout público → avance → visibilidad por email, saltos/terminales/cross-tenant/sin-auth bloqueados — 1 skip) ✓
 - Gotchas de infra registrados: suites en paralelo sobre una DB (slug suite re-resuelve + reintenta), `register` concurrente en deadlock P2034 → fixture cross-tenant vía prisma + `signToken` directo.
+
+---
+
+## Entrada visible al portal (`c48145c`)
+
+### Reporte (dueño)
+
+Con cualquier cuenta logueada la URL queda siempre en `/` — la ruta del portal del negocio era invisible.
+
+### Causa
+
+El "Portal de Clientes" del menú navegaba in-app (routing por estado, sin URL). El link real solo vivía en Settings → Empresa.
+
+### Qué se hizo
+
+El botón ahora abre `/t/<slug-de-tu-empresa>` en pestaña nueva (icono `open_in_new`). Misma vista, con la ruta compartible en la barra + ejercita el path anónimo real.
+
+### Verificación
+
+`npm run lint` ✓ · `npm run build` ✓
