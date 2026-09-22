@@ -149,13 +149,12 @@ export default function App() {
 
   const loadPurchases = useCallback(async (): Promise<boolean> => {
     try {
-      const [ocs, compras, remitos, facturas, sups, whs] = await Promise.all([
+      const [ocs, compras, remitos, facturas, sups] = await Promise.all([
         apiFetch<ApiDocument[]>('/api/documents?type=OC'),
         apiFetch<ApiDocument[]>('/api/documents?type=COMPRA'),
         apiFetch<ApiDocument[]>('/api/documents?type=REMITO'),
         apiFetch<ApiDocument[]>('/api/documents?type=FACTURA'),
         apiFetch<{ id: number; name: string; email: string; phone: string | null; taxId: string | null; contact: string | null }[]>('/api/suppliers'),
-        apiFetch<WarehouseOption[]>('/api/stock/warehouses'),
       ]);
       setSuppliers(
         sups.map((s) => ({
@@ -168,7 +167,6 @@ export default function App() {
           contactPerson: s.contact ?? '',
         })),
       );
-      setWarehouses(whs);
       setRemitoDocs(remitos);
       setPurchaseOrders(
         [...ocs, ...compras, ...remitos, ...facturas]
@@ -179,6 +177,17 @@ export default function App() {
       return true;
     } catch (err) {
       console.error('No se pudieron cargar las compras', err);
+      return false;
+    }
+  }, []);
+
+  const loadWarehouses = useCallback(async (): Promise<boolean> => {
+    try {
+      const whs = await apiFetch<WarehouseOption[]>('/api/stock/warehouses');
+      setWarehouses(whs);
+      return true;
+    } catch (err) {
+      console.error('No se pudieron cargar los depósitos', err);
       return false;
     }
   }, []);
@@ -358,6 +367,7 @@ export default function App() {
       can(p, 'usuarios.leer') ? loadUsers() : true,
       can(p, 'auditoria.leer') ? loadAudit() : true,
       can(p, 'inventario.leer') ? loadTaxes() : true,
+      can(p, 'inventario.leer') ? loadWarehouses() : true,
     ]);
     const failed = results.filter((ok) => !ok).length;
     if (failed === results.length) {
@@ -366,7 +376,7 @@ export default function App() {
       setDataError('Algunos datos no se pudieron cargar. Se muestra la información disponible.');
     }
     setDataLoading(false);
-  }, [user, loadProducts, loadPurchases, loadSales, loadPublicOrders, loadFinance, loadDashboard, loadUsers, loadAudit, loadTaxes]);
+  }, [user, loadProducts, loadPurchases, loadSales, loadPublicOrders, loadFinance, loadDashboard, loadUsers, loadAudit, loadTaxes, loadWarehouses]);
 
   useEffect(() => {
     if (user) {
