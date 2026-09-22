@@ -1,6 +1,6 @@
 # Nexus ERP — Informe de auditoría
 
-> Fecha: 2026-09-19 · Última actualización: 2026-09-19 (Seed AR en boot de producción)
+> Fecha: 2026-09-19 · Última actualización: 2026-09-19 (Portal público completo)
 > Alcance: `src/` (frontend React 19 + Vite + Tailwind 4), `server/` (Express 5 + Prisma + Zod, MySQL), `server/prisma/schema.prisma`
 > Método: revisión de código por agentes de exploración (buenas prácticas, coherencia frontend↔backend, duplicación) + verificación cruzada del diff.
 > Estado: hallazgos marcados ✅ (resuelto), ⏳ (pendiente deliberado), ⚠️ (requiere decisión del usuario). Moneda ARS y datos reales resueltos en tanda 2. Fase 0 completada.
@@ -585,3 +585,29 @@ e735abd feat(server): indices FK para las consultas calientes
 83fad8b fix(server): validar parametros de ruta y query
 31f3b6a fix(server): verificar webhook de Mercado Pago sobre el body crudo
 ```
+
+---
+
+## Portal público completo (2026-09-19)
+
+### Antes
+
+Botones "Imprimir/Procesar" = `alert()` stubs; PEDIDOs en `Abierto` para siempre; sin seguimiento para el cliente.
+
+### Qué se hizo
+
+**Backend** (`31d7231`): `PATCH /api/documents/:id/status` — `{ status: En Proceso | Enviado | Anulado }` (zod enum). Transiciones validadas server-side: `Abierto → En Proceso/Anulado`, `En Proceso → Enviado/Anulado`, terminales no avanzan; no-PEDIDO → 400; fuera del tenant → 404; `ventas.escribir` + audit en transacción. Hallazgo: receive es solo-OC y pagos van en la creación → terminal = `Enviado`/`Anulado`, sin cambios de schema.
+
+**Frontend** (`d1aaaa6`): Procesar avanza con label según acción ("Marcar en proceso/enviado", oculto en terminal) + Anular con confirm; Imprimir = modal detalle + `window.print()` con regla `@media print` (solo `.print-order`); mapeo de estados veraz en App (se mató el forzado a Nuevo/Pendiente); tienda pública con tarjeta "Seguí tu pedido" (email + estados reales).
+
+### Registro de commits
+
+```text
+31d7231 feat(server): avance de estados de pedido con transiciones validadas
+d1aaaa6 feat(front): procesar, imprimir y seguimiento real de pedidos publicos
+```
+
+### Verificación
+
+`npm run lint` ✓ · `npm test` (19) ✓ · `npm run build` ✓ · `server build` ✓ · `server test` (41 pass — suite nueva pedido-status: checkout público → avance → visibilidad por email, saltos/terminales/cross-tenant/sin-auth bloqueados — 1 skip) ✓
+- Gotchas de infra registrados: suites en paralelo sobre una DB (slug suite re-resuelve + reintenta), `register` concurrente en deadlock P2034 → fixture cross-tenant vía prisma + `signToken` directo.
