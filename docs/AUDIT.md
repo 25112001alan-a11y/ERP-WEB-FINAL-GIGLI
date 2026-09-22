@@ -109,6 +109,7 @@ Potencial medido: **~850-950 líneas menos y −7 dependencias** sin cambiar com
 - Auto-deploy GitHub caído ("Could not load branches") → backend a producción sale SOLO por `railway up` desde la raíz. Frontend (Vercel) sí auto-deploya `main`.
 - 2026-09-19: en GitHub → Settings → Applications el dueño ve solo VERCEL. Normal si miraba la pestaña OAuth Apps: Vercel es OAuth App, Railway es GitHub App y vive en la pestaña **Installed GitHub Apps**. Si ahí tampoco está → instalarla desde Railway (avatar → Account Settings → Integrations → GitHub → Connect, autorizar e incluir el repo), luego Retry en el servicio.
 - 2026-09-19: confirmado que solo existe la OAuth App "Railway App" (botón Revoke = solo login, no tocar). La GitHub App NO está instalada → instalar desde Railway como arriba.
+- 2026-09-19 (corrección del dueño): GitHub SÍ estaba conectado y Railway SÍ aparecía; lo que no aparece es el botón Configure. Diagnóstico "no instalada" posiblemente erróneo — pendiente captura de pantalla exacta para no seguir adivinando. Deploy por CLI (`railway up`) funciona y no depende de esto.
 - Botón Disconnect bloqueado: irrelevante, no se necesita.
 - NO actualizar MySQL 9.4 → 9.7.2 hasta cerrar el trabajo activo.
 
