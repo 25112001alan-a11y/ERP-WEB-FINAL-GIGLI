@@ -451,7 +451,8 @@ d304543 feat(server): seed AR demo tambien en boot con RUN_DEMO_SEED
 - Síntoma: seed AR corría en prod con `+0` en todo pero `dueno@lodemarta.test` / `password123` → 401.
 - Causa: `PASSWORD = ADMIN_PASSWORD ?? 'password123'` — en Railway `ADMIN_PASSWORD` existe, así que las 9 cuentas se hashearon con tu ADMIN_PASSWORD (un auto-deploy anterior las había creado antes de caerse la conexión GitHub).
 - Fix: cuentas `.test` (RFC-reservadas, nunca reales) siempre con `password123` fijo + reconciliación en cada corrida (resetea hash + rol faltante solo en esas). Tradeoff explícito: quien adivine `*@*.test` + `password123` entra a tenants demo (datos falsos, aislados, sin permisos plataforma).
-- Reparación: `railway run` NO sirve (el `DATABASE_URL` de Railway usa `mysql.railway.internal`, solo resuelve dentro de su red). Caminos válidos: (a) redeploy con `railway up` desde la raíz — el seed del boot repara solo; (b) correr el seed local apuntando al TCP Proxy público del MySQL (ver sección Deploy Railway).
+- Reparación: `railway run` NO sirve (el `DATABASE_URL` de Railway usa `mysql.railway.internal`, solo resuelve dentro de su red). Camino usado: redeploy con `railway up` desde la raíz → boot reparó solo (`users +9`).
+- **Cierre verificado 2026-09-19**: login en producción `dueno@lodemarta.test` / `password123` → **200 OK** (`Kiosco Lo de Marta`, moneda ARS). ✅ Cerrado.
 
 ### Verificación
 
