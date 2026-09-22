@@ -547,6 +547,32 @@ Banner eterno "Algunos datos no se pudieron cargar" + todas las cuentas navegaba
 
 ---
 
+## Seguimiento por WhatsApp (2026-09-19, reemplaza email)
+
+### Decisión (dueño)
+
+El seguimiento por email no hace falta; el seguimiento es por WhatsApp. Se elimina el tracking por email.
+
+### Qué se hizo
+
+- Tienda: fuera la card "Seguí tu pedido" + estados/handlers muertos; email del checkout queda (find-or-create) como opcional; éxito muestra n° de pedido + **"Enviar pedido por WhatsApp"** (`wa.me/?text=` modo share, cliente elige el chat; texto con tienda, n° y total); auto-dismiss eliminado (hacía inusable el botón) + "Hacer otro pedido".
+- Dueño: botón `chat` por fila en Pedidos Públicos → `wa.me/<dígitos>?text=` con mensaje de estado; solo si teléfono ≥8 dígitos (sin inventar código país); tienda vía sesión.
+- Backend (`ccca886`): `phone` agregado al select de cliente del listado (ya existía en Prisma y en el detalle; sin schema).
+
+### Registro de commits
+
+```text
+ccca886 feat(server): incluir telefono del cliente en listado de documentos
+92775c2 feat(front): seguimiento por WhatsApp en lugar de email
+```
+
+### Verificación
+
+`npm run lint` ✓ · `npm test` (19) ✓ · `npm run build` ✓ · `server build` ✓ · `server test` (41 pass, 1 skip) ✓
+- Nota: `GET /store/:slug/orders?email=` sigue en backend sin llamadas — candidato a eliminar.
+
+---
+
 ## Fix lector: formatos 1D + marco de apuntado (2026-09-19)
 
 ### Reporte de campo (dueño, 3 dispositivos)
