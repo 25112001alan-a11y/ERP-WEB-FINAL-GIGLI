@@ -224,6 +224,7 @@ export default function App() {
           documentId: d.id,
           client: d.client?.name ?? 'Sin cliente',
           clientType: d.client?.type ?? 'Mayorista',
+          clientPhone: d.client?.phone ?? null,
           date: new Date(d.date).toLocaleDateString('es-ES'),
           createdAt: d.date,
           total: Number(d.total),

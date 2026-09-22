@@ -125,6 +125,7 @@ export interface PublicOrder {
   paymentStatus: 'Pagado' | 'Pendiente';
   logisticsStatus: 'Nuevo' | 'En Proceso' | 'Enviado' | 'Anulado';
   address?: string;
+  clientPhone?: string | null;
 }
 
 export interface User {

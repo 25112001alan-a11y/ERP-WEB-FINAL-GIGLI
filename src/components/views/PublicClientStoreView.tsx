@@ -39,15 +39,8 @@ export const PublicClientStoreView: React.FC<PublicClientStoreViewProps> = ({ sl
   const [deliveryMethod, setDeliveryMethod] = useState<'delivery' | 'pickup'>('delivery');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
-  const [confirmedOrder, setConfirmedOrder] = useState<string | null>(null);
+  const [confirmedOrder, setConfirmedOrder] = useState<{ number: string; total: number } | null>(null);
   const [cartOpen, setCartOpen] = useState(false);
-  const [trackEmail, setTrackEmail] = useState('');
-  const [trackedOrders, setTrackedOrders] = useState<
-    { id: string; number: string; date: string; status: string; total: number }[]
-  >([]);
-  const [tracking, setTracking] = useState(false);
-  const [trackError, setTrackError] = useState('');
-  const [trackSearched, setTrackSearched] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -125,52 +118,15 @@ export const PublicClientStoreView: React.FC<PublicClientStoreViewProps> = ({ sl
           },
         },
       );
-      setConfirmedOrder(order.number);
+      setConfirmedOrder({ number: order.number, total: Number(order.total) });
       setCart([]);
       setCartOpen(false);
-      setTimeout(() => {
-        setConfirmedOrder(null);
-        // Anonymous buyers stay on the storefront; staff go back to the queue.
-        if (user) onNavigate('pedidos-publicos');
-      }, 2500);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo registrar el pedido');
     } finally {
       setSubmitting(false);
     }
   };
-
-  // Seguimiento de pedidos por email (estado real del backend, scoped al tenant).
-  const handleTrackOrders = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!trackEmail.trim()) return;
-    setTracking(true);
-    setTrackError('');
-    setTrackSearched(true);
-    try {
-      const orders = await apiFetch<
-        { id: string; number: string; date: string; status: string; total: number }[]
-      >(`/api/public/store/${slug}/orders?email=${encodeURIComponent(trackEmail.trim())}`, {
-        auth: false,
-      });
-      setTrackedOrders(orders);
-    } catch (err) {
-      setTrackedOrders([]);
-      setTrackError(err instanceof Error ? err.message : 'No se pudieron buscar los pedidos');
-    } finally {
-      setTracking(false);
-    }
-  };
-
-  const TRACK_LABELS: Record<string, string> = {
-    Abierto: 'Pendiente',
-    'En Proceso': 'En proceso',
-    Enviado: 'Enviado',
-    Anulado: 'Anulado',
-    Pagado: 'Pagado',
-  };
-
-  const trackLabel = (status: string) => TRACK_LABELS[status] ?? status;
 
   // Panel de carrito/checkout — compartido entre desktop (sticky) y mobile (overlay).
   const cartPanel = (
@@ -188,8 +144,29 @@ export const PublicClientStoreView: React.FC<PublicClientStoreViewProps> = ({ sl
       {confirmedOrder ? (
         <div className="p-lg text-center flex flex-col items-center justify-center py-10 gap-sm">
           <span className="material-symbols-outlined text-[48px] text-on-tertiary-container">check_circle</span>
-          <h3 className="font-headline-md text-on-surface">¡Pedido {confirmedOrder} Recibido!</h3>
-          <p className="font-body-md text-on-surface-variant text-xs">Su orden fue registrada en el sistema ERP y ya está visible para administración.</p>
+          <h3 className="font-headline-md text-on-surface">¡Pedido {confirmedOrder.number} recibido!</h3>
+          <p className="font-body-md text-on-surface-variant text-xs">Total: ${confirmedOrder.total.toFixed(2)}{currency ? ` ${currency}` : ''}. Ya está visible para administración.</p>
+          <a
+            href={`https://wa.me/?text=${encodeURIComponent(
+              `Hola ${companyName}, hice el pedido ${confirmedOrder.number} por $${confirmedOrder.total.toFixed(2)}${currency ? ` ${currency}` : ''} en ${companyName}. ¿Me confirmás?`
+            )}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-sm px-md py-sm bg-primary text-on-primary font-label-md text-label-md rounded-lg hover:bg-primary-container transition-colors flex items-center gap-sm cursor-pointer"
+          >
+            <span className="material-symbols-outlined text-[18px]">chat</span>
+            Enviar pedido por WhatsApp
+          </a>
+          <button
+            type="button"
+            onClick={() => {
+              setConfirmedOrder(null);
+              if (user) onNavigate('pedidos-publicos');
+            }}
+            className="font-label-md text-label-md text-primary hover:underline cursor-pointer"
+          >
+            Hacer otro pedido
+          </button>
         </div>
       ) : (
         <form onSubmit={handleConfirmOrder} className="p-md flex flex-col gap-md">
@@ -252,7 +229,7 @@ export const PublicClientStoreView: React.FC<PublicClientStoreViewProps> = ({ sl
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="Email (opcional, para seguimiento)"
+                placeholder="Email (opcional)"
               className="bg-surface-container-low border border-outline-variant/50 rounded-lg p-sm font-body-md text-body-md text-on-surface outline-none"
             />
             <input
@@ -416,72 +393,6 @@ export const PublicClientStoreView: React.FC<PublicClientStoreViewProps> = ({ sl
           {/* Cart Panel — Desktop: sticky a la derecha */}
           <div className="hidden lg:flex w-96 flex-shrink-0 flex-col gap-lg sticky top-20">
             {cartPanel}
-          </div>
-        </div>
-
-        {/* Seguimiento de pedidos */}
-        <div className="max-w-7xl mx-auto px-lg pb-xl w-full">
-          <div className="bg-surface-container-lowest rounded-xl shadow-md p-lg border border-outline-variant/20 flex flex-col gap-md">
-            <div className="flex items-center gap-sm">
-              <span className="material-symbols-outlined text-primary">package_search</span>
-              <h2 className="font-headline-md text-headline-md text-on-surface">Seguí tu pedido</h2>
-            </div>
-            <p className="font-body-md text-body-md text-on-surface-variant">
-              Ingresá el email que usaste al comprar y mirá el estado actual de tus pedidos.
-            </p>
-            <form onSubmit={handleTrackOrders} className="flex flex-col sm:flex-row gap-sm">
-              <input
-                type="email"
-                value={trackEmail}
-                onChange={(e) => setTrackEmail(e.target.value)}
-                placeholder="tu@email.com"
-                className="flex-1 bg-surface-container-low border border-outline-variant/50 rounded-lg p-sm font-body-md text-body-md text-on-surface outline-none"
-                required
-              />
-              <button
-                type="submit"
-                disabled={tracking}
-                className="px-md py-sm bg-primary text-on-primary font-label-md text-label-md rounded-lg hover:bg-primary-container transition-colors cursor-pointer disabled:opacity-50"
-              >
-                {tracking ? 'Buscando...' : 'Buscar pedidos'}
-              </button>
-            </form>
-            {trackError && (
-              <div className="p-sm bg-error-container/20 text-on-error-container rounded-lg font-label-md text-sm flex items-center gap-xs">
-                <span className="material-symbols-outlined text-[18px]">error</span> {trackError}
-              </div>
-            )}
-            {trackSearched && !tracking && !trackError && (
-              trackedOrders.length === 0 ? (
-                <p className="font-body-md text-body-md text-on-surface-variant">No encontramos pedidos para ese email en esta tienda.</p>
-              ) : (
-                <ul className="flex flex-col gap-sm">
-                  {trackedOrders.map((o) => (
-                    <li key={o.id} className="flex items-center justify-between gap-md p-sm rounded-lg border border-outline-variant/30">
-                      <div className="flex flex-col min-w-0">
-                        <span className="font-mono-sm font-bold text-primary">{o.number}</span>
-                        <span className="font-body-md text-body-md text-on-surface-variant text-xs">
-                          {new Date(o.date).toLocaleDateString('es-ES')} · ${Number(o.total).toFixed(2)}
-                        </span>
-                      </div>
-                      <span
-                        className={`shrink-0 inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${
-                          o.status === 'Enviado'
-                            ? 'bg-surface-container-high text-on-surface-variant'
-                            : o.status === 'En Proceso'
-                            ? 'bg-secondary-container/10 text-secondary border border-secondary-container/20'
-                            : o.status === 'Anulado'
-                            ? 'bg-error-container text-on-error-container'
-                            : 'bg-surface-container-high text-on-surface'
-                        }`}
-                      >
-                        {trackLabel(o.status)}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )
-            )}
           </div>
         </div>
         </>

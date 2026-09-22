@@ -28,7 +28,7 @@ export interface ApiDocument {
   externalNumber?: string | null;
   notes?: string | null;
   supplier: { id: number; name: string } | null;
-  client: { id: number; name: string; type: string | null } | null;
+  client: { id: number; name: string; type: string | null; phone?: string | null } | null;
   invoiceData?: {
     invoiceType: string;
     cae: string | null;

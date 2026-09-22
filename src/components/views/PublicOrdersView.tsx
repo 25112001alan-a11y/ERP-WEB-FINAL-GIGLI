@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { ViewPath, PublicOrder } from '../../types';
 import { ApiError, apiFetch } from '../../lib/api';
 import { ApiDocument } from '../../lib/mappers';
+import { useAuth } from '../../lib/auth';
 
 interface PublicOrdersViewProps {
   orders: PublicOrder[];
@@ -25,6 +26,8 @@ const LOGISTICS_STYLES: Record<string, string> = {
 };
 
 export const PublicOrdersView: React.FC<PublicOrdersViewProps> = ({ orders, onNavigate, onRefresh }) => {
+  const { user } = useAuth();
+  const companyName = user?.company?.name ?? 'nuestra tienda';
   const [searchTerm, setSearchTerm] = useState('');
   const [actionId, setActionId] = useState<number | null>(null);
   const [error, setError] = useState('');
@@ -284,6 +287,22 @@ export const PublicOrdersView: React.FC<PublicOrdersViewProps> = ({ orders, onNa
                   </td>
                   <td className="py-sm px-md text-right">
                     <div className="flex justify-end gap-2 opacity-100 transition-opacity">
+                      {(() => {
+                        const digits = (ord.clientPhone ?? '').replace(/\D/g, '');
+                        if (digits.length < 8) return null;
+                        const text = `Hola ${ord.client}, tu pedido ${ord.id} está ${ord.logisticsStatus}. Gracias por comprar en ${companyName}!`;
+                        return (
+                          <a
+                            href={`https://wa.me/${digits}?text=${encodeURIComponent(text)}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="w-8 h-8 rounded flex items-center justify-center hover:bg-surface-container-high text-on-surface-variant hover:text-primary transition-colors cursor-pointer tap-target"
+                            title={`Avisar a ${ord.client} por WhatsApp`}
+                          >
+                            <span className="material-symbols-outlined text-[18px]">chat</span>
+                          </a>
+                        );
+                      })()}
                       <button onClick={() => void openPrint(ord)} className="w-8 h-8 rounded flex items-center justify-center hover:bg-surface-container-high text-on-surface-variant hover:text-primary transition-colors cursor-pointer tap-target" title="Imprimir pedido">
                         <span className="material-symbols-outlined text-[18px]">print</span>
                       </button>
