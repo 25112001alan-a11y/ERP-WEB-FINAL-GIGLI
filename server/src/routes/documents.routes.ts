@@ -160,7 +160,7 @@ router.get('/', requireAnyPermission('ventas.leer', 'compras.leer'), async (req,
       ...(typeFilter ? { type: typeFilter } : {}),
     },
     include: {
-      client: { select: { id: true, name: true, type: true } },
+      client: { select: { id: true, name: true, type: true, phone: true } },
       supplier: { select: { id: true, name: true } },
       warehouse: { select: { name: true } },
       payments: { select: { id: true, method: true, status: true } },
