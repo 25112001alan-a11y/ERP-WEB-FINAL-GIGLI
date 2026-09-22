@@ -225,6 +225,71 @@ router.get('/:id', requireAnyPermission('ventas.leer', 'compras.leer'), async (r
 });
 
 /**
+ * PATCH /api/documents/:id/status — PEDIDO lifecycle only:
+ *   Abierto → En Proceso → Enviado (terminal), any → Anulado (terminal).
+ * The receive/pay flows don't apply to PEDIDO (receive is OC-only, payments
+ * attach at creation), so Enviado is the terminal fulfilled state.
+ */
+const pedidoStatusSchema = z.object({
+  status: z.enum(['En Proceso', 'Enviado', 'Anulado']),
+});
+
+const PEDIDO_TRANSITIONS: Record<string, string[]> = {
+  Abierto: ['En Proceso', 'Anulado'],
+  'En Proceso': ['Enviado', 'Anulado'],
+  Enviado: [],
+  Anulado: [],
+};
+
+router.patch('/:id/status', requirePermission('ventas.escribir'), async (req, res) => {
+  const id = parsePositiveInt(req.params.id);
+  if (id === null) {
+    res.status(400).json({ error: 'Parámetro inválido' });
+    return;
+  }
+  const parsed = pedidoStatusSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Estado inválido', details: parsed.error.flatten() });
+    return;
+  }
+  const next = parsed.data.status;
+
+  const result = await prisma.$transaction(async (tx) => {
+    const document = await tx.document.findFirst({
+      where: { id, companyId: req.authUser!.companyId },
+      select: { id: true, type: true, status: true, series: true, number: true },
+    });
+    if (!document) throw Object.assign(new Error('Comprobante no encontrado'), { status: 404 });
+    if (document.type !== DocumentType.PEDIDO) {
+      throw Object.assign(new Error('Solo los PEDIDO cambian de estado por esta vía'), { status: 400 });
+    }
+    const allowed = PEDIDO_TRANSITIONS[document.status] ?? [];
+    if (!allowed.includes(next)) {
+      throw Object.assign(new Error(`Transición no permitida de ${document.status} a ${next}`), {
+        status: 400,
+      });
+    }
+    const updated = await tx.document.update({ where: { id }, data: { status: next } });
+    await logAudit(
+      tx,
+      req.authUser!.companyId,
+      req.authUser!.userId,
+      {
+        action: 'Cambio de estado de Pedido',
+        module: 'Ventas',
+        entity: 'Document',
+        entityId: id,
+        details: `PEDIDO ${document.series}-${String(document.number).padStart(4, '0')}: ${document.status} → ${next}`,
+      },
+      clientIp(req),
+    );
+    return updated;
+  });
+
+  res.json(result);
+});
+
+/**
  * POST /api/documents
  * Creates a document with its items. Stock side effects by type:
  *   - VENTA           : decrements warehouse stock, writes SALIDA movements
