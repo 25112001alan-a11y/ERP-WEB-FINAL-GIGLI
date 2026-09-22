@@ -260,10 +260,10 @@ export const Header: React.FC<HeaderProps> = ({
               <span className="material-symbols-outlined text-[16px]">post_add</span> Pedido Manual
             </button>
             <button
-              onClick={() => { onNavigate('portal-clientes'); setShowQuickNav(false); }}
+              onClick={() => { const slug = user?.company?.slug; if (slug) window.open(`${window.location.origin}/t/${slug}`, '_blank', 'noopener'); setShowQuickNav(false); }}
               className={`text-left p-sm rounded-lg font-body-md text-xs flex items-center gap-xs transition-colors ${currentView === 'portal-clientes' ? 'bg-secondary-container text-on-secondary-container font-bold' : 'hover:bg-surface-container-low text-on-surface'}`}
             >
-              <span className="material-symbols-outlined text-[16px]">storefront</span> Portal de Clientes
+              <span className="material-symbols-outlined text-[16px]">storefront</span> Portal de Clientes <span className="material-symbols-outlined text-[14px] opacity-60">open_in_new</span>
             </button>
             <button
               onClick={() => { onNavigate('compras'); setShowQuickNav(false); }}
