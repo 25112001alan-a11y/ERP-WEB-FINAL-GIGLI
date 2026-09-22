@@ -169,7 +169,8 @@ export default function App() {
       );
       setRemitoDocs(remitos);
       setPurchaseOrders(
-        [...ocs, ...compras, ...remitos, ...facturas]
+        // Supplier invoices (no client) live in Compras; client ones in Ventas.
+        [...ocs, ...compras, ...remitos, ...facturas.filter((f) => !f.client)]
           .map(toFrontPurchaseOrder)
           .sort((a, b) => b.id.localeCompare(a.id)),
       );
@@ -194,12 +195,14 @@ export default function App() {
 
   const loadSales = useCallback(async (): Promise<boolean> => {
     try {
-      const [ventas, remitos] = await Promise.all([
+      const [ventas, remitos, facturas] = await Promise.all([
         apiFetch<ApiDocument[]>('/api/documents?type=VENTA'),
         apiFetch<ApiDocument[]>('/api/documents?type=REMITO'),
+        apiFetch<ApiDocument[]>('/api/documents?type=FACTURA'),
       ]);
-      setSalesDocs([...ventas, ...remitos]);
-      setSales(ventas.map(toFrontSale));
+      setSalesDocs([...ventas, ...remitos, ...facturas]);
+      // Sale invoices (with client) live in Ventas; supplier ones stay in Compras.
+      setSales([...ventas, ...facturas.filter((f) => f.client)].map(toFrontSale));
       return true;
     } catch (err) {
       console.error('No se pudieron cargar las ventas', err);
