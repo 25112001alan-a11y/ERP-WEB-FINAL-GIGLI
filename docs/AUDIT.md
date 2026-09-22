@@ -111,6 +111,7 @@ Potencial medido: **~850-950 líneas menos y −7 dependencias** sin cambiar com
 - 2026-09-19: confirmado que solo existe la OAuth App "Railway App" (botón Revoke = solo login, no tocar). La GitHub App NO está instalada → instalar desde Railway como arriba.
 - 2026-09-19 (corrección del dueño): GitHub SÍ estaba conectado y Railway SÍ aparecía; lo que no aparece es el botón Configure. Diagnóstico "no instalada" posiblemente erróneo — pendiente captura de pantalla exacta para no seguir adivinando. Deploy por CLI (`railway up`) funciona y no depende de esto.
 - 2026-09-19 (aclaración final del dueño): Installed GitHub Apps → Railway aparece, sin botón Configure ni en lista ni adentro. Explicación: al hacer click en Railway YA se está en la pantalla de configuración (Repository access + Save); no hay un segundo botón Configure adentro. Acción: elegir All/Select repositories + Save, luego Retry en Railway.
+- 2026-09-19 (estado final confirmado): en **Installed GitHub Apps solo está Vercel** (sin Railway); en **Authorized OAuth Apps sí está Railway App** (solo login, con Revoke). Conclusión definitiva: la GitHub App de Railway **no está instalada** en la cuenta → no hay Configure posible. Fix: instalar desde Railway (avatar → Account Settings → Integrations → GitHub → Connect, autorizar e incluir el repo), luego Retry en el servicio. La referencia vieja al repo en el servicio es residual de una instalación anterior.
 - Botón Disconnect bloqueado: irrelevante, no se necesita.
 - NO actualizar MySQL 9.4 → 9.7.2 hasta cerrar el trabajo activo.
 
