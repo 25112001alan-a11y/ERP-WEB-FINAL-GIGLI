@@ -28,7 +28,10 @@ const prisma = new PrismaClient();
 if (process.env.NODE_ENV === 'production' && !process.env.ADMIN_PASSWORD) {
   throw new Error('Refusing to seed production with the default demo password. Set ADMIN_PASSWORD.');
 }
-const PASSWORD = process.env.ADMIN_PASSWORD ?? 'password123';
+// Demo accounts use .test emails (RFC-reserved, never real): fixed demo
+// password so testers can log in anywhere. The ADMIN_PASSWORD guard above
+// still protects the real bootstrap admin path.
+const PASSWORD = 'password123';
 
 // Global permission catalog — same source as auth.routes.ts BASE_PERMISSIONS.
 const BASE_PERMISSIONS = [
@@ -378,12 +381,25 @@ async function seedCompany(def: SeedCompany, permIds: Map<string, number>, hash:
   // Users (branch lock: null = owner/all-access).
   for (const u of def.users) {
     const existing = await prisma.user.findUnique({ where: { email: u.email } });
+    const branchId = u.branch === 'central' ? central.id : u.branch === 'branch2' ? branch2.id : null;
     if (!existing) {
-      const branchId = u.branch === 'central' ? central.id : u.branch === 'branch2' ? branch2.id : null;
       const user = await prisma.user.create({
         data: { companyId, firstName: u.firstName, lastName: u.lastName, email: u.email, passwordHash: hash, status: 'Activo', branchId },
       });
       await prisma.userRole.create({ data: { userId: user.id, roleId: roleIds.get(u.role)! } });
+      counts.users++;
+    } else if (
+      existing.companyId === companyId &&
+      u.email.endsWith('.test') &&
+      !(await bcrypt.compare(PASSWORD, existing.passwordHash))
+    ) {
+      // Repair: .test accounts created earlier with another password (e.g.
+      // ADMIN_PASSWORD in prod) converge to the fixed demo password.
+      await prisma.user.update({ where: { id: existing.id }, data: { passwordHash: hash, status: 'Activo' } });
+      const hasRole = await prisma.userRole.findFirst({ where: { userId: existing.id, roleId: roleIds.get(u.role)! } });
+      if (!hasRole) {
+        await prisma.userRole.create({ data: { userId: existing.id, roleId: roleIds.get(u.role)! } });
+      }
       counts.users++;
     }
   }
