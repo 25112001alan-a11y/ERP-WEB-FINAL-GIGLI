@@ -407,6 +407,14 @@ export default function App() {
     }
   }, [user, loadAll]);
 
+  // Re-fetch public orders on every entry: new customer orders placed while
+  // the tab is open would otherwise stay invisible until a full reload.
+  useEffect(() => {
+    if (user && currentView === 'pedidos-publicos' && can(user.permissions, ['ventas.leer', 'compras.leer'])) {
+      void loadPublicOrders();
+    }
+  }, [user, currentView, loadPublicOrders]);
+
   // Mantener el drawer cerrado al pasar a desktop y bloquear el scroll de fondo en mobile.
   useEffect(() => {
     const onResize = () => {
