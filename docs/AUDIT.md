@@ -543,6 +543,7 @@ Banner eterno "Algunos datos no se pudieron cargar" + todas las cuentas navegaba
 ### Verificación
 
 `npm run lint` ✓ · `npm test` (19) ✓ · `npm run build` ✓ · API como dueño trae 2/2, como ana 0/0 ✓
+- 2026-09-19: localhost tiene 2 PEDIDOs (tests del dueño), **producción tiene 0**. Localhost y web son DBs distintas: lo creado en una no aparece en la otra. Si no se ve nada, verificar primero en qué ambiente se creó vs. en cuál se mira.
 
 ---
 
