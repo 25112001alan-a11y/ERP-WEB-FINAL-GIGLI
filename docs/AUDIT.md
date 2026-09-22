@@ -461,6 +461,26 @@ d304543 feat(server): seed AR demo tambien en boot con RUN_DEMO_SEED
 
 ---
 
+## Gating frontend por permisos (2026-09-19)
+
+### Reporte (dueño, todas las cuentas)
+
+Banner eterno "Algunos datos no se pudieron cargar" + todas las cuentas navegaban todo. Causa: `loadAll` pedía endpoints admin a todo el mundo (403 → banner) y Sidebar/App renderizaban sin mirar permisos. El backend siempre negó bien (fail-closed) — era solo ruido UX, no fuga.
+
+### Qué se hizo (solo frontend, `3d19ce2`, por pushear)
+
+- `loadAll` salta cada fetch sin permiso (`usuarios.leer` → users/roles, `auditoria.leer` → logs); el banner solo salta ante fallos reales.
+- Sidebar filtra por permiso (misma tabla que los guards del backend); dashboard siempre visible; branch/health/usuario intactos.
+- Guard central: vista sin permiso → panel "No tenés permiso para ver esta sección" con botón al Dashboard.
+- Helper `can()` + tabla `VIEW_PERMISSIONS` en `auth.tsx`.
+- Matriz: Super Admin todo igual sin banner; Encargado sin Usuarios/Roles/Admin/Auditoría/Config; Cajero solo Dashboard/Inventario/POS/Ventas/Pedidos sin banner.
+
+### Verificación
+
+`npm run lint` ✓ · `npm test` (19) ✓ · `npm run build` ✓
+
+---
+
 ## Fix lector: formatos 1D + marco de apuntado (2026-09-19)
 
 ### Reporte de campo (dueño, 3 dispositivos)
