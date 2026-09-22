@@ -524,6 +524,24 @@ Banner eterno "Algunos datos no se pudieron cargar" + todas las cuentas navegaba
 
 ---
 
+## Facturas por dirección: Ventas vs Compras (2026-09-19)
+
+### Problema
+
+Todas las FACTURAs se cargaban solo en `loadPurchases` (compras): un usuario solo-ventas jamás veía una factura de venta.
+
+### Qué se hizo (`3b16b87`, solo `App.tsx`)
+
+- `loadSales` suma `GET ?type=FACTURA` (el backend acepta `ventas.leer OR compras.leer`, verificado 200 como solo-ventas): facturas **con cliente** → lista de Ventas (vía `toFrontSale`, ya soportado por tests); `salesDocs` las incluye como documentos origen.
+- `loadPurchases` filtra el merge a facturas **sin cliente** → Compras. Sin pérdida (las de nadie quedan en Compras) y sin duplicación entre vistas.
+- Sin cambios de gates (ambos loaders ya eran OR) ni de backend.
+
+### Verificación
+
+`npm run lint` ✓ · `npm test` (19, incluye mapper de FACTURA) ✓ · `npm run build` ✓ · `GET ?type=FACTURA` como `ventas@tecnosur.test` → 200 ✓
+
+---
+
 ## Pedidos hechos invisibles (2026-09-19) — no era bug de creación
 
 ### Reporte (dueño)
@@ -706,3 +724,4 @@ Los 5 tests con auth fallaban con 401 y payload perfecto: mi helper `api()` ya p
 3. En MP: registrar webhook `https://erp-web-final-gigli-production.up.railway.app/api/billing/webhook` para tópicos de pagos.
 4. Probar con tarjetas de prueba de MP (aprobada/rechazada/pendiente) desde el POS → ver Pagado automático.
 5. Producción real: repetir con credenciales productivas cuando decidas cobrar de verdad.
+- **Diferido por el dueño a otro día**: pasos 1-4 (credenciales TEST, variable, webhook, prueba con tarjetas). Sin credenciales el fallback manual sigue intacto.
