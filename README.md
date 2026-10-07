@@ -36,4 +36,4 @@ Use the server-prefixed command above to start the API: the root `npm run dev:se
 | `npm run lint` / `npm run lint:server` | Type-check frontend / API |
 | `npm test` / `npm run test:server` | Run frontend / API tests |
 | `npm run preview` | Preview the built frontend (allow its origin in API CORS when needed) |
-| `npm run clean` | Remove build artifacts (uses `rm -rf`; requires a Unix-compatible shell) |
+| `npm run clean` | Remove build artifacts (cross-platform via `fs.rmSync`) |

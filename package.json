@@ -9,7 +9,7 @@
     "build": "tsc --noEmit && vite build",
     "build:server": "tsc -p server/tsconfig.json",
     "preview": "vite preview",
-    "clean": "rm -rf dist server.js",
+    "clean": "node -e \"for (const p of ['dist','server.js']) require('fs').rmSync(p,{ recursive: true, force: true })\"",
     "lint": "tsc --noEmit",
     "lint:server": "tsc -p server/tsconfig.json --noEmit",
     "test": "vitest run",
