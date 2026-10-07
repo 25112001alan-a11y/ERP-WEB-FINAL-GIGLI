@@ -31,18 +31,21 @@ export function parsePagination(query: {
   if (page === null || rawLimitParsed === null) {
     return { error: 'Parámetros de paginación inválidos' };
   }
-  // ponytail: in-memory slice, DB-level skip/take if lists grow past ~10k rows
+  // ponytail: page/limit validated here; MySQL skip is an Int (max 2^31-1) so a
+  // huge page must 400 before reaching Prisma.
   const limit = Math.min(rawLimitParsed, PAGINATION_MAX_LIMIT);
+  if ((page - 1) * limit > 2147483647) {
+    return { error: 'Parámetros de paginación inválidos' };
+  }
   return { page, limit };
 }
 
-/** Wraps a full list in the paginated envelope (only called when params present). */
-export function paginateResponse<T>(items: T[], pagination: Pagination) {
-  const start = (pagination.page - 1) * pagination.limit;
+/** Wraps a DB-paged slice in the paginated envelope with the full-row count. */
+export function paginateResponse<T>(data: T[], pagination: Pagination, total: number) {
   return {
-    data: items.slice(start, start + pagination.limit),
+    data,
     page: pagination.page,
     limit: pagination.limit,
-    total: items.length,
+    total,
   };
 }

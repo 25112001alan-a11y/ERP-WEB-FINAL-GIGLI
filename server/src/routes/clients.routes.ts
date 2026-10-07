@@ -32,16 +32,22 @@ router.get('/', async (req, res) => {
     return;
   }
   const { search } = req.query;
-  const clients = await prisma.client.findMany({
-    where: {
-      ...tenantWhere(req),
-      ...(typeof search === 'string' && search.trim()
-        ? { OR: [{ name: { contains: search.trim() } }, { taxId: { contains: search.trim() } }] }
-        : {}),
-    },
-    orderBy: { name: 'asc' },
-  });
-  res.json(pagination ? paginateResponse(clients, pagination) : clients);
+  const where = {
+    ...tenantWhere(req),
+    ...(typeof search === 'string' && search.trim()
+      ? { OR: [{ name: { contains: search.trim() } }, { taxId: { contains: search.trim() } }] }
+      : {}),
+  };
+  const take = pagination ? pagination.limit : undefined;
+  const [clients, total] = await Promise.all([
+    prisma.client.findMany({
+      where,
+      orderBy: { name: 'asc' },
+      ...(pagination ? { skip: (pagination.page - 1) * pagination.limit, take: pagination.limit } : {}),
+    }),
+    take ? prisma.client.count({ where }) : Promise.resolve(0),
+  ]);
+  res.json(pagination ? paginateResponse(clients, pagination, total) : clients);
 });
 
 /** GET /api/clients/:id */

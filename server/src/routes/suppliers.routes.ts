@@ -35,16 +35,22 @@ router.get('/', async (req, res) => {
     return;
   }
   const { search } = req.query;
-  const suppliers = await prisma.supplier.findMany({
-    where: {
-      ...tenantWhere(req),
-      ...(typeof search === 'string' && search.trim()
-        ? { OR: [{ name: { contains: search.trim() } }, { taxId: { contains: search.trim() } }] }
-        : {}),
-    },
-    orderBy: { name: 'asc' },
-  });
-  res.json(pagination ? paginateResponse(suppliers, pagination) : suppliers);
+  const where = {
+    ...tenantWhere(req),
+    ...(typeof search === 'string' && search.trim()
+      ? { OR: [{ name: { contains: search.trim() } }, { taxId: { contains: search.trim() } }] }
+      : {}),
+  };
+  const take = pagination ? pagination.limit : undefined;
+  const [suppliers, total] = await Promise.all([
+    prisma.supplier.findMany({
+      where,
+      orderBy: { name: 'asc' },
+      ...(pagination ? { skip: (pagination.page - 1) * pagination.limit, take: pagination.limit } : {}),
+    }),
+    take ? prisma.supplier.count({ where }) : Promise.resolve(0),
+  ]);
+  res.json(pagination ? paginateResponse(suppliers, pagination, total) : suppliers);
 });
 
 /** GET /api/suppliers/:id */

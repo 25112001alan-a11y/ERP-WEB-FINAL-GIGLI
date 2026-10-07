@@ -292,22 +292,27 @@ router.get('/', requirePermission('usuarios.leer'), async (req, res) => {
     res.status(400).json({ error: pagination.error });
     return;
   }
-  const users = await prisma.user.findMany({
-    where: tenantWhere(req),
-    select: {
-      id: true,
-      firstName: true,
-      lastName: true,
-      email: true,
-      status: true,
-      createdAt: true,
-      lastAccess: true,
-      branchId: true,
-      branch: { select: { id: true, name: true } },
-      roles: { select: { role: { select: { id: true, name: true } } } },
-    },
-    orderBy: { createdAt: 'asc' },
-  });
+  const take = pagination ? pagination.limit : undefined;
+  const [users, total] = await Promise.all([
+    prisma.user.findMany({
+      where: tenantWhere(req),
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        status: true,
+        createdAt: true,
+        lastAccess: true,
+        branchId: true,
+        branch: { select: { id: true, name: true } },
+        roles: { select: { role: { select: { id: true, name: true } } } },
+      },
+      orderBy: { createdAt: 'asc' },
+      ...(pagination ? { skip: (pagination.page - 1) * pagination.limit, take: pagination.limit } : {}),
+    }),
+    take ? prisma.user.count({ where: tenantWhere(req) }) : Promise.resolve(0),
+  ]);
 
   const shaped = users.map((u) => ({
     id: u.id,
@@ -322,7 +327,7 @@ router.get('/', requirePermission('usuarios.leer'), async (req, res) => {
     branch: u.branch,
     roles: u.roles.map((ur) => ur.role.name),
   }));
-  res.json(pagination ? paginateResponse(shaped, pagination) : shaped);
+  res.json(pagination ? paginateResponse(shaped, pagination, total) : shaped);
 });
 
 const createUserSchema = z.object({

@@ -188,42 +188,48 @@ router.get('/', requireAnyPermission('ventas.leer', 'compras.leer'), async (req,
     res.status(400).json({ error: pagination.error });
     return;
   }
-  const documents = await prisma.document.findMany({
-    where: {
-      ...documentBranchWhere(req),
-      ...(typeFilter ? { type: typeFilter } : {}),
-    },
-    include: {
-      client: { select: { id: true, name: true, type: true, phone: true } },
-      supplier: { select: { id: true, name: true } },
-      warehouse: { select: { name: true } },
-      payments: { select: { id: true, method: true, status: true, amount: true, cashBoxId: true } },
-      invoiceData: {
-        select: {
-          id: true,
-          supplierCuit: true,
-          supplierName: true,
-          externalTotal: true,
-          ingestionMethod: true,
-          attachmentUrl: true,
+const where = {
+    ...documentBranchWhere(req),
+    ...(typeFilter ? { type: typeFilter } : {}),
+  };
+  const take = pagination ? pagination.limit : undefined;
+  const [documents, total] = await Promise.all([
+    prisma.document.findMany({
+      where,
+      include: {
+        client: { select: { id: true, name: true, type: true, phone: true } },
+        supplier: { select: { id: true, name: true } },
+        warehouse: { select: { name: true } },
+        payments: { select: { id: true, method: true, status: true, amount: true, cashBoxId: true } },
+        invoiceData: {
+          select: {
+            id: true,
+            supplierCuit: true,
+            supplierName: true,
+            externalTotal: true,
+            ingestionMethod: true,
+            attachmentUrl: true,
+          },
+        },
+        items: {
+          select: {
+            id: true,
+            sourceDocumentItemId: true,
+            productId: true,
+            sku: true,
+            taxName: true,
+            description: true,
+            quantity: true,
+            unitPrice: true,
+            lineTotal: true,
+          },
         },
       },
-      items: {
-        select: {
-          id: true,
-          sourceDocumentItemId: true,
-          productId: true,
-          sku: true,
-          taxName: true,
-          description: true,
-          quantity: true,
-          unitPrice: true,
-          lineTotal: true,
-        },
-      },
-    },
-    orderBy: { createdAt: 'desc' },
-  });
+      orderBy: { createdAt: 'desc' },
+      ...(pagination ? { skip: (pagination.page - 1) * pagination.limit, take: pagination.limit } : {}),
+    }),
+    take ? prisma.document.count({ where }) : Promise.resolve(0),
+  ]);
   const sourceIds = documents
     .filter((document) => [DocumentType.OC, DocumentType.VENTA, DocumentType.PEDIDO, DocumentType.REMITO].some((type) => type === document.type))
     .map((document) => document.id);
@@ -283,7 +289,7 @@ router.get('/', requireAnyPermission('ventas.leer', 'compras.leer'), async (req,
       items: document.items.map((item) => ({ ...item, pendingQuantity: pendingByItemId.get(item.id) ?? 0 })),
     };
   });
-  res.json(pagination ? paginateResponse(withPendingQuantities, pagination) : withPendingQuantities);
+  res.json(pagination ? paginateResponse(withPendingQuantities, pagination, total) : withPendingQuantities);
 });
 
 /** GET /api/documents/:id */

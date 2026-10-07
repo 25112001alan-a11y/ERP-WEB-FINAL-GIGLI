@@ -165,29 +165,35 @@ router.get('/', async (req, res) => {
     return;
   }
   const { search } = req.query;
-  const products = await prisma.product.findMany({
-    where: {
-      ...tenantWhere(req),
-      ...(typeof search === 'string' && search.trim()
-        ? {
-            OR: [
-              { name: { contains: search.trim() } },
-              { internalCode: { contains: search.trim() } },
-              { barcode: { contains: search.trim() } },
-            ],
-          }
-        : {}),
-    },
-    include: {
-      category: { select: { name: true } },
-      tax: { select: { name: true, rate: true } },
-      stocks: { where: { warehouse: { companyId: req.authUser!.companyId,
-        ...(!req.authUser!.isOwner ? { branchId: req.authUser!.branchId ?? -1 } : {}) } },
-        select: { warehouseId: true, quantity: true, minStock: true } },
-    },
-    orderBy: { name: 'asc' },
-  });
-  res.json(pagination ? paginateResponse(products, pagination) : products);
+  const where = {
+    ...tenantWhere(req),
+    ...(typeof search === 'string' && search.trim()
+      ? {
+          OR: [
+            { name: { contains: search.trim() } },
+            { internalCode: { contains: search.trim() } },
+            { barcode: { contains: search.trim() } },
+          ],
+        }
+      : {}),
+  };
+  const take = pagination ? pagination.limit : undefined;
+  const [products, total] = await Promise.all([
+    prisma.product.findMany({
+      where,
+      include: {
+        category: { select: { name: true } },
+        tax: { select: { name: true, rate: true } },
+        stocks: { where: { warehouse: { companyId: req.authUser!.companyId,
+          ...(!req.authUser!.isOwner ? { branchId: req.authUser!.branchId ?? -1 } : {}) } },
+          select: { warehouseId: true, quantity: true, minStock: true } },
+      },
+      orderBy: { name: 'asc' },
+      ...(pagination ? { skip: (pagination.page - 1) * pagination.limit, take: pagination.limit } : {}),
+    }),
+    take ? prisma.product.count({ where }) : Promise.resolve(0),
+  ]);
+  res.json(pagination ? paginateResponse(products, pagination, total) : products);
 });
 
 /** GET /api/products/:id — tenant-scoped product detail */

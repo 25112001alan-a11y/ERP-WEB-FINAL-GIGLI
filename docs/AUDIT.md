@@ -34,7 +34,7 @@ El código está **bien encuadrado**: señales de nivel senior en seguridad y co
 
 | Hallazgo | Estado |
 | --- | --- |
-| Sin paginación en listas ilimitadas (documents/products/clients/suppliers/users) | ⏳ Opt-in implementado en el diff local: sin parámetros se conserva el array; con `page`/`limit` se devuelve un sobre. Todavía lee todas las filas y pagina en memoria; falta verificar/escalar y publicar |
+| Sin paginación en listas ilimitadas (documents/products/clients/suppliers/users) | ✅ Resuelto (2026-10-07) — `page`/`limit` ahora cortan a nivel de query (`skip`/`take`) con `total` = filas que matchean sin paginar; sin parámetros se conserva el array completo. Ver sección "Paginación real (2026-10-07)" |
 | Scaffold de formulario repetido en 8 vistas (`FormScaffold` + `useSubmitFlow`, ~-250 líneas) | ⏳ Pendiente — refactor de UI con riesgo de regresión visual; tanda propia |
 | `formatMoney`: 4 locales distintos + ~40 `toFixed` sueltos (el mismo monto se ve distinto según vista) | ⏳ Helper y migración parcial en el diff local, sin publicar. ARS por defecto; MRR se etiqueta USD y la tienda usa su moneda real. Falta revisar el resto de las vistas |
 | `parseBody` (zod-safeParse→400 repetido 15+ veces), CRUD factory clients/suppliers, line-math, doc-number padding, `getUserPermissions` reutilizable | ⏳ Pendiente — simplificaciones seguras de tanda propia |
@@ -841,3 +841,27 @@ Para el retiro del GET público, `npm run build` en `server/` y `git diff --chec
 - **Estado: CI test prepared NOT RUN; no MySQL proof.** No se aplicó migración local, no se ejecutó esta integración ni se tocó MySQL80 (posibles datos reales). No hay Docker/Podman ni WSL disponible para replicarla localmente. Solo un futuro job CI efectivamente ejecutado podrá acreditar migraciones, FKs, rollback y concurrencia; antes de eso permanecen pendientes.
 - **Comprobaciones locales sin DB:** build y lint TypeScript del servidor, typecheck aislado del archivo de integración y `git diff --check` correctos (avisos CRLF). Invocación local del test con centinela inválido: falla intencionalmente antes de importar app/Prisma, con `ECO integration requires its isolated CI MySQL service`; no es un resultado de integración aprobado.
 - **Reversión de esta unidad:** retirar únicamente el job `eco-migrations`, `server/test/eco-migrations.integration.ts` y esta sección del informe. Las rutas ECO, migraciones locales sin aplicar y el job servidor preexistente son unidades aparte.
+
+---
+
+## Paginación real (2026-10-07)
+
+Los cinco listados tenant (`/api/documents`, `/api/products`, `/api/clients`, `/api/suppliers`, `/api/users`) paginaban en memoria: leían todas las filas y cortaban el array después del `findMany`. Ahora `page`/`limit` pasan como `skip`/`take` a la query y el sobre incluye `total` con el conteo real (mismo `where`) vía `Promise.all(2 queries)`.
+
+### Qué se hizo
+
+| Archivo | Cambio |
+|---|---|
+| `server/src/lib/params.ts` | `parsePagination` valida overflow de `skip` (MySQL Int, máx. 2^31-1) y devuelve 400 antes de llegar a Prisma; `paginateResponse(data, pagination, total)` ya no corta en memoria — recibe el slice paginado y el conteo real |
+| `server/src/routes/clients.routes.ts`, `suppliers.routes.ts`, `products.routes.ts`, `users.routes.ts`, `documents.routes.ts` | `findMany` con `skip`/`take` solo cuando hay parámetros (sin parámetros: array completo, como antes); `count({ where })` con el mismo filtro; `Promise.all` paralelo. En `documents` la página se corta antes del mapeo de pendientes y del query de hijos; en `users` el `shape` mapea la página, sin afectar `total` |
+| `server/test/pagination-tenant.test.ts` | **Nuevo** e2e: sobre paginado en clients y documents (data = límite, total = filas sin paginar, página 2 ≠ página 1), sin parámetros devuelve array completo, `page=0`/overflow/`limit` inválido → 400 |
+
+`platform.routes.ts` ya hacía esto desde antes y no se tocó (su guard de overflow ahora es redundante pero inofensivo).
+
+### Evidencia
+
+Server `tsc` 0; batería serial **87/85/1/1** (+4 tests; único fail: preexistente `branch-boundaries.test.ts:141`, ajeno). Frontend: sin cambios — ningún cliente de UI envía `page`/`limit`, así que el comportamiento para la web es idéntico.
+
+### Límite
+
+Paginación sin cursor: con `createdAt`/`name` duplicados la página N+1 puede recortar/duplicar filas entre páginas. Suficiente para los volúmenes actuales; un cursor estable por id sería el siguiente paso si algún listado pasa de miles de filas.
