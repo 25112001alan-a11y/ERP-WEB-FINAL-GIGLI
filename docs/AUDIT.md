@@ -40,8 +40,8 @@ El código está **bien encuadrado**: señales de nivel senior en seguridad y co
 | `parseBody` (zod-safeParse→400 repetido 15+ veces), CRUD factory clients/suppliers, line-math, doc-number padding, `getUserPermissions` reutilizable | ✅ Verificado (2026-10-07) — `parseBody` y `getUserPermissions` ya existen y se usan en todos los caminos; factory y line-math se **rechazan** por YAGNI/churn (ver sección "parseBody y simplificaciones (2026-10-07)") |
 | -7 dependencias sin imports en el frontend (`lucide-react`, `motion`, `@google/genai`, `express`, `dotenv`, `autoprefixer`, `esbuild`) y rename de `"react-example"` | ✅ Verificado (2026-10-07) — ya removidas en `1ddaa68`; `express`/`dotenv` viven en `server/package.json` donde se usan; 0 imports en `src/`; nombre del paquete es `nexus-erp`; `esbuild` solo transitivo de Vite. Ver sección "Dependencias sin imports (2026-10-07)" |
 | `loadAll` pide 3 endpoints (users/roles/audit) a todo usuario autenticado → banner de error para no-admins; navegación sin gating de permisos | ✅ Verificado (2026-10-07) — resuelto en `3d19ce2`: `loadAll` gatea cada fetch con `can(p, ...)` (el fetch salteado no es error), sidebar filtra cada ítem por `VIEW_PERMISSIONS` y una vista sin permiso muestra panel amigable en vez de tablas vacías. Ver sección "loadAll y gating de navegación (2026-10-07)" |
-| Endpoints vivos sin UI: `/api/clients`, edit/delete de products/suppliers | ⏳ Pendiente — producto (¿traer las vistas o quitarlas de la API?) |
-| `imageUrl` renderizado sin columna en el schema | ⏳ Pendiente — o se agrega el campo o se quita de la UI |
+| Endpoints vivos sin UI: `/api/clients`, edit/delete de products/suppliers | ✅ Decidido (2026-10-07) — la API conserva el CRUD completo como contrato (todo permissionado y testeado); la UI cubre lo que el producto hoy necesita (listas, alta de producto/cliente/proveedor, POS). No se agregan vistas de gestión sin pedido del producto ni se borran endpoints que no estorban. Ver sección "imageUrl, CRUD sin UI y multi-warehouse (2026-10-07)" |
+| `imageUrl` renderizado sin columna en el schema | ✅ Verificado (2026-10-07) — el campo ya no existe en Prisma ni en el frontend (0 referencias en `src/` y `server/`); la fila era residual. Ver sección "imageUrl, CRUD sin UI y multi-warehouse (2026-10-07)" |
 | Test de webhook MP con fixture grabado (body + firma reales) | ⚠️ Recomendado antes de depender de producción — hoy la suite ejerce el path con firmas sintéticas |
 | `trust proxy 1` | ✅ Verificado por topología: la API corre en Railway tras exactamente un proxy TLS; no es un defecto en ese despliegue |
 | Webhook `eventId` fallback `evt-${Date.now()}` rompe idempotencia si faltan ambos IDs | ⚠️ Menor — decidir si rechazar el evento en vez de inventar ID |
@@ -62,13 +62,13 @@ Todas las rutas que el frontend llama existen en el server; las incoherencias so
 | Alta de producto: tasa hardcodeada + stock descartado (bloqueaba creación) | ✅ Resuelto (ver §1) |
 | Proveedores con campos vacíos forzados | ✅ Resuelto |
 | Status de financiero mentiroso ("Completado" universal) | ✅ Resuelto |
-| POS envía todo el carrito a UN warehouse (falla checkout multi-warehouse) | ⏳ Corregido en el diff local, sin publicar: `warehouseId` por línea dentro de la sucursal activa. Si una línea requiere sumar stock repartido entre depósitos, se bloquea con explicación; no se vende desde otro depósito sin evidencia de stock |
+| POS envía todo el carrito a UN warehouse (falla checkout multi-warehouse) | ✅ Verificado (2026-10-07) — publicado: `posSaleLines` (`src/lib/branch.ts:107`, testeado en `branch.test.ts`) asigna `warehouseId` por línea dentro de la sucursal activa y bloquea líneas que requieran sumar stock entre depósitos, con explicación (`adjustmentWarehouses`/`minByDeposit`); `App.tsx:543` usa el warehouse de la primera línea como warehouse del documento. Ver sección "imageUrl, CRUD sin UI y multi-warehouse (2026-10-07)" |
 | Ajuste de stock: el motivo cargado en la vista no se envía (backend recibe "Ajuste manual desde el frontend") | ⏳ Pendiente (pasar `reason` en el payload) |
 | Transferencias: la vista muestra stock total como máximo pero el backend exige stock en el origen | ⏳ Pendiente (mostrar stock por depósito en origen) |
 | `PurchasesView` resumen de OC con IVA hardcodeado 16% (el total guardado difiere) | ⏳ Pendiente |
 | Pedidos públicos nunca avanzan de estado ("Imprimir/Procesar" son `alert()` stubs) | ⏳ Pendiente (funcionalidad de flujo de pedidos) |
 | Finanzas: FACTURA emitida a cliente cuenta como egreso (solo VENTA es ingreso) | ⏳ Pendiente (lógica de negocio) |
-| `imageUrl` en tipos/UI sin columna en DB | ⏳ Pendiente |
+| `imageUrl` en tipos/UI sin columna en DB | ✅ Verificado (2026-10-07) — residual: 0 referencias en `src/` (tsx+ts) y 0 en `server/` (solo mime-sniffing de adjuntos, no relacionado). Ver sección "imageUrl, CRUD sin UI y multi-warehouse (2026-10-07)" |
 | Chips de filtro de auditoría no cubren módulos que el backend sí loguea (Configuración, billing) | ⏳ Pendiente (cosmético) |
 | Impuestos del sistema (companyId null) se ven editables en Settings pero el PATCH responde 403 | ⏳ Pendiente (ocultar/deshabilitar toggle) |
 | `README.md` desactualizado (refiere a AI Studio/GEMINI, ignora `server/`; `clean` usa `rm -rf` inválido en Windows) | ⏳ Pendiente |
@@ -977,3 +977,33 @@ Se compartió la **presentación**, no el carrito: el carrito de POS (split de p
 
 - Commits `c352c25` (refactor) y el cierre de esta fila.
 - Gates: `tsc --noEmit` 0, vitest **48/48**, `git diff --check` limpio.
+
+## imageUrl, CRUD sin UI y multi-warehouse (2026-10-07)
+
+### imageUrl (filas 44 y 71) — verificado, era residual
+
+`imageUrl` no existe en ningún lado: el modelo `Product` de Prisma no tiene la columna y hay **0 referencias** en `src/` (tsx y ts) y en `server/` (solo mime-sniffing de adjuntos PDF/imagen en `documents.routes.ts`, sin relación). No se necesita migración ni quitar nada de la UI: la deuda ya no existe.
+
+### Endpoints vivos sin UI (fila 43) — decisión registrada
+
+Estado real del contrato y su cobertura:
+
+| Endpoint | En la UI |
+| --- | --- |
+| `GET/POST /api/clients` | Sí — selector de cliente del POS + alta rápida (`PosView.tsx:449`) |
+| `GET/PATCH/DELETE /api/clients/:id` | No (GET `/api/clients/:id` incluido) |
+| `GET/POST /api/products` (+ taxes/categories) | Sí — carga en `loadAll` + `AddProductView` |
+| `PATCH/DELETE /api/products/:id` | No — solo edición de taxes en Settings |
+| `GET/POST /api/suppliers` | Sí — selector de compras + alta desde `PurchasesView.tsx:114` |
+| `PATCH/DELETE /api/suppliers/:id` | No |
+
+**Decisión**: se conserva la API — el CRUD está permissionado (`ventas/inventario/compras.escribir`), acotado al tenant y testeado; borrar endpoints terminados cuesta más de lo que ahorra (0 líneas de runtime). Tampoco se agregan vistas de gestión de clientes/productos/proveedores hoy: son features de producto (un «Gestionar Clientes» es el backlog natural), no deuda técnica. Si el producto pide la vista, la base ya está.
+
+### POS multi-warehouse (fila 65) — verificado, estaba publicado
+
+El estado de 2026-09 decía «corregido en el diff local, sin publicar». Hoy está publicado y testeado: `posSaleLines` (`src/lib/branch.ts:107`, casos en `branch.test.ts`) asigna `warehouseId` por línea dentro de la sucursal activa, bloquea con explicación las líneas que requieren stock repartido entre varios depósitos y `handleCompleteSale` (`App.tsx:543`) manda el warehouse de la primera línea como warehouse del documento. Además hay commits posteriores que solidificaron el modelo: `66d330e` (depósito por defecto por sucursal en recepción/despacho) y `e598edd` (efectivo atado a la caja abierta de la sucursal).
+
+### Evidencia
+
+- Verificación por grep en `server/prisma/schema.prisma`, `src/` (tsx+ts) y `server/src/routes`; commits de hoy solo en `docs/AUDIT.md`.
+- Gates del día intactos: `tsc --noEmit` 0, vitest **48/48**, serial server **87/85/1/1**.
