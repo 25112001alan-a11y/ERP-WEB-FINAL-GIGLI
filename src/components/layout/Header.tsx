@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ViewPath, BranchOption } from '../../types';
-import { useAuth } from '../../lib/auth';
+import { useAuth, can, VIEW_PERMISSIONS } from '../../lib/auth';
+import { QUICK_NAV_ITEMS } from '../../lib/navigation';
 
 interface HeaderProps {
   currentView: ViewPath;
@@ -205,120 +206,26 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           </div>
           <div className="grid grid-cols-2 gap-xs max-h-[70vh] overflow-y-auto">
-            <button
-              onClick={() => { onNavigate('dashboard'); setShowQuickNav(false); }}
-              className={`text-left p-sm rounded-lg font-body-md text-xs flex items-center gap-xs transition-colors ${currentView === 'dashboard' ? 'bg-secondary-container text-on-secondary-container font-bold' : 'hover:bg-surface-container-low text-on-surface'}`}
-            >
-              <span className="material-symbols-outlined text-[16px]">dashboard</span> Dashboard
-            </button>
-            <button
-              onClick={() => { onNavigate('inventario'); setShowQuickNav(false); }}
-              className={`text-left p-sm rounded-lg font-body-md text-xs flex items-center gap-xs transition-colors ${currentView === 'inventario' ? 'bg-secondary-container text-on-secondary-container font-bold' : 'hover:bg-surface-container-low text-on-surface'}`}
-            >
-              <span className="material-symbols-outlined text-[16px]">inventory_2</span> Inventario
-            </button>
-            <button
-              onClick={() => { onNavigate('inventario-ajuste'); setShowQuickNav(false); }}
-              className={`text-left p-sm rounded-lg font-body-md text-xs flex items-center gap-xs transition-colors ${currentView === 'inventario-ajuste' ? 'bg-secondary-container text-on-secondary-container font-bold' : 'hover:bg-surface-container-low text-on-surface'}`}
-            >
-              <span className="material-symbols-outlined text-[16px]">tune</span> Ajuste de Stock
-            </button>
-            <button
-              onClick={() => { onNavigate('inventario-transferencia'); setShowQuickNav(false); }}
-              className={`text-left p-sm rounded-lg font-body-md text-xs flex items-center gap-xs transition-colors ${currentView === 'inventario-transferencia' ? 'bg-secondary-container text-on-secondary-container font-bold' : 'hover:bg-surface-container-low text-on-surface'}`}
-            >
-              <span className="material-symbols-outlined text-[16px]">swap_horiz</span> Transferencia Stock
-            </button>
-            <button
-              onClick={() => { onNavigate('inventario-nuevo-producto'); setShowQuickNav(false); }}
-              className={`text-left p-sm rounded-lg font-body-md text-xs flex items-center gap-xs transition-colors ${currentView === 'inventario-nuevo-producto' ? 'bg-secondary-container text-on-secondary-container font-bold' : 'hover:bg-surface-container-low text-on-surface'}`}
-            >
-              <span className="material-symbols-outlined text-[16px]">add_box</span> Agregar Producto
-            </button>
-            <button
-              onClick={() => { onNavigate('pos'); setShowQuickNav(false); }}
-              className={`text-left p-sm rounded-lg font-body-md text-xs flex items-center gap-xs transition-colors ${currentView === 'pos' ? 'bg-secondary-container text-on-secondary-container font-bold' : 'hover:bg-surface-container-low text-on-surface'}`}
-            >
-              <span className="material-symbols-outlined text-[16px]">point_of_sale</span> Punto de Venta (POS)
-            </button>
-            <button
-              onClick={() => { onNavigate('ventas'); setShowQuickNav(false); }}
-              className={`text-left p-sm rounded-lg font-body-md text-xs flex items-center gap-xs transition-colors ${currentView === 'ventas' ? 'bg-secondary-container text-on-secondary-container font-bold' : 'hover:bg-surface-container-low text-on-surface'}`}
-            >
-              <span className="material-symbols-outlined text-[16px]">payments</span> Ventas
-            </button>
-            <button
-              onClick={() => { onNavigate('pedidos-publicos'); setShowQuickNav(false); }}
-              className={`text-left p-sm rounded-lg font-body-md text-xs flex items-center gap-xs transition-colors ${currentView === 'pedidos-publicos' ? 'bg-secondary-container text-on-secondary-container font-bold' : 'hover:bg-surface-container-low text-on-surface'}`}
-            >
-              <span className="material-symbols-outlined text-[16px]">shopping_cart_checkout</span> Pedidos Públicos
-            </button>
-            <button
-              onClick={() => { onNavigate('nuevo-pedido-manual'); setShowQuickNav(false); }}
-              className={`text-left p-sm rounded-lg font-body-md text-xs flex items-center gap-xs transition-colors ${currentView === 'nuevo-pedido-manual' ? 'bg-secondary-container text-on-secondary-container font-bold' : 'hover:bg-surface-container-low text-on-surface'}`}
-            >
-              <span className="material-symbols-outlined text-[16px]">post_add</span> Pedido Manual
-            </button>
-            <button
-              onClick={() => { const slug = user?.company?.slug; if (slug) window.open(`${window.location.origin}/t/${slug}`, '_blank', 'noopener'); setShowQuickNav(false); }}
-              className={`text-left p-sm rounded-lg font-body-md text-xs flex items-center gap-xs transition-colors ${currentView === 'portal-clientes' ? 'bg-secondary-container text-on-secondary-container font-bold' : 'hover:bg-surface-container-low text-on-surface'}`}
-            >
-              <span className="material-symbols-outlined text-[16px]">storefront</span> Portal de Clientes <span className="material-symbols-outlined text-[14px] opacity-60">open_in_new</span>
-            </button>
-            <button
-              onClick={() => { onNavigate('compras'); setShowQuickNav(false); }}
-              className={`text-left p-sm rounded-lg font-body-md text-xs flex items-center gap-xs transition-colors ${currentView === 'compras' ? 'bg-secondary-container text-on-secondary-container font-bold' : 'hover:bg-surface-container-low text-on-surface'}`}
-            >
-              <span className="material-symbols-outlined text-[16px]">shopping_bag</span> Compras
-            </button>
-            <button
-              onClick={() => { onNavigate('nueva-orden-compra'); setShowQuickNav(false); }}
-              className={`text-left p-sm rounded-lg font-body-md text-xs flex items-center gap-xs transition-colors ${currentView === 'nueva-orden-compra' ? 'bg-secondary-container text-on-secondary-container font-bold' : 'hover:bg-surface-container-low text-on-surface'}`}
-            >
-              <span className="material-symbols-outlined text-[16px]">note_add</span> Nueva Orden Compra
-            </button>
-            <button
-              onClick={() => { onNavigate('registrar-remito'); setShowQuickNav(false); }}
-              className={`text-left p-sm rounded-lg font-body-md text-xs flex items-center gap-xs transition-colors ${currentView === 'registrar-remito' ? 'bg-secondary-container text-on-secondary-container font-bold' : 'hover:bg-surface-container-low text-on-surface'}`}
-            >
-              <span className="material-symbols-outlined text-[16px]">receipt_long</span> Registrar Remito
-            </button>
-            <button
-              onClick={() => { onNavigate('finanzas'); setShowQuickNav(false); }}
-              className={`text-left p-sm rounded-lg font-body-md text-xs flex items-center gap-xs transition-colors ${currentView === 'finanzas' ? 'bg-secondary-container text-on-secondary-container font-bold' : 'hover:bg-surface-container-low text-on-surface'}`}
-            >
-              <span className="material-symbols-outlined text-[16px]">account_balance_wallet</span> Finanzas
-            </button>
-            <button
-              onClick={() => { onNavigate('reportes'); setShowQuickNav(false); }}
-              className={`text-left p-sm rounded-lg font-body-md text-xs flex items-center gap-xs transition-colors ${currentView === 'reportes' ? 'bg-secondary-container text-on-secondary-container font-bold' : 'hover:bg-surface-container-low text-on-surface'}`}
-            >
-              <span className="material-symbols-outlined text-[16px]">bar_chart</span> Reportes
-            </button>
-            <button
-              onClick={() => { onNavigate('configuracion'); setShowQuickNav(false); }}
-              className={`text-left p-sm rounded-lg font-body-md text-xs flex items-center gap-xs transition-colors ${currentView === 'configuracion' ? 'bg-secondary-container text-on-secondary-container font-bold' : 'hover:bg-surface-container-low text-on-surface'}`}
-            >
-              <span className="material-symbols-outlined text-[16px]">settings</span> Configuración
-            </button>
-            <button
-              onClick={() => { onNavigate('nuevo-usuario'); setShowQuickNav(false); }}
-              className={`text-left p-sm rounded-lg font-body-md text-xs flex items-center gap-xs transition-colors ${currentView === 'nuevo-usuario' ? 'bg-secondary-container text-on-secondary-container font-bold' : 'hover:bg-surface-container-low text-on-surface'}`}
-            >
-              <span className="material-symbols-outlined text-[16px]">person_add</span> Nuevo Usuario
-            </button>
-            <button
-              onClick={() => { onNavigate('log-auditoria'); setShowQuickNav(false); }}
-              className={`text-left p-sm rounded-lg font-body-md text-xs flex items-center gap-xs transition-colors ${currentView === 'log-auditoria' ? 'bg-secondary-container text-on-secondary-container font-bold' : 'hover:bg-surface-container-low text-on-surface'}`}
-            >
-              <span className="material-symbols-outlined text-[16px]">shield_with_heart</span> Log de Auditoría
-            </button>
-            <button
-              onClick={() => { onNavigate('auth-login'); setShowQuickNav(false); }}
-              className={`text-left p-sm rounded-lg font-body-md text-xs flex items-center gap-xs transition-colors col-span-2 ${currentView === 'auth-login' ? 'bg-secondary-container text-on-secondary-container font-bold' : 'hover:bg-surface-container-low text-on-surface'}`}
-            >
-              <span className="material-symbols-outlined text-[16px]">lock</span> Autenticación (Login/Registro)
-            </button>
+            {QUICK_NAV_ITEMS.filter((item) => can(user?.permissions, VIEW_PERMISSIONS[item.path])).map((item) => (
+              <button
+                key={item.path}
+                onClick={() => {
+                  setShowQuickNav(false);
+                  if (item.external) {
+                    const slug = user?.company?.slug;
+                    if (slug) window.open(`${window.location.origin}/t/${slug}`, '_blank', 'noopener');
+                  } else {
+                    onNavigate(item.path);
+                  }
+                }}
+                className={`text-left p-sm rounded-lg font-body-md text-xs flex items-center gap-xs transition-colors ${item.wide ? 'col-span-2' : ''} ${
+                  currentView === item.path ? 'bg-secondary-container text-on-secondary-container font-bold' : 'hover:bg-surface-container-low text-on-surface'
+                }`}
+              >
+                <span className="material-symbols-outlined text-[16px]">{item.icon}</span> {item.label}
+                {item.external && <span className="material-symbols-outlined text-[14px] opacity-60">open_in_new</span>}
+              </button>
+            ))}
           </div>
         </div>
       )}

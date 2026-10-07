@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { ViewPath } from '../../types';
 import { apiFetch } from '../../lib/api';
 import { useAuth, can, VIEW_PERMISSIONS } from '../../lib/auth';
+import { NAV_SECTIONS, ADMIN_SECTIONS } from '../../lib/navigation';
 
 interface SidebarProps {
   currentView: ViewPath;
@@ -59,26 +60,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, facturaDirection,
     return currentView === path;
   };
 
-  const navItems: { path: ViewPath; label: string; icon: string }[] = [
-    { path: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
-    { path: 'inventario', label: 'Inventario', icon: 'inventory_2' },
-    { path: 'pos', label: 'POS', icon: 'point_of_sale' },
-    { path: 'ventas', label: 'Ventas', icon: 'payments' },
-    { path: 'pedidos-publicos', label: 'Pedidos Públicos', icon: 'shopping_cart_checkout' },
-    { path: 'compras', label: 'Compras', icon: 'shopping_bag' },
-    { path: 'finanzas', label: 'Finanzas', icon: 'account_balance_wallet' },
-    { path: 'reportes', label: 'Reportes', icon: 'bar_chart' },
-    { path: 'configuracion', label: 'Configuración', icon: 'settings' },
-  ];
-
-  const adminItems: { path: ViewPath; label: string; icon: string }[] = [
-    { path: 'administracion', label: 'Administración', icon: 'admin_panel_settings' },
-  ];
-
-  // Solo lo permitido: cada ítem exige su `.leer` (VIEW_PERMISSIONS). El
-  // dashboard es null → visible para todo autenticado. Selector de sucursal,
-  // health dot y menú de usuario quedan intactos.
-
   const handleNav = (path: ViewPath) => {
     onNavigate(path);
     onClose();
@@ -126,7 +107,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, facturaDirection,
 
         {/* Navigation */}
         <nav className="flex-1 py-lg space-y-1.5 px-md overflow-y-auto">
-          {navItems.filter((item) => can(permissions, VIEW_PERMISSIONS[item.path])).map((item) => {
+          {NAV_SECTIONS.filter((item) => can(permissions, VIEW_PERMISSIONS[item.path])).map((item) => {
             const active = getIsActive(item.path);
             return (
               <button
@@ -147,7 +128,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, facturaDirection,
           <div className="pt-md mt-md border-t border-slate-800/40 px-sm text-[10px] font-mono uppercase tracking-wider text-slate-500">
             Sistema
           </div>
-          {adminItems.filter((item) => can(permissions, VIEW_PERMISSIONS[item.path])).map((item) => {
+          {ADMIN_SECTIONS.filter((item) => can(permissions, VIEW_PERMISSIONS[item.path])).map((item) => {
             const active = getIsActive(item.path);
             return (
               <button
