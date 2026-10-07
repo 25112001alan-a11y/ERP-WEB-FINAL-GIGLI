@@ -38,7 +38,7 @@ El código está **bien encuadrado**: señales de nivel senior en seguridad y co
 | Scaffold de formulario repetido en 8 vistas (`FormScaffold` + `useSubmitFlow`, ~-250 líneas) | ⏳ Pendiente — refactor de UI con riesgo de regresión visual; tanda propia |
 | `formatMoney`: 4 locales distintos + ~40 `toFixed` sueltos (el mismo monto se ve distinto según vista) | ✅ Verificado (2026-10-07) — formato unificado en `src/lib/format.ts` (`Intl.NumberFormat` es-AR, currency-aware, fallback RangeError), usado en ~25 vistas; 0 `toFixed` de dinero visible; MRR en USD y tienda con su moneda real. Ver sección "Formato monetario (2026-10-07)" |
 | `parseBody` (zod-safeParse→400 repetido 15+ veces), CRUD factory clients/suppliers, line-math, doc-number padding, `getUserPermissions` reutilizable | ⏳ Pendiente — simplificaciones seguras de tanda propia |
-| -7 dependencias sin imports en el frontend (`lucide-react`, `motion`, `@google/genai`, `express`, `dotenv`, `autoprefixer`, `esbuild`) y rename de `"react-example"` | ⏳ Pendiente — mecánico, sin riesgo |
+| -7 dependencias sin imports en el frontend (`lucide-react`, `motion`, `@google/genai`, `express`, `dotenv`, `autoprefixer`, `esbuild`) y rename de `"react-example"` | ✅ Verificado (2026-10-07) — ya removidas en `1ddaa68`; `express`/`dotenv` viven en `server/package.json` donde se usan; 0 imports en `src/`; nombre del paquete es `nexus-erp`; `esbuild` solo transitivo de Vite. Ver sección "Dependencias sin imports (2026-10-07)" |
 | `loadAll` pide 3 endpoints (users/roles/audit) a todo usuario autenticado → banner de error para no-admins; navegación sin gating de permisos | ⏳ Pendiente — UX (el backend ya falla cerrado, no es riesgo de seguridad) |
 | Endpoints vivos sin UI: `/api/clients`, edit/delete de products/suppliers | ⏳ Pendiente — producto (¿traer las vistas o quitarlas de la API?) |
 | `imageUrl` renderizado sin columna en el schema | ⏳ Pendiente — o se agrega el campo o se quita de la UI |
@@ -90,7 +90,7 @@ Potencial medido: **~850-950 líneas menos y −7 dependencias** sin cambiar com
 | Flatten de permisos en 3 lugares (ya existe `getUserPermissions`) | ⏳ Pendiente |
 | Header con 19 botones hardcodeados vs `navItems` del Sidebar (una sola fuente) | ⏳ Pendiente |
 | Carrito mobile + summary duplicados en POS y PublicClientStore | ⏳ Pendiente |
-| Dependencias sin imports (`lucide-react`, `motion`, `@google/genai`, `express`, `dotenv`, `autoprefixer`, `esbuild`) | ⏳ Pendiente — verificadas por grep; renombrar además `"react-example"` y mover `vite` a devDependencies |
+| Dependencias sin imports (`lucide-react`, `motion`, `@google/genai`, `express`, `dotenv`, `autoprefixer`, `esbuild`) | ✅ Verificado (2026-10-07) — misma conclusión que la fila anterior; `vite` ya está en `devDependencies` y el lock root no tiene entradas top-level de ninguna de las 7 |
 
 ---
 
@@ -886,4 +886,23 @@ La fila afirmaba «4 locales distintos + ~40 `toFixed` sueltos». La verificaci�
 
 ### Límite
 
-`formatMoney` no recibe opciones (fracciones fijas a 2, sin compactación). Si algún día se quiere `$ 1,2 M` en KPIs o fracciones variables, extender el helper — hoy todos los montos van con 2 decimales y eso es lo correcto para facturación.
+`formatMoney` no recibe opciones (fracciones fijas a 2, sin compactación). Si algún día se quiere `$ 1,2 M` en KPIs o fracciones variables, extender el helper — hoy todos los montos van con 2 decimales y eso es lo correcto para facturación.---
+
+## Dependencias sin imports (2026-10-07)
+
+La fila pedía remover 7 dependencias del manifiesto del frontend y renombrar `"react-example"`. La verificación muestra que el trabajo ya está hecho (commit `1ddaa68`, lote 2026-09-23) y esta unidad solo audita y cierra.
+
+### Verificación
+
+| Chequeo | Resultado |
+|---|---|
+| Manifiesto raíz | `package.json` ya no lista `lucide-react`, `motion`, `@google/genai`, `express`, `dotenv`, `autoprefixer` ni `esbuild`; solo `react`/`react-dom`/`qrcode` + toolchain |
+| Lock raíz | Sin entradas top-level de ninguna de las 7 — `esbuild` aparece únicamente como dependencia transitiva de Vite (la usa el build, es esperado) |
+| Imports en `src/` | **0** — grep de `from 'lucide-react' | 'motion' | '@google/genai' | 'express' | 'dotenv' | 'autoprefixer' | 'esbuild'` no encuentra nada |
+| `express`/`dotenv` | Legítimos en `server/package.json` (framework HTTP + carga de env); no eran deuda del frontend |
+| `"react-example"` | El nombre del paquete ya es `nexus-erp` en `package.json` y el lock; `react-example` solo aparece en este informe |
+| `vite` | Ya está en `devDependencies` (fila 93) |
+
+### Evidencia
+
+Sin cambios de código en esta unidad; no se tocaron manifiestos. Gates: frontend vitest **48/48** y `tsc --noEmit` intactos (verificados en unidades previas del día).
