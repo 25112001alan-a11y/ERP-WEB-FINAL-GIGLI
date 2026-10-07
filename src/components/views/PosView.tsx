@@ -4,6 +4,7 @@ import { ViewPath, Product, CartItem, SaleTransaction, BranchOption } from '../.
 import { branchStock } from '../../lib/branch';
 import { ApiError, apiFetch } from '../../lib/api';
 import { ClientOption, resolveClientSelection } from '../../lib/clientSelection';
+import { MobileFloatingBar, MobileCartDrawer } from '../ui/MobileCartDrawer';
 
 export interface CompleteSalePayload {
   items: CartItem[];
@@ -143,14 +144,6 @@ export const PosView: React.FC<PosViewProps> = ({
       if (pollRef.current != null) window.clearInterval(pollRef.current);
     };
   }, []);
-
-  // Bloquear el scroll de fondo mientras el carrito mobile está abierto.
-  useEffect(() => {
-    document.body.style.overflow = cartOpen ? 'hidden' : '';
-    return () => {
-      document.body.style.overflow = '';
-    };
-  }, [cartOpen]);
 
   const categories = ['Todos', 'Electrónica', 'Ropa', 'Muebles', 'Bebidas', 'Snacks'];
 
@@ -776,35 +769,18 @@ export const PosView: React.FC<PosViewProps> = ({
 
       {/* Mobile: barra flotante de resumen + overlay de carrito */}
       {cart.length > 0 && !saleCompleted && (
-        <button
-          onClick={() => setCartOpen(true)}
-          className="lg:hidden fixed bottom-0 inset-x-0 z-40 bg-primary text-on-primary px-lg py-md font-label-md text-label-md flex items-center justify-between shadow-[0_-4px_15px_rgba(0,0,0,0.15)] cursor-pointer"
-        >
-          <span className="flex items-center gap-sm">
-            <span className="material-symbols-outlined text-[20px]">shopping_cart</span>
-            Ver pedido ({cart.length})
-          </span>
-          <span className="font-headline-md text-headline-md">{formatMoney(total)}</span>
-        </button>
+        <MobileFloatingBar count={cart.length} total={formatMoney(total)} onClick={() => setCartOpen(true)} />
       )}
 
-      {cartOpen && (
-        <div className="lg:hidden fixed inset-0 z-50 flex flex-col bg-surface" role="dialog" aria-modal="true" aria-label="Carrito de venta">
-          <div className="flex items-center justify-between px-lg py-md bg-primary text-on-primary shrink-0">
-            <h2 className="font-headline-md text-headline-md">Carrito de Venta</h2>
-            <button
-              onClick={() => setCartOpen(false)}
-              className="p-sm hover:bg-on-primary/10 rounded-lg transition-colors cursor-pointer tap-target"
-              aria-label="Cerrar carrito"
-            >
-              <span className="material-symbols-outlined text-[20px]">close</span>
-            </button>
-          </div>
-          <div className="flex-1 min-h-0 flex flex-col">
-            {cartBody}
-          </div>
-        </div>
-      )}
+      <MobileCartDrawer
+        open={cartOpen}
+        title="Carrito de Venta"
+        closeLabel="Cerrar carrito"
+        onClose={() => setCartOpen(false)}
+        bodyClassName="flex flex-col"
+      >
+        {cartBody}
+      </MobileCartDrawer>
 
       {/* Scanner Modal: cámara nativa + pistola HID, mismo resultado */}
       {scanOpen && (
