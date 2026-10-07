@@ -37,7 +37,7 @@ El código está **bien encuadrado**: señales de nivel senior en seguridad y co
 | Sin paginación en listas ilimitadas (documents/products/clients/suppliers/users) | ✅ Resuelto (2026-10-07) — `page`/`limit` ahora cortan a nivel de query (`skip`/`take`) con `total` = filas que matchean sin paginar; sin parámetros se conserva el array completo. Ver sección "Paginación real (2026-10-07)" |
 | Scaffold de formulario repetido en 8 vistas (`FormScaffold` + `useSubmitFlow`, ~-250 líneas) | ⏳ Pendiente — refactor de UI con riesgo de regresión visual; tanda propia |
 | `formatMoney`: 4 locales distintos + ~40 `toFixed` sueltos (el mismo monto se ve distinto según vista) | ✅ Verificado (2026-10-07) — formato unificado en `src/lib/format.ts` (`Intl.NumberFormat` es-AR, currency-aware, fallback RangeError), usado en ~25 vistas; 0 `toFixed` de dinero visible; MRR en USD y tienda con su moneda real. Ver sección "Formato monetario (2026-10-07)" |
-| `parseBody` (zod-safeParse→400 repetido 15+ veces), CRUD factory clients/suppliers, line-math, doc-number padding, `getUserPermissions` reutilizable | ⏳ Pendiente — simplificaciones seguras de tanda propia |
+| `parseBody` (zod-safeParse→400 repetido 15+ veces), CRUD factory clients/suppliers, line-math, doc-number padding, `getUserPermissions` reutilizable | ✅ Verificado (2026-10-07) — `parseBody` y `getUserPermissions` ya existen y se usan en todos los caminos; factory y line-math se **rechazan** por YAGNI/churn (ver sección "parseBody y simplificaciones (2026-10-07)") |
 | -7 dependencias sin imports en el frontend (`lucide-react`, `motion`, `@google/genai`, `express`, `dotenv`, `autoprefixer`, `esbuild`) y rename de `"react-example"` | ✅ Verificado (2026-10-07) — ya removidas en `1ddaa68`; `express`/`dotenv` viven en `server/package.json` donde se usan; 0 imports en `src/`; nombre del paquete es `nexus-erp`; `esbuild` solo transitivo de Vite. Ver sección "Dependencias sin imports (2026-10-07)" |
 | `loadAll` pide 3 endpoints (users/roles/audit) a todo usuario autenticado → banner de error para no-admins; navegación sin gating de permisos | ⏳ Pendiente — UX (el backend ya falla cerrado, no es riesgo de seguridad) |
 | Endpoints vivos sin UI: `/api/clients`, edit/delete de products/suppliers | ⏳ Pendiente — producto (¿traer las vistas o quitarlas de la API?) |
@@ -905,4 +905,22 @@ La fila pedía remover 7 dependencias del manifiesto del frontend y renombrar `"
 
 ### Evidencia
 
-Sin cambios de código en esta unidad; no se tocaron manifiestos. Gates: frontend vitest **48/48** y `tsc --noEmit` intactos (verificados en unidades previas del día).
+Sin cambios de código en esta unidad; no se tocaron manifiestos. Gates: frontend vitest **48/48** y `tsc --noEmit` intactos (verificados en unidades previas del día).---
+
+## parseBody y simplificaciones (2026-10-07)
+
+La fila agrupaba cinco propuestas. Verificación item por item:
+
+### Verificación
+
+| Ítem | Estado |
+|---|---|
+| `parseBody` | **Ya existe** — `server/src/lib/parseBody.ts`: `safeParse` → 400 `{ error, details }` o dato tipado. **27 usos** en 11 routers (auth, billing, branches, clients, company, documents, platform, products, public, sale-points, stock, suppliers, users) |
+| `getUserPermissions` reutilizable | **Ya existe** — `server/src/middleware/auth.ts:153`, usado por `requirePermission` vía middleware y directamente en documents/users |
+| CRUD factory clients/suppliers | **Se rechaza (YAGNI)**: son dos recursos ~120 líneas con where/select/schema/orderBy propios y que divergen (search por taxId, permisos, validaciones). Un factory con config object por recurso termina tan largo como las rutas y agrega indirección; con 2 instancias no paga el costo |
+| line-math | **Se rechaza (churn)**: quedan 3 copias de 2 expresiones (`lineTotal = gross − discount`, `taxAmount = lineTotal * taxRate / 100`) en create, receive y public. La lógica pesada (weightedUnitPrice, descuento proporcional por recepción, overrides heredados) ya está centralizada en los caminos de derivación. Extraer 2 expresiones ahorra ~4 líneas netas tocando los caminos de dinero con más tests — no vale la pena |
+| doc-number padding | Server no formatea números; el frontend usa `String(v.number).padStart(4, '0')` inline en 2-3 vistas — un helper compartido no reduce nada material |
+
+### Evidencia
+
+Sin cambios de código en esta unidad. Gates del día intactos: server serial **87/85/1/1** (fail único preexistente `branch-boundaries.test.ts:141`) y frontend vitest **48/48**.
