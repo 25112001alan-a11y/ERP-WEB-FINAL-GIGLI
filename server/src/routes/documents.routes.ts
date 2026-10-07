@@ -1038,12 +1038,38 @@ router.post('/', requireAnyPermission('ventas.escribir', 'compras.escribir'), as
     const canCreatePayment =
       !(type === DocumentType.FACTURA && data.sourceDocumentId && sourceStatus === 'Pagado');
 
+    // Fiscal point of sale: when the factura carries a PV number, that number
+    // becomes its series (zero-padded, AFIP-style) so the folio is reserved per
+    // PV and "0001-00000042" renders from one consistent pair. The PV must
+    // belong to the document branch when one exists; a company without branches
+    // (owner context) keeps the legacy free number.
+    const salePointSeries =
+      type === DocumentType.FACTURA && data.invoice?.puntoVenta != null
+        ? String(data.invoice.puntoVenta).padStart(4, '0')
+        : data.series;
+    if (type === DocumentType.FACTURA && data.invoice?.puntoVenta != null && effectiveBranchId != null) {
+      const salePoint = await tx.salePoint.findFirst({
+        where: {
+          companyId: req.authUser!.companyId,
+          branchId: effectiveBranchId,
+          number: data.invoice.puntoVenta,
+        },
+        select: { id: true },
+      });
+      if (!salePoint) {
+        throw Object.assign(
+          new Error('El punto de venta no pertenece a la sucursal del comprobante'),
+          { status: 400 },
+        );
+      }
+    }
+
     const document = await tx.document.create({
       data: {
         companyId: req.authUser!.companyId,
         type,
-        series: data.series,
-        number: await reserveNextNumber(tx, req.authUser!.companyId, type, data.series),
+        series: salePointSeries,
+        number: await reserveNextNumber(tx, req.authUser!.companyId, type, salePointSeries),
         date: data.date ? new Date(data.date) : new Date(),
         clientId,
         supplierId,

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ViewPath, TaxRate, BillingPlan, BillingSubscription, WarehouseOption } from '../../types';
+import { ViewPath, TaxRate, BillingPlan, BillingSubscription, WarehouseOption, SalePointOption } from '../../types';
 import { apiFetch } from '../../lib/api';
 import { deriveBranches } from '../../lib/branch';
 import { useAuth } from '../../lib/auth';
@@ -10,6 +10,9 @@ interface SettingsViewProps {
   onToggleTax: (id: number, active: boolean) => Promise<void>;
   warehouses: WarehouseOption[];
   onSetBranchDefaultWarehouse: (branchId: number, warehouseId: number | null) => Promise<void>;
+  salePoints: SalePointOption[];
+  onAddSalePoint: (branchId: number, number: number, name?: string) => Promise<void>;
+  onDeleteSalePoint: (id: number) => Promise<void>;
   onNavigate: (view: ViewPath) => void;
 }
 
@@ -43,9 +46,9 @@ const TIMEZONE_LABELS: Record<string, string> = {
   'Europe/Madrid': 'Europe/Madrid (UTC+1)',
 };
 
-export const SettingsView: React.FC<SettingsViewProps> = ({ taxes, onAddTax, onToggleTax, warehouses, onSetBranchDefaultWarehouse, onNavigate }) => {
+export const SettingsView: React.FC<SettingsViewProps> = ({ taxes, onAddTax, onToggleTax, warehouses, onSetBranchDefaultWarehouse, salePoints, onAddSalePoint, onDeleteSalePoint, onNavigate }) => {
   const { refreshMe } = useAuth();
-  const [activeTab, setActiveTab] = useState<'empresa' | 'impuestos' | 'plan' | 'sucursales'>('empresa');
+  const [activeTab, setActiveTab] = useState<'empresa' | 'impuestos' | 'plan' | 'sucursales' | 'puntos-venta'>('empresa');
 
   // Company state (backed by GET/PATCH /api/company)
   const [company, setCompany] = useState<CompanyProfile | null>(null);
@@ -80,6 +83,43 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ taxes, onAddTax, onT
   // Branch default warehouse state
   const [branchSaving, setBranchSaving] = useState(false);
   const [branchMsg, setBranchMsg] = useState<string | null>(null);
+
+  // Sale point (PV) state
+  const [pvBranchId, setPvBranchId] = useState('');
+  const [pvNumber, setPvNumber] = useState('');
+  const [pvName, setPvName] = useState('');
+  const [pvSaving, setPvSaving] = useState(false);
+  const [pvMsg, setPvMsg] = useState<string | null>(null);
+
+  const handleAddSalePoint = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!pvBranchId || !pvNumber) return;
+    setPvSaving(true);
+    setPvMsg(null);
+    try {
+      await onAddSalePoint(Number(pvBranchId), Number(pvNumber), pvName.trim() || undefined);
+      setPvNumber('');
+      setPvName('');
+      setPvMsg('Punto de venta agregado.');
+    } catch {
+      setPvMsg('No se pudo agregar el punto de venta.');
+    } finally {
+      setPvSaving(false);
+    }
+  };
+
+  const handleDeleteSalePoint = async (id: number) => {
+    setPvSaving(true);
+    setPvMsg(null);
+    try {
+      await onDeleteSalePoint(id);
+      setPvMsg('Punto de venta eliminado.');
+    } catch {
+      setPvMsg('No se pudo eliminar el punto de venta.');
+    } finally {
+      setPvSaving(false);
+    }
+  };
 
   const handleBranchDefaultChange = async (branchId: number, value: string) => {
     setBranchSaving(true);
@@ -266,6 +306,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ taxes, onAddTax, onT
             }`}
           >
             Sucursales
+          </button>
+          <button
+            onClick={() => setActiveTab('puntos-venta')}
+            className={`py-sm px-md font-label-md text-label-md uppercase tracking-wider border-b-2 cursor-pointer transition-colors whitespace-nowrap ${
+              activeTab === 'puntos-venta' ? 'border-primary text-primary font-bold' : 'border-transparent text-on-surface-variant hover:text-on-surface'
+            }`}
+          >
+            Puntos de venta
           </button>
         </div>
 
@@ -568,6 +616,95 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ taxes, onAddTax, onT
                       </div>
                     );
                   })}
+                </div>
+              )}
+{activeTab === 'puntos-venta' && (
+                <div className="space-y-md max-w-[672px]">
+                  <h3 className="font-headline-md text-headline-md text-on-surface">Puntos de venta</h3>
+                  <p className="font-body-md text-body-md text-on-surface-variant">
+                    El punto de venta identifica fiscalmente la factura (0001-00000042): el número del PV pasa a ser su serie. Cada número es único por empresa.
+                  </p>
+                  {pvMsg && (
+                    <p className={`text-sm rounded-lg p-sm ${pvMsg.includes('agregado') || pvMsg.includes('eliminado') ? 'bg-tertiary-container text-on-tertiary-container' : 'bg-error-container/20 text-on-error-container'}`}>
+                      {pvMsg}
+                    </p>
+                  )}
+                  <form onSubmit={handleAddSalePoint} className="flex flex-col gap-xs border border-outline-variant/20 rounded-lg p-md">
+                    <div className="flex flex-col gap-xs">
+                      <label className="font-label-md text-label-md uppercase text-on-surface-variant" htmlFor="pv-branch">Sucursal</label>
+                      <select
+                        id="pv-branch"
+                        value={pvBranchId}
+                        disabled={pvSaving}
+                        onChange={(e) => setPvBranchId(e.target.value)}
+                        className="bg-surface border border-outline-variant/50 rounded-lg p-sm outline-none cursor-pointer disabled:opacity-50"
+                        required
+                      >
+                        <option value="">Seleccionar sucursal</option>
+                        {deriveBranches(warehouses).map((b) => (
+                          <option key={b.id} value={b.id}>{b.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-xs">
+                      <div className="flex flex-col gap-xs">
+                        <label className="font-label-md text-label-md uppercase text-on-surface-variant" htmlFor="pv-number">Nº de punto de venta *</label>
+                        <input
+                          id="pv-number"
+                          type="number"
+                          min={1}
+                          value={pvNumber}
+                          disabled={pvSaving}
+                          onChange={(e) => setPvNumber(e.target.value)}
+                          placeholder="4"
+                          className="bg-surface border border-outline-variant/50 rounded-lg p-sm outline-none focus:border-primary font-mono-sm disabled:opacity-50"
+                          required
+                        />
+                      </div>
+                      <div className="flex flex-col gap-xs">
+                        <label className="font-label-md text-label-md uppercase text-on-surface-variant" htmlFor="pv-name">Nombre</label>
+                        <input
+                          id="pv-name"
+                          type="text"
+                          maxLength={80}
+                          value={pvName}
+                          disabled={pvSaving}
+                          onChange={(e) => setPvName(e.target.value)}
+                          placeholder="Opcional — Ej: Mostrador"
+                          className="bg-surface border border-outline-variant/50 rounded-lg p-sm outline-none focus:border-primary disabled:opacity-50"
+                        />
+                      </div>
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={pvSaving}
+                      className="self-start bg-primary text-on-primary px-md py-sm rounded-lg font-label-md text-label-md hover:opacity-90 disabled:opacity-50 cursor-pointer"
+                    >
+                      Agregar punto de venta
+                    </button>
+                  </form>
+                  <div className="flex flex-col gap-sm">
+                    {salePoints.length === 0 ? (
+                      <p className="text-sm text-on-surface-variant">Sin puntos de venta configurados. Agregá el primero para poder facturar con serie fiscal.</p>
+                    ) : (
+                      salePoints.map((sp) => (
+                        <div key={sp.id} className="flex items-center gap-x-lg gap-y-sm border border-outline-variant/20 rounded-lg p-md">
+                          <div className="flex-1">
+                            <p className="font-label-md text-label-md text-on-surface">{sp.branch.name} — {String(sp.number).padStart(4, '0')}</p>
+                            {sp.name && <p className="text-sm text-on-surface-variant">{sp.name}</p>}
+                          </div>
+                          <button
+                            type="button"
+                            disabled={pvSaving}
+                            onClick={() => void handleDeleteSalePoint(sp.id)}
+                            className="text-on-error-container bg-error-container/20 px-sm py-xs rounded-lg font-label-md text-label-md hover:opacity-90 disabled:opacity-50 cursor-pointer"
+                          >
+                            Eliminar
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
                 </div>
               )}
 {activeTab === 'plan' && (

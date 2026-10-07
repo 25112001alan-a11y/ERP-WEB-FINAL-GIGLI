@@ -266,6 +266,14 @@ export interface BranchOption {
   defaultWarehouseId?: number | null;
 }
 
+export interface SalePointOption {
+  id: number;
+  branchId: number;
+  branch: { id: number; name: string };
+  number: number;
+  name: string | null;
+}
+
 // ---------------------------------------------------------------------------
 // SaaS billing (F4)
 // ---------------------------------------------------------------------------

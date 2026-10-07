@@ -28,7 +28,7 @@ Regla heredada de `DOCUMENT_FLOW_PENDING.md`: **los borradores se autocompletan;
 | U2 | Derivar de maestros lo que ya existe | No | **Completada** |
 | U3 | Cliente como entidad en el frontend | No | **Completada** |
 | U4 | Instantánea de cabecera en `Document` | **Sí** | **Completada** |
-| U5 | Maestros fiscales (condición IVA, domicilio, provincia, PV) | **Sí** | **En curso** — slices 1–4 aplicados (migraciones `20261006221000` + `20261007090000` + `20261007120000` + `20261007130000`) |
+| U5 | Maestros fiscales (condición IVA, domicilio, provincia, PV) | **Sí** | **Completada** — slices 1–5 (migraciones `20261006221000` + `20261007090000` + `20261007120000` + `20261007130000` + `20261007140000`) |
 | U6 | Moneda y tipo de cambio desde `Company` | No | Documentada, no ejecutada |
 
 ---
@@ -56,7 +56,7 @@ Regla heredada de `DOCUMENT_FLOW_PENDING.md`: **los borradores se autocompletan;
 | Descuento | Modelo | Correcto, pero no obvio | `NewManualOrderView.tsx:16` guarda un **porcentaje** (`discountPct`, `max="100"`); el cálculo es `gross * discountPct / 100` (`:49`, `:54`, `:60`, `:217`) y sólo la salida al API en `:93` convierte a monto absoluto. **El rótulo "% Desc." es correcto** |
 | Documento de origen | `REMITO` o `VENTA` | Automatizado, pero **el default es manual** | `RegistrarFacturaView.tsx:337-341` ofrece "Sin origen" como primera opción; ése es el motivo principal de que el camino manual se use |
 | Venta seleccionada al navegar | Contexto | **Se descarta** | `SalesView.tsx:9` define `onOpenRegistrarFactura: () => void` sin argumento; `:256` y `:263` navegan sin contexto, hay que reseleccionar |
-| Tipo de comprobante, CAE, punto de venta | Fiscal | Manual | Legítimamente externo; hoy no hay nada de dónde derivarlo |
+| Tipo de comprobante, CAE, punto de venta | Fiscal | PV desde U5 slice 5; CAE manual | El punto de venta sale del maestro `puntos_venta` (serie del comprobante); el CAE sigue siendo externo (simulación) — ver §7novies |
 
 ## 4. Lo que falta en todas las cabeceras
 
@@ -182,7 +182,7 @@ Especificación original: columnas en `Document` (`companyName`, `companyTaxId`,
 
 ### U5 — Maestros fiscales (**requiere migración y backfill**)
 
-Condición IVA, domicilio fiscal, provincia, código postal, punto de venta como entidad, depósito por defecto por sucursal, condiciones de pago y alias. Es lo que realmente desbloquea la automatización fiscal. **Desbloqueada: U4 ya está aplicada (§7quater).** Lo que falta no es código, son columnas en los maestros más su backfill.
+Condición IVA, domicilio fiscal, provincia, código postal, punto de venta como entidad, depósito por defecto por sucursal, condiciones de pago y alias. Es lo que realmente desbloquea la automatización fiscal. **Completada con U5 (slices 1–5, §7quinquies a §7novies).**
 
 **Slice 1 aplicado (2026-10-06) — empresa y proveedor.** Columnas `address`, `province`, `postalCode`, `taxCondition` en `Company` y `Supplier`; `Document` suma 7 columnas de instantánea (`companyAddress`, `companyProvince`, `companyPostalCode`, `companyTaxCondition`, `supplierProvince`, `supplierPostalCode`, `supplierTaxCondition`). Ver §7quinquies.
 
@@ -192,7 +192,7 @@ Condición IVA, domicilio fiscal, provincia, código postal, punto de venta como
 
 **Slice 4 aplicado (2026-10-07) — depósito por defecto por sucursal.** Columna `defaultWarehouseId` en `Branch`; ruta `PATCH /api/branches/:id` (valida que el depósito pertenezca a la sucursal); tab "Sucursales" en Configuración; recepción y remito de salida precargan el default. Ver §7octies.
 
-**Pendiente (slice siguiente):** punto de venta como entidad (hoy `puntoVenta` ya existe en `InvoiceData`; es normalización, no creación).
+**Slice 5 aplicado (2026-10-07) — punto de venta como entidad.** Modelo `SalePoint` (`puntos_venta`) con backfill de un PV por empresa; rutas CRUD `/api/sale-points`; tab "Puntos de venta" en Configuración; la factura usa el PV como serie (`0004`) y valida pertenencia a la sucursal. Ver §7novies. **U5 queda completa.**
 
 ### U6 — Moneda (sin migración, Verificar contra la base)
 
@@ -407,6 +407,39 @@ Vivo (API local :3001, ana): `PATCH /api/branches/4` → `{defaultWarehouseId: 7
 - **POS queda fuera a propósito**: `posSaleLines` ya elige depósito por línea dentro de la sucursal seleccionada (primer depósito con stock suficiente), así que un default de sucursal no le aplica.
 - Permiso: `configuracion.escribir`, mismo nivel que el PATCH de empresa. Sin `requireAssignedBranch`: un usuario con ese permiso puede configurar cualquier sucursal del tenant (consistente con la configuración de empresa).
 - En `NewPurchaseOrderView` no se precarga: la OC puede llevarse a recepción, y ahí (GoodsReceiptView) el default sí aplica sobre la sucursal de la OC — el orden natural del flujo de compras.
+
+---
+
+## 7novies. U5 slice 5 — Punto de venta como entidad (aplicado 2026-10-07)
+
+`SalePoint` (`puntos_venta`) es el maestro fiscal de puntos de venta: la factura deja de pedir un número libre y usa un PV registrado, con su número como serie del comprobante.
+
+| Archivo | Cambio |
+|---|---|
+| `server/prisma/schema.prisma` | Modelo `SalePoint` (companyId, branchId, number, name; `@@unique([companyId, number])`); relaciones en `Company` y `Branch` |
+| `server/prisma/migrations/20261007140000_sale_point/` | **Nueva**, aplicada; backfill: un PV 0001 por empresa (MIN de sus sucursales) |
+| `server/src/routes/sale-points.routes.ts` | **Nuevo**: `GET /api/sale-points` (lectura con `configuracion.leer`\|`compras.leer`\|`ventas.leer` — alimenta Configuración y el form de factura), `POST`/`PATCH`/`DELETE` con `configuracion.escribir`, 409 duplicado por número, tenancy |
+| `server/src/routes/app.ts` | Mount `/api/sale-points` |
+| `server/src/routes/documents.routes.ts` | FACTURA: `series` = PV zero-padded (`0004`) cuando llega `invoice.puntoVenta` (folio reservado por PV vía `reserveNextNumber`); validación: si el comprobante tiene sucursal, el PV debe pertenecerle (400) |
+| `src/types.ts` | `SalePointOption` |
+| `src/App.tsx` | `loadSalePoints` + `handleAddSalePoint`/`handleDeleteSalePoint`; props a Configuración y RegistrarFacturaView |
+| `src/components/views/SettingsView.tsx` | Tab **Puntos de venta**: alta (sucursal + número + nombre opcional), listado con borrado |
+| `src/components/views/RegistrarFacturaView.tsx` | El input manual de PV → select de PVs de la sucursal activa (o de toda la empresa sin sucursal) |
+
+### Evidencia
+
+Batería (orquestador): frontend `vitest` **44/44** (sin helpers nuevos), `tsc` 0, `build` 0; server `tsc` 0; server **72 tests / 70 pass / 1 fail / 1 skip** en serie (único fallo = preexistente `branch-boundaries.test.ts:141`). Nuevos: `server/test/sale-points.test.ts` (CRUD, 403 sin permiso, 400 sucursal ajena, 409 duplicado, tenancy 404, delete 204) y `server/test/documents-invoice-sale-point.unit.test.ts` (series `0004` + snapshot PV; PV de otra sucursal → 400, sin crear documento).
+
+Vivo (API local :3001, ana): `GET /api/sale-points` 1 PV (backfill); `POST` PV 2 en la sucursal 4 → 201; duplicado → 409; `PATCH` nombre → 200; `DELETE` → 204 y el GET vuelve a 1.
+
+### Decisiones
+
+- **Snapshots, no FK**: `InvoiceData.puntoVenta` sigue siendo `Int?` libre (congelado en la emisión). Borrar/reubicar un PV nunca invalida comprobantes ya emitidos — consistente con la filosofía de instantáneas de cabecera del repo.
+- **Número único por empresa** (no por sucursal): la serie del comprobante se deriva del número del PV; si dos sucursales pudieran tener PV 0001, `(companyId, type, series, number)` colisionaría. AFIP real obliga por sucursal; acá un PV por sucursal se logra con números distintos.
+- **Folio por PV**: la numeración ya existía (`reserveNextNumber` con `FOR UPDATE`); al derivar la serie del PV, el folio se reserva por PV automáticamente. La emisión "0001-00000042" queda consistente. La impresión/AFIP sigue siendo fase F (simulación).
+- **Edición = borrar y recrear** en la UI (PATCH existe en la API y se prueba, pero la tab sólo ofrece alta/borrado; renombrar = borrar y crear).
+- **POS sin cambios**: `puntoVenta` no participa de `posSaleLines`; el PV es identidad fiscal del comprobante FACTURA, no del punto de venta operativo.
+- El gate de lectura es ancho a propósito: la misma lista alimenta Configuración (`configuracion.leer`) y el formulario de factura (`compras`/`ventas`), y un operador de compras no tiene permisos de configuración.
 
 ---
 

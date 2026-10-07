@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { formatMoney } from '../../lib/format';
-import { ViewPath, Supplier, Product } from '../../types';
+import { ViewPath, Supplier, Product, SalePointOption } from '../../types';
 import type { ApiDocument } from '../../lib/mappers';
 import { resolveClientSelection, type ClientOption } from '../../lib/clientSelection';
 import {
@@ -18,6 +18,9 @@ interface RegistrarFacturaViewProps {
   salesDocs: ApiDocument[];
   remitoDocs: ApiDocument[];
   products: Product[];
+  salePoints: SalePointOption[];
+  /** Filters the point-of-sale options to the active branch when one is set. */
+  activeBranchId?: number | null;
   /** Fixed by the entry point: Compras opens 'ingreso', Ventas opens 'egreso'. */
   direction: 'ingreso' | 'egreso';
   /** Document chosen in Ventas: preloaded as origin when it is still eligible. */
@@ -55,6 +58,8 @@ export const RegistrarFacturaView: React.FC<RegistrarFacturaViewProps> = ({
   salesDocs,
   remitoDocs,
   products,
+  salePoints,
+  activeBranchId,
   direction,
   initialSourceId,
   onCreateFactura,
@@ -64,6 +69,12 @@ export const RegistrarFacturaView: React.FC<RegistrarFacturaViewProps> = ({
   const sourceDocs = useMemo(
     () => invoiceSourceDocuments(direction, salesDocs, remitoDocs),
     [direction, salesDocs, remitoDocs],
+  );
+  // Points of sale restricted to the active branch; without a branch (owner
+  // context) the whole company list is shown.
+  const pvOptions = useMemo(
+    () => (activeBranchId ? salePoints.filter((sp) => sp.branchId === activeBranchId) : salePoints),
+    [salePoints, activeBranchId],
   );
   // The origin starts preselected so the derived path is the default: the
   // document picked in Ventas when it is eligible, otherwise the newest
@@ -289,13 +300,20 @@ export const RegistrarFacturaView: React.FC<RegistrarFacturaViewProps> = ({
                   </div>
                   <div className="flex flex-col gap-xs">
                     <label className="font-label-md text-label-md text-on-surface-variant uppercase">Punto de Venta</label>
-                    <input
-                      type="number"
+                    <select
                       value={puntoVenta}
                       onChange={(e) => setPuntoVenta(e.target.value)}
-                      placeholder="Ej: 4"
-                      className="w-full bg-surface px-md py-sm rounded-lg border border-outline-variant/50 focus:border-primary outline-none font-mono-sm"
-                    />
+                      className="w-full bg-surface px-md py-sm rounded-lg border border-outline-variant/50 focus:border-primary outline-none cursor-pointer font-mono-sm"
+                    >
+                      <option value="">Sin punto de venta</option>
+                      {pvOptions.length === 0 && <option value="" disabled>Sin puntos de venta para esta sucursal</option>}
+                      {pvOptions.map((pv) => (
+                        <option key={pv.id} value={pv.number}>{pv.branch.name} — {String(pv.number).padStart(4, '0')}</option>
+                      ))}
+                    </select>
+                    {pvOptions.length === 0 && (
+                      <p className="text-xs text-on-surface-variant">Configurá puntos de venta en Configuración → Puntos de venta.</p>
+                    )}
                   </div>
                   <div className="flex flex-col gap-xs">
                     <label className="font-label-md text-label-md text-on-surface-variant uppercase">CAE</label>

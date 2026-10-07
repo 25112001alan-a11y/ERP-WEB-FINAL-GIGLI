@@ -32,6 +32,7 @@ model Company {
   roles      Role[]
   branches   Branch[]
   warehouses Warehouse[]
+  salePoints SalePoint[]
   categories Category[]
   products   Product[]
   clients    Client[]
@@ -168,8 +169,9 @@ model Branch {
   defaultWarehouseId Int?
   defaultWarehouse   Warehouse? @relation("BranchDefault", fields: [defaultWarehouseId], references: [id], onDelete: SetNull)
 
-  warehouses Warehouse[]
-  documents  Document[]
+  warehouses  Warehouse[]
+  salePoints  SalePoint[]
+  documents   Document[]
   cashBoxes  CashBox[]
   users      User[]
 
@@ -193,6 +195,25 @@ model Warehouse {
   destinationDocuments Document[]     @relation("DocumentDestination")
 
   @@map("depositos")
+}
+
+// Fiscal point of sale (AFIP): the branch-bound PV a document is issued from.
+// InvoiceData.puntoVenta stays a plain Int snapshot (no FK): once issued, a
+// document keeps the PV number it was registered with even if the master changes.
+// The number is unique per company (not per branch) so the existing document
+// numbering key (companyId, type, series, number) never collides when the PV
+// number is used as the series of a FACTURA.
+model SalePoint {
+  id        Int     @id @default(autoincrement())
+  companyId Int
+  branchId  Int
+  number    Int
+  name      String? @db.VarChar(80)
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  branch    Branch  @relation(fields: [branchId], references: [id])
+
+  @@unique([companyId, number])
+  @@map("puntos_venta")
 }
 
 model Category {

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ViewPath, Product, PurchaseOrder, Supplier, SaleTransaction, PublicOrder, User, AuditLog, FinanceTransaction, PurchaseDocument, WarehouseOption, DashboardData, RoleOption, TaxRate,
+  ViewPath, Product, PurchaseOrder, Supplier, SaleTransaction, PublicOrder, User, AuditLog, FinanceTransaction, PurchaseDocument, WarehouseOption, DashboardData, RoleOption, TaxRate, SalePointOption,
 } from './types';
 import { useAuth, can, VIEW_PERMISSIONS } from './lib/auth';
 import { apiFetch } from './lib/api';
@@ -88,6 +88,7 @@ export default function App() {
   const [clients, setClients] = useState<ClientOption[]>([]);
   const [openOrders, setOpenOrders] = useState<PurchaseDocument[]>([]);
   const [warehouses, setWarehouses] = useState<WarehouseOption[]>([]);
+  const [salePoints, setSalePoints] = useState<SalePointOption[]>([]);
   const [sales, setSales] = useState<SaleTransaction[]>([]);
   // Raw documents used as source/copy bases for facturas and remitos de salida.
   const [salesDocs, setSalesDocs] = useState<ApiDocument[]>([]);
@@ -213,6 +214,27 @@ export default function App() {
     await apiFetch(`/api/branches/${branchId}`, { method: 'PATCH', body: { defaultWarehouseId: warehouseId } });
     await loadWarehouses();
   }, [loadWarehouses]);
+
+  const loadSalePoints = useCallback(async (): Promise<boolean> => {
+    try {
+      const pvs = await apiFetch<SalePointOption[]>('/api/sale-points');
+      setSalePoints(pvs);
+      return true;
+    } catch (err) {
+      console.error('No se pudieron cargar los puntos de venta', err);
+      return false;
+    }
+  }, []);
+
+  const handleAddSalePoint = useCallback(async (branchId: number, number: number, name?: string): Promise<void> => {
+    await apiFetch('/api/sale-points', { method: 'POST', body: { branchId, number, name } });
+    await loadSalePoints();
+  }, [loadSalePoints]);
+
+  const handleDeleteSalePoint = useCallback(async (id: number): Promise<void> => {
+    await apiFetch(`/api/sale-points/${id}`, { method: 'DELETE' });
+    await loadSalePoints();
+  }, [loadSalePoints]);
 
   const loadSales = useCallback(async (): Promise<boolean> => {
     try {
@@ -382,7 +404,8 @@ export default function App() {
       can(p, 'usuarios.leer') ? loadUsers() : true,
       can(p, 'auditoria.leer') ? loadAudit() : true,
       can(p, 'inventario.leer') ? loadTaxes() : true,
-      branchReady && can(p, 'inventario.leer') ? loadWarehouses() : true,
+branchReady && can(p, 'inventario.leer') ? loadWarehouses() : true,
+      can(p, ['configuracion.leer', 'compras.leer', 'ventas.leer']) ? loadSalePoints() : true,
     ]);
     const failed = results.filter((ok) => !ok).length;
     if (!branchReady) {
@@ -393,7 +416,7 @@ export default function App() {
       setDataError('Algunos datos no se pudieron cargar. Se muestra la información disponible.');
     }
     setDataLoading(false);
-  }, [user, loadProducts, loadPurchases, loadClients, loadSales, loadPublicOrders, loadFinance, loadDashboard, loadUsers, loadAudit, loadTaxes, loadWarehouses]);
+  }, [user, loadProducts, loadPurchases, loadClients, loadSales, loadPublicOrders, loadFinance, loadDashboard, loadUsers, loadAudit, loadTaxes, loadWarehouses, loadSalePoints]);
 
   useEffect(() => {
     if (user) {
@@ -405,6 +428,7 @@ export default function App() {
       setClients([]);
       setOpenOrders([]);
       setWarehouses([]);
+      setSalePoints([]);
       setSales([]);
       setFinanceTxs([]);
       setDashboard(null);
@@ -1003,6 +1027,8 @@ if (isPublicOrAuth) {
                 salesDocs={salesDocs}
                 remitoDocs={remitoDocs}
                 products={products}
+                salePoints={salePoints}
+                activeBranchId={activeBranchId}
                 direction={facturaDirection}
                 initialSourceId={sourceDocId}
                 onCreateFactura={handleCreateFactura}
@@ -1030,6 +1056,9 @@ if (isPublicOrAuth) {
                 onToggleTax={handleToggleTax}
                 warehouses={warehouses}
                 onSetBranchDefaultWarehouse={handleSetBranchDefaultWarehouse}
+                salePoints={salePoints}
+                onAddSalePoint={handleAddSalePoint}
+                onDeleteSalePoint={handleDeleteSalePoint}
                 onNavigate={navigate}
               />
             )}
