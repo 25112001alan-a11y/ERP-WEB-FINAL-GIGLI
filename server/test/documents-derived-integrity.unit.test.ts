@@ -231,7 +231,9 @@ test('derived invoices and delivery notes enforce direction, source identity and
       type: 'REMITO',
       direction: 'egreso',
       sourceDocumentId: 10,
-      items: [{ productId: 7, quantity: 2, unitPrice: 999 }],
+      // Derived lines carry no price overrides: price/tax/discount are inherited
+      // from the source (a mismatched unitPrice is rejected with a 400 now).
+      items: [{ productId: 7, quantity: 2 }],
       ...overrides,
     });
 
@@ -390,6 +392,10 @@ test('derived invoices and delivery notes enforce direction, source identity and
     events.length = 0;
     createdData = null;
     result = await post(invoice({ items: [{ productId: 7, quantity: 2, unitPrice: 999 }] }));
+    assert.equal(result.response.status, 400);
+    assert.match(result.body.error ?? '', /hereda el precio/);
+    createdData = null;
+    result = await post(invoice({ items: [{ productId: 7, quantity: 2 }] }));
     assert.equal(result.response.status, 201);
     assert.ok(events.indexOf('lock-source') < events.indexOf('read-source'));
     assert.ok(events.indexOf('read-source') < events.indexOf('read-children'));
@@ -399,7 +405,7 @@ test('derived invoices and delivery notes enforce direction, source identity and
     assert.equal(createdData?.warehouseId, 3);
     const createdItems = (createdData?.items as { create: { quantity: number; unitPrice: number }[] }).create;
     assert.equal(createdItems[0]?.quantity, 2);
-    assert.equal(createdItems[0]?.unitPrice, 100, 'source price must override the request');
+    assert.equal(createdItems[0]?.unitPrice, 100, 'source price wins when the request does not override');
 
     permissions = ['compras.escribir'];
     source = supplierReceipt();

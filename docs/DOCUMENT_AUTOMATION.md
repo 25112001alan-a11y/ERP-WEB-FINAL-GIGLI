@@ -524,6 +524,29 @@ Server `tsc` 0; batería serial **75/73/1/1** (+1 test `oc-status.test.ts`, el �
 
 ---
 
+## 7tredecies. Deuda §8 — Idempotencia del POST genérico y overrides en derivados (resuelto 2026-10-07)
+
+Dos deudas del create: (5) el POST genérico no admitía `idempotencyKey` → doble clic duplica comprobante; (6) un cliente API podía mandar `unitPrice`/`discount` sobre un documento derivado y recibía 200 **con datos equivocados** porque el servidor los descartaba en silencio.
+
+| Archivo | Cambio |
+|---|---|
+| `server/src/routes/documents.routes.ts` | `documentSchema` + `idempotencyKey: z.uuid().optional()`; al inicio de la transacción de creación, si la key ya existe para la empresa → **replay**: devuelve el documento original (200) sin consumir folio ni efectos secundarios; la key se persiste en el create; el índice `@@unique([companyId, idempotencyKey])` ya estaba (de `/receive`) y la carrera concurrente resuelve en el `.catch(P2002)` re-fetching el original |
+| `server/src/routes/documents.routes.ts` (guard de overrides) | `itemSchema.discount` deja de tener `default(0)` (un 0 explícito debe distinguirse de la ausencia); en la resolución de líneas, un `unitPrice` o `discount` que no coincide (tolerancia 0.005) con el valor heredado del origen lanza **400** antes de cualquier efecto de stock |
+| `server/test/documents-create-idempotency.test.ts` | **Nuevo**, e2e contra DB real: mismo comando + misma key → 200 con el mismo id (count = 1); clave reusada con otro body → 200 con el original (at-most-once, gana el primero); REMITO egreso derivado de PEDIDO con `unitPrice` override → 400; sin override → 201 e ítem hereda `unitPrice` del origen. Cleanup con restauración exacta de stock y movimientos |
+| `server/test/documents-derived-integrity.unit.test.ts` | La pin vieja "source price must override the request" ahora es "rechaza override (400) y la herencia gana cuando el request no envía"; el fixture `delivery()` deja de mandar `unitPrice: 999` |
+
+### Reglas
+
+- **At-most-once, sin huella**: a diferencia de `/receive` (que hashea el comando y responde 409 ante contenido distinto), el POST genérico no fingerprintea el payload: reusar la key siempre devuelve el primer documento. Es la garantía anti-duplicación que necesita un doble clic o un retry de transporte; un cliente que reusa la key con otra intención recibe el original, nunca un segundo comprobante.
+- **La herencia manda**: una línea derivada no puede sobreescribir precio/descuento; un override que no coincide con el origen es un 400 explícito, no un 200 mentiroso. La UI ya cooperaba (solo manda `sourceDocumentItemId` + `quantity`).
+- **Sin migración**: columnas/índice de `idempotencyKey` ya existían (migración `20260927120000_receipt_idempotency`).
+
+### Evidencia
+
+Server `tsc` 0; batería serial **77/75/1/1** (+2 tests de `documents-create-idempotency.test.ts`; único fail: preexistente `branch-boundaries.test.ts:141`, de `/receive`, ajeno). `documents-derived-integrity.unit.test.ts` actualizado al contrato nuevo y verde. Frontend: sin cambios.
+
+---
+
 ## 8. Deuda observada, fuera de alcance
 
 Registrada para no perderla. No corregir sin una unidad propia.
@@ -534,8 +557,8 @@ Registrada para no perderla. No corregir sin una unidad propia.
 | `COTIZACION` con `sourceDocumentId` no valida nada: el bloque de trazabilidad está condicionado a `isDirectionalType`, que es `false` para ese tipo | `documents.routes.ts:684` |
 | Tipos no direccionales aceptan `clientId` y `supplierId` simultáneamente sin rechazo | `documents.routes.ts:439` |
 | `series` nunca se valida: cualquier texto de ≤10 caracteres crea una serie de contador nueva | `documents.routes.ts:1029`, `numbering.ts:26-45` |
-| `/receive` es el único camino con idempotencia; el POST genérico descarta `idempotencyKey` porque no está en el schema Zod → doble clic duplica documento | `documents.routes.ts:347` |
-| `unitPrice`, `taxRate` y `discount` enviados sobre un documento derivado se **ignoran en silencio**; la UI coopera, pero un cliente API incorrecto recibe 200 con datos equivocados | `documents.routes.ts:941-947` |
+| `/receive` es el único camino con idempotencia; el POST genérico descarta `idempotencyKey` porque no está en el schema Zod → doble clic duplica documento | Resuelto (2026-10-07) — `POST /api/documents` acepta `idempotencyKey` (uuid opcional) con replay y carrera cubierta por el índice único; ver §7tredecies |
+| `unitPrice`, `taxRate` y `discount` enviados sobre un documento derivado se **ignoran en silencio**; la UI coopera, pero un cliente API incorrecto recibe 200 con datos equivocados | Resuelto (2026-10-07) — un override que no coincide con el valor heredado es 400; ver §7tredecies |
 | `PATCH /:id/external` fabrica `invoiceType: 'X'` si la factura no tiene `InvoiceData`, e ignora la contradicción con el maestro de proveedor | `documents.routes.ts:1654`, `:1754` |
 | `externalNumber` es mutable después de la confirmación, contra la decisión 5 de `DOCUMENT_FLOW_PENDING.md` | `documents.routes.ts:1643-1647` |
 | `OC` no tiene endpoint de anulación; `PATCH /:id/status` es sólo de `PEDIDO`. El estado `Anulado` figura en la UI sin camino de escritura | Resuelto (2026-10-07) — `PATCH /:id/status` ahora acepta OC (Abierto→Anulado) con guard de derivados y permiso `compras.escribir`; ver §7duodecies |

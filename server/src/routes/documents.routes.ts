@@ -112,7 +112,9 @@ const itemSchema = z.object({
   sourceDocumentItemId: z.number().int().positive().optional(),
   quantity: z.number().positive(),
   unitPrice: z.number().positive().optional(),
-  discount: z.number().nonnegative().optional().default(0),
+  // No default: an explicit discount on a derived line must be distinguishable
+  // from an absent one so the mismatch guard can reject silent overrides.
+  discount: z.number().nonnegative().optional(),
   // Multi-depósito: depósito de la línea; por defecto el de la cabecera.
   warehouseId: z.number().int().positive().optional(),
 });
@@ -157,6 +159,10 @@ const documentSchema = z.object({
   currency: z.string().length(3).optional(),
   exchangeRate: z.coerce.number().positive().max(1e9).optional(),
   notes: z.string().optional(),
+  // At-most-once creation: the same key replays the original document instead
+  // of minting a duplicate (double click, transport retry). Enforced by the
+  // (companyId, idempotencyKey) unique index and the in-transaction check.
+  idempotencyKey: z.uuid().optional(),
 });
 
 type DocumentDirection = 'ingreso' | 'egreso';
@@ -564,7 +570,21 @@ router.post('/', requireAnyPermission('ventas.escribir', 'compras.escribir'), as
     ?? 'ARS';
   const effectiveExchangeRate = data.exchangeRate ?? 1;
 
+  let replayed = false;
   const result = await prisma.$transaction(async (tx) => {
+    // Idempotent replay: the caller's key already created this logical document.
+    // Return the original instead of minting a duplicate — and never burn a
+    // second folio for it, so the check runs before reserveNextNumber.
+    if (data.idempotencyKey) {
+      const prior = await tx.document.findFirst({
+        where: { companyId: req.authUser!.companyId, idempotencyKey: data.idempotencyKey },
+        include: { items: true, payments: true, invoiceData: true },
+      });
+      if (prior) {
+        replayed = true;
+        return prior;
+      }
+    }
     // Lock before any consistent read in this transaction. Under MySQL REPEATABLE
     // READ, an earlier warehouse read would pin a stale snapshot of child remitos
     // even after waiting for another dispatcher to release the source lock.
@@ -986,10 +1006,25 @@ router.post('/', requireAnyPermission('ventas.escribir', 'compras.escribir'), as
       const unitPrice = inherited
         ? inherited.weightedUnitPrice / inherited.quantity
         : item.unitPrice ?? Number(type === DocumentType.COMPRA ? product.costPrice : product.salePrice);
+      // A derived document inherits price, tax and discount from its source.
+      // Overriding values were silently dropped before (200 with wrong data for
+      // a misbehaving API client); now a mismatched override is a 400.
+      if (inherited && item.unitPrice !== undefined && Math.abs(item.unitPrice - unitPrice) > 0.005) {
+        throw Object.assign(
+          new Error('Un documento derivado hereda el precio del origen; no se puede sobreescribir unitPrice'),
+          { status: 400 },
+        );
+      }
       const taxRate = inherited?.taxRate ?? Number(product.tax.rate);
       const discount = inherited
         ? (inherited.discount / inherited.quantity) * item.quantity
-        : item.discount;
+        : item.discount ?? 0;
+      if (inherited && item.discount !== undefined && Math.abs(item.discount - discount) > 0.005) {
+        throw Object.assign(
+          new Error('Un documento derivado hereda el descuento del origen; no se puede sobreescribir discount'),
+          { status: 400 },
+        );
+      }
       const gross = unitPrice * item.quantity;
       const lineTotal = gross - discount;
       lines.push({
@@ -1120,6 +1155,7 @@ router.post('/', requireAnyPermission('ventas.escribir', 'compras.escribir'), as
         destinationWarehouseId: effectiveDestinationWarehouseId,
         sourceDocumentId: data.sourceDocumentId,
         externalNumber: data.externalNumber,
+        idempotencyKey: data.idempotencyKey,
         currency: effectiveCurrency,
         exchangeRate: effectiveExchangeRate,
         ...headerSnapshot,
@@ -1313,9 +1349,28 @@ router.post('/', requireAnyPermission('ventas.escribir', 'compras.escribir'), as
     );
 
     return document;
+  }).catch(async (error: unknown) => {
+    // Race: two concurrent creates with the same key; the unique
+    // (companyId, idempotencyKey) index makes one insert fail. The loser
+    // replays the winner's document instead of erroring.
+    const prismaError = error as { code?: string; meta?: { target?: unknown } };
+    const target = Array.isArray(prismaError.meta?.target)
+      ? prismaError.meta.target.join(',')
+      : String(prismaError.meta?.target ?? '');
+    if (prismaError.code === 'P2002' && target.includes('idempotencyKey') && data.idempotencyKey) {
+      const prior = await prisma.document.findFirst({
+        where: { companyId: req.authUser!.companyId, idempotencyKey: data.idempotencyKey },
+        include: { items: true, payments: true, invoiceData: true },
+      });
+      if (prior) {
+        replayed = true;
+        return prior;
+      }
+    }
+    throw error;
   });
 
-  res.status(201).json(result);
+  res.status(replayed ? 200 : 201).json(result);
 });
 
 const receiveSchema = z.object({
