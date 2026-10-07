@@ -54,6 +54,7 @@ function restoreMocks() {
 test('a supplier invoice with a PV number uses the PV as its series and keeps the frozen number', async () => {
   let created: Record<string, unknown> | null = null;
   const tx = {
+    cashBox: { findFirst: mock.fn(async () => null) },
     $queryRaw: mock.fn(async () => [{ nextNumber: 41 }]),
     $executeRaw: mock.fn(async () => 1),
     salePoint: {
@@ -126,6 +127,7 @@ test('a supplier invoice with a PV number uses the PV as its series and keeps th
 test('a PV that does not belong to the document branch is rejected with 400', async () => {
   let created: Record<string, unknown> | null = null;
   const tx = {
+    cashBox: { findFirst: mock.fn(async () => null) },
     $queryRaw: mock.fn(async () => [{ nextNumber: 41 }]),
     $executeRaw: mock.fn(async () => 1),
     salePoint: {
@@ -197,6 +199,7 @@ test('a PV that does not belong to the document branch is rejected with 400', as
 test('U6: a factura without an explicit currency uses the company maestro (USD)', async () => {
   let created: Record<string, unknown> | null = null;
   const tx: Record<string, unknown> = {
+    cashBox: { findFirst: mock.fn(async () => null) },
     $queryRaw: mock.fn(async () => [{ nextNumber: 41 }]),
     $executeRaw: mock.fn(async () => 1),
     salePoint: { findFirst: mock.fn(async () => ({ id: 9 })) },
@@ -254,6 +257,7 @@ test('U6: a factura without an explicit currency uses the company maestro (USD)'
 test('U6: an explicit currency and exchange rate reach the create and are not stripped', async () => {
   let created: Record<string, unknown> | null = null;
   const tx: Record<string, unknown> = {
+    cashBox: { findFirst: mock.fn(async () => null) },
     $queryRaw: mock.fn(async () => [{ nextNumber: 41 }]),
     $executeRaw: mock.fn(async () => 1),
     salePoint: { findFirst: mock.fn(async () => ({ id: 9 })) },

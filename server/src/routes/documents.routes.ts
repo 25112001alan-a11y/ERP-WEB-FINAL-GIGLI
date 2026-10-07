@@ -197,7 +197,7 @@ router.get('/', requireAnyPermission('ventas.leer', 'compras.leer'), async (req,
       client: { select: { id: true, name: true, type: true, phone: true } },
       supplier: { select: { id: true, name: true } },
       warehouse: { select: { name: true } },
-      payments: { select: { id: true, method: true, status: true, amount: true } },
+      payments: { select: { id: true, method: true, status: true, amount: true, cashBoxId: true } },
       invoiceData: {
         select: {
           id: true,
@@ -1136,6 +1136,16 @@ router.post('/', requireAnyPermission('ventas.escribir', 'compras.escribir'), as
     const canCreatePayment =
       !(type === DocumentType.FACTURA && data.sourceDocumentId && sourceStatus === 'Pagado');
 
+    // A cash payment is tied to the branch's open cash box; electronic methods
+    // never reference a drawer, and a branch without an open box stays untied.
+    const openCashBox =
+      effectiveBranchId === null || effectiveBranchId === undefined
+        ? null
+        : await tx.cashBox.findFirst({
+            where: { branchId: effectiveBranchId, status: 'Abierta' },
+            select: { id: true },
+          });
+
     // Fiscal point of sale: when the factura carries a PV number, that number
     // becomes its series (zero-padded, AFIP-style) so the folio is reserved per
     // PV and "0001-00000042" renders from one consistent pair. The PV must
@@ -1227,6 +1237,7 @@ router.post('/', requireAnyPermission('ventas.escribir', 'compras.escribir'), as
                   amount: p.amount,
                   method: p.method,
                   status: 'Pagado',
+                  cashBoxId: p.method === 'Efectivo' ? (openCashBox?.id ?? null) : null,
                 })),
               },
             }
@@ -1238,6 +1249,8 @@ router.post('/', requireAnyPermission('ventas.escribir', 'compras.escribir'), as
                     amount: total,
                     method: data.paymentMethod,
                     status: 'Pagado',
+                    cashBoxId:
+                      data.paymentMethod === 'Efectivo' ? (openCashBox?.id ?? null) : null,
                   },
                 },
               }

@@ -615,6 +615,29 @@ Server `tsc` 0; batería serial **81/79/1/1** (+2 tests; único fail: preexisten
 
 ---
 
+## 7septendecies. Deuda §8 — Payment.cashBoxId cableado a la caja abierta de la sucursal (resuelto 2026-10-07)
+
+`Payment.cashBoxId` y `CashBox` (una por sucursal, con `status: 'Abierta'`) existían en el esquema desde el inicio, pero ningún camino de creación de pagos los escribía: solo los seeds los usaban. Todo pago quedaba huérfano del cajón donde se cobró.
+
+| Archivo | Cambio |
+|---|---|
+| `server/src/routes/documents.routes.ts` (create) | Antes de crear los pagos, busca la caja `Abierta` de `effectiveBranchId` (solo si hay branch). Cada pago `Efectivo` se ata a esa caja; métodos electrónicos (`Tarjeta`, `QR / Transf.`) quedan sin caja. Sin caja abierta, el efectivo queda sin atar (no se fabrica ni se abre caja) |
+| `server/src/routes/documents.routes.ts` (detalle) | `payments` del GET ahora incluye `cashBoxId`, para que la UI pueda mostrarlo |
+| `server/test/documents-create-cashbox.test.ts` | **Nuevo**, e2e: FACTURA con `Efectivo` → pago atado a la caja abierta de la sucursal; con `QR / Transf.` → `cashBoxId null`; split efectivo+electrónico → cada pago con su regla |
+| Unit tests con `tx` mockeado (`documents-derived-integrity`, `documents-header-snapshot`, `documents-invoice-sale-point`) | `cashBox: { findFirst: async () => null }` en los literales de transacción |
+
+### Reglas
+
+- **La caja es de la sucursal del comprobante**, no del usuario ni global.
+- **Solo el efectivo vive en un cajón**: transferencias, tarjetas y QR no referencian caja.
+- **Caja cerrada o inexistente → pago sin atar**: la ruta no crea cajas ni falla; el maestro de cajas es responsabilidad de la UI/gestión de caja, no del POST de documentos.
+
+### Evidencia
+
+Server `tsc` 0; batería serial **82/80/1/1** (+1 test; único fail: preexistente `branch-boundaries.test.ts:141`, de `/receive`, ajeno). Frontend: sin cambios.
+
+---
+
 ## 8. Deuda observada, fuera de alcance
 
 Registrada para no perderla. No corregir sin una unidad propia.
@@ -630,5 +653,5 @@ Registrada para no perderla. No corregir sin una unidad propia.
 | `PATCH /:id/external` fabrica `invoiceType: 'X'` si la factura no tiene `InvoiceData`, e ignora la contradicción con el maestro de proveedor | Resuelto (2026-10-07) — letra derivada del `taxCondition` del proveedor en PATCH y attach; ver §7sedecies |
 | `externalNumber` es mutable después de la confirmación, contra la decisión 5 de `DOCUMENT_FLOW_PENDING.md` | Resuelto (2026-10-07) — captura confirmada (`InvoiceData.confirmedAt`) congela el número; ver §7sedecies |
 | `OC` no tiene endpoint de anulación; `PATCH /:id/status` es sólo de `PEDIDO`. El estado `Anulado` figura en la UI sin camino de escritura | Resuelto (2026-10-07) — `PATCH /:id/status` ahora acepta OC (Abierto→Anulado) con guard de derivados y permiso `compras.escribir`; ver §7duodecies |
-| `Payment.cashBoxId` existe y `CashBox` existe por sucursal, pero ningún camino de creación lo escribe | `schema.prisma:469` |
+| `Payment.cashBoxId` existe y `CashBox` existe por sucursal, pero ningún camino de creación lo escribe | Resuelto (2026-10-07) — el efectivo se ata a la caja `Abierta` de la sucursal; métodos electrónicos sin caja; ver §7septendecies |
 | `POST /api/public/store/:slug/orders` fija `discount: 0` en toda línea y `client.type: 'Mayorista'`, en contraste con el default `'Persona'` | `public.routes.ts:118`, `:132` |

@@ -98,6 +98,7 @@ test('derived invoices and delivery notes enforce direction, source identity and
   const sourceUpdates: string[] = [];
 
   const tx = {
+    cashBox: { findFirst: mock.fn(async () => null) },
     $queryRaw: mock.fn(async (strings: TemplateStringsArray) => {
       const sql = strings.join('?');
       if (sql.includes('SELECT id FROM comprobantes')) {

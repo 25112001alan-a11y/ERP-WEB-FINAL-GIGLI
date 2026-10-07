@@ -40,6 +40,7 @@ type HeaderBody = {
 
 test('buildHeaderSnapshot freezes every header field from its master row', async () => {
   const tx = {
+    cashBox: { findFirst: mock.fn(async () => null) },
     company: {
       findUnique: mock.fn(async () => ({
         legalName: 'Nexus Demo SA',
@@ -138,6 +139,7 @@ test('POST /api/documents freezes company, counterpart and branch identity plus 
   let created: Record<string, unknown> | null = null;
 
   const tx = {
+    cashBox: { findFirst: mock.fn(async () => null) },
     $queryRaw: mock.fn(async () => [{ nextNumber: 51 }]),
     $executeRaw: mock.fn(async () => 1),
     document: {
@@ -294,6 +296,7 @@ test('POST /api/documents/:id/receive freezes company, supplier and branch ident
   let rawQueryCount = 0;
 
   const tx = {
+    cashBox: { findFirst: mock.fn(async () => null) },
     $queryRaw: mock.fn(async () => (++rawQueryCount === 1 ? [{ id: 10 }] : [{ nextNumber: 51 }])),
     $executeRaw: mock.fn(async () => 1),
     document: {
