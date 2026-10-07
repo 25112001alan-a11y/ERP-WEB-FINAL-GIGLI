@@ -1020,10 +1020,14 @@ router.post('/', requireAnyPermission('ventas.escribir', 'compras.escribir'), as
       const inherited = item.sourceDocumentItemId
         ? sourceItemsById.get(item.sourceDocumentItemId)
         : undefined;
-      // A COMPRA records what we pay the supplier: cost, not sale price.
+      // A purchase-side document records what we pay the supplier: cost, not
+      // sale price. COMPRA/OC and the incoming directional documents default
+      // to cost when the request omits unitPrice.
+      const purchaseSide = type === DocumentType.COMPRA || type === DocumentType.OC
+        || (isDirectionalType && direction === 'ingreso');
       const unitPrice = inherited
         ? inherited.weightedUnitPrice / inherited.quantity
-        : item.unitPrice ?? Number(type === DocumentType.COMPRA ? product.costPrice : product.salePrice);
+        : item.unitPrice ?? Number(purchaseSide ? product.costPrice : product.salePrice);
       // A derived document inherits price, tax and discount from its source.
       // Overriding values were silently dropped before (200 with wrong data for
       // a misbehaving API client); now a mismatched override is a 400.

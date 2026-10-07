@@ -571,13 +571,32 @@ Server `tsc` 0; batería serial **78/76/1/1** (+1 test; único fail: preexistent
 
 ---
 
+## 7quindecies. Deuda §8 — OC sin `unitPrice` cae a `salePrice` (resuelto 2026-10-07)
+
+El default de `unitPrice` del endpoint genérico distinguía un solo caso: `COMPRA` → `costPrice`, todo lo demás → `salePrice`. Una `OC` sin precio explícito quedaba valuada a precio de venta — compra registrada a retail, y la cadena proveedor inflada. Es la misma clase de bug que el fix 3 de U1 corriendo en la familia compra.
+
+| Archivo | Cambio |
+|---|---|
+| `server/src/routes/documents.routes.ts` | El fallback ahora calcula `purchaseSide` (`COMPRA`, `OC`, y los direccionales `ingreso` — REMITO/FACTURA standalone): esos caen a `costPrice`; el resto (VENTA, PEDIDO, COTIZACION, egresos) conserva `salePrice` |
+| `server/test/documents-create-purchase-price.test.ts` | **Nuevo**, e2e contra DB real: `OC` sin `unitPrice` → 201 y la línea queda al `costPrice` del catálogo (producto con cost ≠ sale, para que el test distinga); cleanup del documento |
+
+### Regla
+
+- **Un documento compra se valora a costo.** `/receive` (línea 1640 del PATCH external) ya usaba `costPrice` como fallback de OC; el create genérico queda alineado con el `purchaseSide` en un solo flag, no por tipo suelto.
+
+### Evidencia
+
+Server `tsc` 0; batería serial **79/77/1/1** (+1 test; único fail: preexistente `branch-boundaries.test.ts:141`, de `/receive`, ajeno). Frontend: sin cambios.
+
+---
+
 ## 8. Deuda observada, fuera de alcance
 
 Registrada para no perderla. No corregir sin una unidad propia.
 
 | Hallazgo | Ubicación |
 |---|---|
-| `OC` creada por endpoint genérico sin `unitPrice` también cae a `salePrice`; es la misma clase de bug que el fix 3 de U1 | `documents.routes.ts:944` |
+| `OC` creada por endpoint genérico sin `unitPrice` también cae a `salePrice`; es la misma clase de bug que el fix 3 de U1 | Resuelto (2026-10-07) — fallback `purchaseSide` (COMPRA/OC/ingresos) → `costPrice`; ver §7quindecies |
 | `COTIZACION` con `sourceDocumentId` no valida nada: el bloque de trazabilidad está condicionado a `isDirectionalType`, que es `false` para ese tipo | Resuelto (2026-10-07) — fuera de los direccionales el origen es un 400 explícito; ver §7quattuordecies |
 | Tipos no direccionales aceptan `clientId` y `supplierId` simultáneamente sin rechazo | Resuelto (2026-10-07) — 400 en toda la clase documento; ver §7quattuordecies |
 | `series` nunca se valida: cualquier texto de ≤10 caracteres crea una serie de contador nueva | Resuelto (2026-10-07) — trim + `^[A-Za-z0-9-_]{1,10}$`; ver §7quattuordecies |
