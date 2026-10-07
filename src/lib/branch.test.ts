@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { adjustmentWarehouses, branchStock, deriveBranches, posSaleLines, transferError, warehouseIdsForBranch } from './branch';
+import { adjustmentWarehouses, branchStock, defaultWarehouseForBranch, deriveBranches, posSaleLines, transferError, warehouseIdsForBranch } from './branch';
 import type { Product, WarehouseOption } from '../types';
 
 const warehouses: WarehouseOption[] = [
-  { id: 1, name: 'Depósito Central', branchId: 10, branch: { id: 10, name: 'Casa Central' } },
+  { id: 1, name: 'Depósito Central', branchId: 10, branch: { id: 10, name: 'Casa Central', defaultWarehouseId: 1 } },
   { id: 2, name: 'Depósito Norte', branchId: 20, branch: { id: 20, name: 'Sucursal Norte' } },
   { id: 3, name: 'Trastienda Norte', branchId: 20, branch: { id: 20, name: 'Sucursal Norte' } },
 ];
@@ -20,9 +20,22 @@ const product = {
 describe('deriveBranches', () => {
   it('dedupes branches from warehouses', () => {
     expect(deriveBranches(warehouses)).toEqual([
-      { id: 10, name: 'Casa Central' },
-      { id: 20, name: 'Sucursal Norte' },
+      { id: 10, name: 'Casa Central', defaultWarehouseId: 1 },
+      { id: 20, name: 'Sucursal Norte', defaultWarehouseId: null },
     ]);
+  });
+});
+
+describe('defaultWarehouseForBranch', () => {
+  it('returns the configured default only when it exists in the list', () => {
+    expect(defaultWarehouseForBranch(warehouses, 10)).toBe(1);
+    expect(defaultWarehouseForBranch(warehouses, 20)).toBeNull();
+    expect(defaultWarehouseForBranch(warehouses, null)).toBeNull();
+  });
+
+  it('ignores a branch default that was deleted or belongs elsewhere', () => {
+    const stale = [{ ...warehouses[0], branch: { id: 10, name: 'Casa Central', defaultWarehouseId: 999 } }];
+    expect(defaultWarehouseForBranch(stale, 10)).toBeNull();
   });
 });
 

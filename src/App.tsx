@@ -209,6 +209,11 @@ export default function App() {
     }
   }, []);
 
+  const handleSetBranchDefaultWarehouse = useCallback(async (branchId: number, warehouseId: number | null): Promise<void> => {
+    await apiFetch(`/api/branches/${branchId}`, { method: 'PATCH', body: { defaultWarehouseId: warehouseId } });
+    await loadWarehouses();
+  }, [loadWarehouses]);
+
   const loadSales = useCallback(async (): Promise<boolean> => {
     try {
       const [ventas, pedidos, remitos, facturas] = await Promise.all([
@@ -1023,6 +1028,8 @@ if (isPublicOrAuth) {
                 taxes={taxes}
                 onAddTax={handleAddTax}
                 onToggleTax={handleToggleTax}
+                warehouses={warehouses}
+                onSetBranchDefaultWarehouse={handleSetBranchDefaultWarehouse}
                 onNavigate={navigate}
               />
             )}

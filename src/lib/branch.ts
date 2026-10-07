@@ -28,15 +28,31 @@ export function setStoredBranchId(companyId: number | null | undefined, branchId
 
 /** Unique branch list derived from the already-loaded warehouses (no extra fetch). */
 export function deriveBranches(warehouses: WarehouseOption[]): BranchOption[] {
-  const map = new Map<number, string>();
+  const map = new Map<number, { name: string; defaultWarehouseId: number | null }>();
   for (const w of warehouses) {
     const id = w.branch?.id ?? w.branchId;
     if (id == null) continue;
-    if (!map.has(id)) map.set(id, w.branch?.name ?? `Sucursal ${id}`);
+    if (!map.has(id)) {
+      map.set(id, {
+        name: w.branch?.name ?? `Sucursal ${id}`,
+        defaultWarehouseId: w.branch?.defaultWarehouseId ?? null,
+      });
+    }
   }
   return [...map.entries()]
-    .map(([id, name]) => ({ id, name }))
+    .map(([id, value]) => ({ id, name: value.name, defaultWarehouseId: value.defaultWarehouseId }))
     .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** Warehouse configured as the branch default, when it exists in the loaded list. */
+export function defaultWarehouseForBranch(
+  warehouses: WarehouseOption[],
+  branchId: number | null | undefined,
+): number | null {
+  if (branchId == null) return null;
+  const carrier = warehouses.find((w) => (w.branch?.id ?? w.branchId) === branchId);
+  const id = carrier?.branch?.defaultWarehouseId ?? null;
+  return id != null && warehouses.some((w) => w.id === id) ? id : null;
 }
 
 /** Warehouse ids belonging to a branch (null = all warehouses, "Todas"). */

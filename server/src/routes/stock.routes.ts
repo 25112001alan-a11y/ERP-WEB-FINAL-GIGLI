@@ -56,7 +56,7 @@ router.get('/warehouses', async (req, res) => {
       companyId: req.authUser!.companyId,
       ...(!req.authUser!.isOwner ? { branchId: req.authUser!.branchId! } : {}),
     },
-    include: { branch: { select: { id: true, name: true } } },
+    include: { branch: { select: { id: true, name: true, defaultWarehouseId: true } } },
     orderBy: { name: 'asc' },
   });
   res.json(warehouses);

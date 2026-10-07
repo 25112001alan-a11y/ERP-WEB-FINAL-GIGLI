@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { formatMoney } from '../../lib/format';
+import { defaultWarehouseForBranch } from '../../lib/branch';
 import { ViewPath, Product, WarehouseOption } from '../../types';
 import type { ApiDocument } from '../../lib/mappers';
 import { deliverySourceDocuments, derivedDocumentLines } from '../../lib/documentDerivation';
@@ -67,6 +68,12 @@ export const RemitoSalidaView: React.FC<RemitoSalidaViewProps> = ({
       const sku = products.find((product) => product.id === line.productId)?.sku;
       return { ...line, name: sku ? `${sku} — ${line.name}` : line.name };
     }));
+    // Deferred dispatches without a warehouse default to the branch default;
+    // the operator can still override the select below.
+    const branchDefault = defaultWarehouseForBranch(warehouses, selectedVenta?.branchId);
+    if (branchDefault != null && dispatchWarehouses.some((w) => w.id === branchDefault)) {
+      setWarehouseId(String(branchDefault));
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sourceId]);
 

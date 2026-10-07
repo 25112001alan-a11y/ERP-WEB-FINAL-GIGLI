@@ -1,12 +1,15 @@
 import React, { useEffect, useState } from 'react';
-import { ViewPath, TaxRate, BillingPlan, BillingSubscription } from '../../types';
+import { ViewPath, TaxRate, BillingPlan, BillingSubscription, WarehouseOption } from '../../types';
 import { apiFetch } from '../../lib/api';
+import { deriveBranches } from '../../lib/branch';
 import { useAuth } from '../../lib/auth';
 
 interface SettingsViewProps {
   taxes: TaxRate[];
   onAddTax: (name: string, rate: number) => Promise<void>;
   onToggleTax: (id: number, active: boolean) => Promise<void>;
+  warehouses: WarehouseOption[];
+  onSetBranchDefaultWarehouse: (branchId: number, warehouseId: number | null) => Promise<void>;
   onNavigate: (view: ViewPath) => void;
 }
 
@@ -40,9 +43,9 @@ const TIMEZONE_LABELS: Record<string, string> = {
   'Europe/Madrid': 'Europe/Madrid (UTC+1)',
 };
 
-export const SettingsView: React.FC<SettingsViewProps> = ({ taxes, onAddTax, onToggleTax, onNavigate }) => {
+export const SettingsView: React.FC<SettingsViewProps> = ({ taxes, onAddTax, onToggleTax, warehouses, onSetBranchDefaultWarehouse, onNavigate }) => {
   const { refreshMe } = useAuth();
-  const [activeTab, setActiveTab] = useState<'empresa' | 'impuestos' | 'plan'>('empresa');
+  const [activeTab, setActiveTab] = useState<'empresa' | 'impuestos' | 'plan' | 'sucursales'>('empresa');
 
   // Company state (backed by GET/PATCH /api/company)
   const [company, setCompany] = useState<CompanyProfile | null>(null);
@@ -73,6 +76,23 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ taxes, onAddTax, onT
   const [taxName, setTaxName] = useState('');
   const [taxRate, setTaxRate] = useState('');
   const [taxError, setTaxError] = useState('');
+
+  // Branch default warehouse state
+  const [branchSaving, setBranchSaving] = useState(false);
+  const [branchMsg, setBranchMsg] = useState<string | null>(null);
+
+  const handleBranchDefaultChange = async (branchId: number, value: string) => {
+    setBranchSaving(true);
+    setBranchMsg(null);
+    try {
+      await onSetBranchDefaultWarehouse(branchId, value === '' ? null : Number(value));
+      setBranchMsg('Depósito por defecto actualizado.');
+    } catch (err) {
+      setBranchMsg(err instanceof Error ? err.message : 'No se pudo actualizar el depósito por defecto.');
+    } finally {
+      setBranchSaving(false);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -238,6 +258,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ taxes, onAddTax, onT
             }`}
           >
             Plan y Facturación
+          </button>
+          <button
+            onClick={() => setActiveTab('sucursales')}
+            className={`py-sm px-md font-label-md text-label-md uppercase tracking-wider border-b-2 cursor-pointer transition-colors whitespace-nowrap ${
+              activeTab === 'sucursales' ? 'border-primary text-primary font-bold' : 'border-transparent text-on-surface-variant hover:text-on-surface'
+            }`}
+          >
+            Sucursales
           </button>
         </div>
 
@@ -499,6 +527,49 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ taxes, onAddTax, onT
               )}
             </div>
           )}
+{activeTab === 'sucursales' && (
+                <div className="space-y-md max-w-[672px]">
+                  <h3 className="font-headline-md text-headline-md text-on-surface">Sucursales</h3>
+                  <p className="font-body-md text-body-md text-on-surface-variant">
+                    El depósito por defecto se precarga al recibir compras y despachar pedidos de la sucursal; queda editable en cada documento.
+                  </p>
+                  {branchMsg && (
+                    <p className={`text-sm rounded-lg p-sm ${branchMsg.includes('actualizado') ? 'bg-tertiary-container text-on-tertiary-container' : 'bg-error-container/20 text-on-error-container'}`}>
+                      {branchMsg}
+                    </p>
+                  )}
+                  {deriveBranches(warehouses).map((branch) => {
+                    const branchWarehouses = warehouses.filter((w) => (w.branch?.id ?? w.branchId) === branch.id);
+                    return (
+                      <div key={branch.id} className="flex flex-col sm:flex-row sm:items-center gap-x-lg gap-y-sm border border-outline-variant/20 rounded-lg p-md">
+                        <div className="flex-1">
+                          <p className="font-label-md text-label-md text-on-surface">{branch.name}</p>
+                          <p className="text-sm text-on-surface-variant">
+                            {branchWarehouses.length} {branchWarehouses.length === 1 ? 'depósito' : 'depósitos'}
+                          </p>
+                        </div>
+                        <div className="flex flex-col gap-xs">
+                          <label className="font-label-md text-label-md uppercase text-on-surface-variant" htmlFor={`branch-default-${branch.id}`}>
+                            Depósito por defecto
+                          </label>
+                          <select
+                            id={`branch-default-${branch.id}`}
+                            value={String(branch.defaultWarehouseId ?? '')}
+                            disabled={branchSaving}
+                            onChange={(e) => void handleBranchDefaultChange(branch.id, e.target.value)}
+                            className="bg-surface border border-outline-variant/50 rounded-lg p-sm outline-none cursor-pointer disabled:opacity-50"
+                          >
+                            <option value="">Sin depósito por defecto</option>
+                            {branchWarehouses.map((w) => (
+                              <option key={w.id} value={w.id}>{w.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
 {activeTab === 'plan' && (
                 <div className="space-y-md max-w-[672px]">
                   <h3 className="font-headline-md text-headline-md text-on-surface">Plan y Facturación</h3>

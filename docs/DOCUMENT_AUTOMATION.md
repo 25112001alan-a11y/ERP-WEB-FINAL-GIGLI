@@ -28,7 +28,7 @@ Regla heredada de `DOCUMENT_FLOW_PENDING.md`: **los borradores se autocompletan;
 | U2 | Derivar de maestros lo que ya existe | No | **Completada** |
 | U3 | Cliente como entidad en el frontend | No | **Completada** |
 | U4 | Instantánea de cabecera en `Document` | **Sí** | **Completada** |
-| U5 | Maestros fiscales (condición IVA, domicilio, provincia, PV) | **Sí** | **En curso** — slices 1, 2 y 3 aplicados (migraciones `20261006221000` + `20261007090000` + `20261007120000`) |
+| U5 | Maestros fiscales (condición IVA, domicilio, provincia, PV) | **Sí** | **En curso** — slices 1–4 aplicados (migraciones `20261006221000` + `20261007090000` + `20261007120000` + `20261007130000`) |
 | U6 | Moneda y tipo de cambio desde `Company` | No | Documentada, no ejecutada |
 
 ---
@@ -42,7 +42,7 @@ Regla heredada de `DOCUMENT_FLOW_PENDING.md`: **los borradores se autocompletan;
 | Razón social del proveedor | `Supplier.name` | **Manual en el comprobante** | `SupplierVoucherModal.tsx:233-241` la vuelve a pedir; el modal recibe el número de orden como etiqueta en vez del nombre (`PurchasesView.tsx:270`) |
 | Subtotal / IVA / Total del comprobante | `Document.subtotal/totalTax/total` | **Manual y sin conciliar** | `SupplierVoucherModal.tsx:246-278`; el total de la OC ya está calculado y visible en la misma fila (`PurchasesView.tsx:228`) |
 | Fecha de emisión, Nº de comprobante | Externo | Correcto manual | No son datos nuestros |
-| Almacén de recepción | La OC | **Manual, sin filtro de sucursal** | `GoodsReceiptView.tsx:71` toma `warehouses[0]`; `mappers.ts` ya expone `warehouseId` de la OC |
+| Almacén de recepción | La OC / sucursal | **Precargado desde U5 slice 4** | Recepción y remito prefieren el depósito por defecto de la sucursal; sin default, el primer depósito de la sucursal. Sigue editable por documento — ver §7octies |
 | Costo unitario | `Product.costPrice` | Autocompletado pero **editable** | `NewPurchaseOrderView.tsx:61` lo precarga, `:251-259` lo deja editar |
 | Condición IVA, domicilio, provincia, IIBB, condiciones de pago | Maestro | **Sí desde U5** | slice 1 (domicilio, provincia, condición IVA) + slice 3 (IIBB, condiciones de pago, alias de pago) — ver §7quinquies y §7septies |
 
@@ -190,7 +190,9 @@ Condición IVA, domicilio fiscal, provincia, código postal, punto de venta como
 
 **Slice 3 aplicado (2026-10-07) — pago de proveedor.** Columnas `iibb`, `paymentAlias`, `paymentTerms` en `Supplier` y sus campos en el modal "Nuevo proveedor". Ver §7septies.
 
-**Pendiente (slices siguientes):** punto de venta como entidad (hoy `puntoVenta` ya existe en `InvoiceData`; es normalización, no creación) y depósito por defecto por sucursal.
+**Slice 4 aplicado (2026-10-07) — depósito por defecto por sucursal.** Columna `defaultWarehouseId` en `Branch`; ruta `PATCH /api/branches/:id` (valida que el depósito pertenezca a la sucursal); tab "Sucursales" en Configuración; recepción y remito de salida precargan el default. Ver §7octies.
+
+**Pendiente (slice siguiente):** punto de venta como entidad (hoy `puntoVenta` ya existe en `InvoiceData`; es normalización, no creación).
 
 ### U6 — Moneda (sin migración, Verificar contra la base)
 
@@ -374,6 +376,37 @@ Vivo (API local :3001): `POST /api/suppliers` crea id 73 con `iibb=Exento`, `pay
 - Los tres campos son **texto libre** (mismo criterio que `taxCondition`), con longitudes acotadas. No hay enum de plazos ni validación de formato de alias/CVU por ahora.
 - No se agregan a la instantánea de `Document`: condiciones de pago y alias son datos de operación con el proveedor, no identidad fiscal congelada en la cabecera. Si mañana se quieren en el comprobante, es un slice aparte.
 - Fixture live: id 73 "Proveedor Pago Test" queda en la base de dev junto a 14 y 63.
+
+---
+
+## 7octies. U5 slice 4 — Depósito por defecto por sucursal (aplicado 2026-10-07)
+
+Cadena `Branch.defaultWarehouseId` → `Warehouse` (`depositos`), con prefill en recepción y despacho.
+
+| Archivo | Cambio |
+|---|---|
+| `server/prisma/schema.prisma` | `Branch.defaultWarehouseId` (Int?, FK a `Warehouse`, `ON DELETE SET NULL`, relación `"BranchDefault"`); `Warehouse.defaultForBranches` |
+| `server/prisma/migrations/20261007130000_branch_default_warehouse/` | **Nueva**, aplicada (auto por el bootstrap) |
+| `server/src/routes/branches.routes.ts` | **Nuevo**: `PATCH /api/branches/:id` `{ defaultWarehouseId: int \| null }`, permiso `configuracion.escribir`, tenancy + validación de pertenencia del depósito a la sucursal |
+| `server/src/routes/stock.routes.ts` | `GET /api/stock/warehouses` incluye `branch.defaultWarehouseId` (el frontend deriva sucursales de acá) |
+| `src/types.ts` | `WarehouseOption.branch` y `BranchOption` llevan `defaultWarehouseId` |
+| `src/lib/branch.ts` | `deriveBranches` propaga el default; nuevo `defaultWarehouseForBranch(warehouses, branchId)` |
+| `src/components/views/SettingsView.tsx` | Tab **Sucursales**: por sucursal, selector de depósito por defecto (o "Sin depósito") |
+| `src/components/views/GoodsReceiptView.tsx` | Prefill: default de la sucursal de la OC; sin default, el primer depósito de la sucursal (comportamiento previo) |
+| `src/components/views/RemitoSalidaView.tsx` | Prefill del despacho diferido (PEDIDO sin depósito) con el default de la sucursal |
+
+### Evidencia
+
+Batería (orquestador): frontend `vitest` **44/44** (incluye 2 casos nuevos de `defaultWarehouseForBranch`), `tsc` 0, `build` 0, `tsc` server 0; server **69 tests / 67 pass / 1 fail / 1 skip** en serie (`--test-concurrency=1`; único fallo = preexistente `branch-boundaries.test.ts:141`). Nuevo `server/test/branches-default-warehouse.test.ts`: 403 sin permiso, 404 tenancy, 400 depósito inexistente, 400 depósito de otra sucursal, set + exposición en catálogo + clear.
+
+Vivo (API local :3001, ana): `PATCH /api/branches/4` → `{defaultWarehouseId: 7}` 200 y `GET /api/stock/warehouses` expone `branch.defaultWarehouseId=7`; depósito de otra sucursal → 400; `{defaultWarehouseId: null}` → 200 y queda null.
+
+### Decisiones
+
+- **Default ≠ lock.** Las vistas precargan el default pero el operador puede cambiarlo por documento; es una mejora del flujo existente, no un forzado.
+- **POS queda fuera a propósito**: `posSaleLines` ya elige depósito por línea dentro de la sucursal seleccionada (primer depósito con stock suficiente), así que un default de sucursal no le aplica.
+- Permiso: `configuracion.escribir`, mismo nivel que el PATCH de empresa. Sin `requireAssignedBranch`: un usuario con ese permiso puede configurar cualquier sucursal del tenant (consistente con la configuración de empresa).
+- En `NewPurchaseOrderView` no se precarga: la OC puede llevarse a recepción, y ahí (GoodsReceiptView) el default sí aplica sobre la sucursal de la OC — el orden natural del flujo de compras.
 
 ---
 

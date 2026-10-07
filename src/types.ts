@@ -257,12 +257,13 @@ export interface WarehouseOption {
   id: number;
   name: string;
   branchId?: number;
-  branch?: { id: number; name: string } | null;
+  branch?: { id: number; name: string; defaultWarehouseId?: number | null } | null;
 }
 
 export interface BranchOption {
   id: number;
   name: string;
+  defaultWarehouseId?: number | null;
 }
 
 // ---------------------------------------------------------------------------

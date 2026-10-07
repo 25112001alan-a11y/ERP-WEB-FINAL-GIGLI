@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { formatMoney } from '../../lib/format';
+import { defaultWarehouseForBranch } from '../../lib/branch';
 import { ViewPath, PurchaseDocument, WarehouseOption, Product } from '../../types';
 
 interface GoodsReceiptViewProps {
@@ -73,7 +74,10 @@ export const GoodsReceiptView: React.FC<GoodsReceiptViewProps> = ({
       });
     });
     if (!receiptWarehouses.some((w) => String(w.id) === warehouse)) {
-      setWarehouse(String(receiptWarehouses[0]?.id ?? ''));
+      // Prefer the branch's configured default; fall back to its first warehouse.
+      const fallback = defaultWarehouseForBranch(warehouses, selectedOrder?.branchId)
+        ?? receiptWarehouses[0]?.id ?? '';
+      setWarehouse(String(fallback));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedPo, orders]);

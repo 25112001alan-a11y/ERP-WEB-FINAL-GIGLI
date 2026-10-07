@@ -165,6 +165,9 @@ model Branch {
   address   String? @db.VarChar(200)
   company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
+  defaultWarehouseId Int?
+  defaultWarehouse   Warehouse? @relation("BranchDefault", fields: [defaultWarehouseId], references: [id], onDelete: SetNull)
+
   warehouses Warehouse[]
   documents  Document[]
   cashBoxes  CashBox[]
@@ -180,6 +183,8 @@ model Warehouse {
   name      String @db.VarChar(100)
   company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
   branch    Branch  @relation(fields: [branchId], references: [id])
+
+  defaultForBranches Branch[] @relation("BranchDefault")
 
   stocks               Stock[]
   stockMovementsFrom   StockMovement[] @relation("StockMovementFrom")
