@@ -89,7 +89,7 @@ Potencial medido: **~850-950 líneas menos y −7 dependencias** sin cambiar com
 | Line-math de items en 5 vistas y 3 handlers; doc-number `padStart(4,'0')` en 10+ sitios; side-effects de stock en 3 handlers | ⏳ Pendiente (helpers compartidos) |
 | Flatten de permisos en 3 lugares (ya existe `getUserPermissions`) | ⏳ Pendiente |
 | Header con 19 botones hardcodeados vs `navItems` del Sidebar (una sola fuente) | ✅ Resuelto (2026-10-07) — `src/lib/navigation.ts` es la única fuente (`NAV_SECTIONS`/`ADMIN_SECTIONS`/`QUICK_NAV_ITEMS`); el quick-nav del Header consume el registro y gatea por `VIEW_PERMISSIONS`. Ver sección "Navegación única (2026-10-07)" |
-| Carrito mobile + summary duplicados en POS y PublicClientStore | ⏳ Pendiente |
+| Carrito mobile + summary duplicados en POS y PublicClientStore | ✅ Resuelto (2026-10-07) — `MobileFloatingBar` + `MobileCartDrawer` compartidos en `src/components/ui/MobileCartDrawer.tsx`; cada vista conserva su carrito (divergen a propósito: split de pago vs pedido WhatsApp). Ver sección "Drawer mobile compartido (2026-10-07)" |
 | Dependencias sin imports (`lucide-react`, `motion`, `@google/genai`, `express`, `dotenv`, `autoprefixer`, `esbuild`) | ✅ Verificado (2026-10-07) — misma conclusión que la fila anterior; `vite` ya está en `devDependencies` y el lock root no tiene entradas top-level de ninguna de las 7 |
 
 ---
@@ -960,3 +960,20 @@ El quick-nav del Header **no estaba gateado** (mostraba las 19 pantallas a cualq
 
 - Commit `be2f9a6` "refactor(ui): registro unico de navegacion para sidebar y quick-nav del header".
 - Gates: `tsc --noEmit` 0, vitest **48/48**, `git diff --check` limpio (solo warnings LF/CRLF preexistentes).
+
+## Drawer mobile compartido (2026-10-07)
+
+### Qué se hizo
+
+- Nuevo `src/components/ui/MobileCartDrawer.tsx` con `MobileFloatingBar` (barra fija inferior mobile) y `MobileCartDrawer` (overlay de pantalla completa con scroll-lock, header a11y y cuerpo con `children`).
+- `PosView.tsx` y `PublicClientStoreView.tsx` consumen ambos; se eliminaron la barra, el overlay y los `useEffect` de scroll-lock duplicados de cada vista (71 líneas menos en total).
+- Cada vista conserva su `cartBody`/`cartPanel` y su lógica de negocio intacta.
+
+### Alcance (límite anotado)
+
+Se compartió la **presentación**, no el carrito: el carrito de POS (split de pago efectivo/QR, descuentos, stock por sucursal) y el de la tienda pública (name/phone/notas, orden por WhatsApp) divergen a propósito; una abstracción de carrito común sería churn — declarado, no silenciado.
+
+### Evidencia
+
+- Commits `c352c25` (refactor) y el cierre de esta fila.
+- Gates: `tsc --noEmit` 0, vitest **48/48**, `git diff --check` limpio.
