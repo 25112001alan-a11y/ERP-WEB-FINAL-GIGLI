@@ -36,7 +36,7 @@ El código está **bien encuadrado**: señales de nivel senior en seguridad y co
 | --- | --- |
 | Sin paginación en listas ilimitadas (documents/products/clients/suppliers/users) | ✅ Resuelto (2026-10-07) — `page`/`limit` ahora cortan a nivel de query (`skip`/`take`) con `total` = filas que matchean sin paginar; sin parámetros se conserva el array completo. Ver sección "Paginación real (2026-10-07)" |
 | Scaffold de formulario repetido en 8 vistas (`FormScaffold` + `useSubmitFlow`, ~-250 líneas) | ⏳ Pendiente — refactor de UI con riesgo de regresión visual; tanda propia |
-| `formatMoney`: 4 locales distintos + ~40 `toFixed` sueltos (el mismo monto se ve distinto según vista) | ⏳ Helper y migración parcial en el diff local, sin publicar. ARS por defecto; MRR se etiqueta USD y la tienda usa su moneda real. Falta revisar el resto de las vistas |
+| `formatMoney`: 4 locales distintos + ~40 `toFixed` sueltos (el mismo monto se ve distinto según vista) | ✅ Verificado (2026-10-07) — formato unificado en `src/lib/format.ts` (`Intl.NumberFormat` es-AR, currency-aware, fallback RangeError), usado en ~25 vistas; 0 `toFixed` de dinero visible; MRR en USD y tienda con su moneda real. Ver sección "Formato monetario (2026-10-07)" |
 | `parseBody` (zod-safeParse→400 repetido 15+ veces), CRUD factory clients/suppliers, line-math, doc-number padding, `getUserPermissions` reutilizable | ⏳ Pendiente — simplificaciones seguras de tanda propia |
 | -7 dependencias sin imports en el frontend (`lucide-react`, `motion`, `@google/genai`, `express`, `dotenv`, `autoprefixer`, `esbuild`) y rename de `"react-example"` | ⏳ Pendiente — mecánico, sin riesgo |
 | `loadAll` pide 3 endpoints (users/roles/audit) a todo usuario autenticado → banner de error para no-admins; navegación sin gating de permisos | ⏳ Pendiente — UX (el backend ya falla cerrado, no es riesgo de seguridad) |
@@ -864,4 +864,26 @@ Server `tsc` 0; batería serial **87/85/1/1** (+4 tests; único fail: preexisten
 
 ### Límite
 
-Paginación sin cursor: con `createdAt`/`name` duplicados la página N+1 puede recortar/duplicar filas entre páginas. Suficiente para los volúmenes actuales; un cursor estable por id sería el siguiente paso si algún listado pasa de miles de filas.
+Paginación sin cursor: con `createdAt`/`name` duplicados la página N+1 puede recortar/duplicar filas entre páginas. Suficiente para los volúmenes actuales; un cursor estable por id sería el siguiente paso si algún listado pasa de miles de filas.---
+
+## Formato monetario (2026-10-07)
+
+La fila afirmaba «4 locales distintos + ~40 `toFixed` sueltos». La verificación muestra que ese estado ya no existe: el lote del 2026-09-23 unificó el formato y esta unidad solo audita y cierra la deuda.
+
+### Verificación
+
+| Chequeo | Resultado |
+|---|---|
+| Helpers de formato | **1 solo**: `src/lib/format.ts` — `formatMoney(amount, currency = 'ARS')` con `Intl.NumberFormat('es-AR', { style: 'currency' })`, `minimumFractionDigits: 2` y fallback a ARS si la moneda es inválida (`RangeError`) |
+| Uso | ~25 vistas y componentes (`PosView`, `SalesView`, `ReportsView`, `FinanceView`, `DashboardView`, `PurchasesView`, `InvoicePrintModal`, etc.) importan y usan el helper; no quedan formateadores locales duplicados |
+| `toFixed` sueltos | **1 en todo `src/`**: `src/lib/qrPayload.ts` (importe AFIP para el QR, decimal puro de la especificación, no es dinero visible y no debe localizarse) |
+| Moneda por contexto | ARS por defecto; MRR (`EcoView`) pasa `'USD'`; la tienda pública (`PublicClientStoreView`) pasa la moneda real de la empresa |
+| Tests | `src/lib/format.test.ts` cubre ARS, USD, número↔string y moneda inválida → fallback |
+
+### Evidencia
+
+`npx vitest run`: **48/48** (8 archivos). Sin cambios de código en esta unidad — la fila se cierra por verificación, no por refactor.
+
+### Límite
+
+`formatMoney` no recibe opciones (fracciones fijas a 2, sin compactación). Si algún día se quiere `$ 1,2 M` en KPIs o fracciones variables, extender el helper — hoy todos los montos van con 2 decimales y eso es lo correcto para facturación.
