@@ -129,16 +129,19 @@ body {
   justify-content: center;
 }
 
-/* Impresión de pedidos: solo el detalle del pedido llega al papel. */
+/* Impresión de pedidos e impresión fiscal: solo el contenido llega al papel. */
 @media print {
   body * {
     visibility: hidden;
   }
   .print-order,
-  .print-order * {
+  .print-order *,
+  .print-fiscal,
+  .print-fiscal * {
     visibility: visible;
   }
-  .print-order {
+  .print-order,
+  .print-fiscal {
     position: absolute;
     inset: 0;
     padding: 24px;

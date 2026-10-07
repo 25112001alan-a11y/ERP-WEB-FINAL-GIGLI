@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { formatMoney } from '../../lib/format';
 import { ViewPath, PurchaseOrder, Supplier } from '../../types';
 import { SupplierVoucherModal, SupplierVoucherData } from '../SupplierVoucherModal';
+import { FacturaPrintModal, FacturaPrintDetail } from '../FacturaPrintModal';
 import { apiFetch } from '../../lib/api';
 
 interface PurchasesViewProps {
@@ -19,6 +20,8 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ orders, suppliers,
   const [supplierSearch, setSupplierSearch] = useState('');
   const [voucherOverrides, setVoucherOverrides] = useState<Record<number, Partial<PurchaseOrder>>>({});
   const [editingDoc, setEditingDoc] = useState<{ documentId: number; label: string; total: number; data: SupplierVoucherData } | null>(null);
+  const [printDoc, setPrintDoc] = useState<FacturaPrintDetail | null>(null);
+  const [printLoadingId, setPrintLoadingId] = useState<number | null>(null);
   const [showNewSupplier, setShowNewSupplier] = useState(false);
   const [newSupplier, setNewSupplier] = useState({ name: '', taxId: '', email: '', phone: '', address: '', province: '', postalCode: '', taxCondition: '', iibb: '', paymentAlias: '', paymentTerms: '' });
   const [supplierSaving, setSupplierSaving] = useState(false);
@@ -50,6 +53,18 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ orders, suppliers,
   };
 
   const closeDropdown = () => setDropdownAnchor(null);
+
+  const handlePrintFactura = async (documentId: number) => {
+    setPrintLoadingId(documentId);
+    try {
+      const doc = await apiFetch<FacturaPrintDetail>(`/api/documents/${documentId}`);
+      setPrintDoc(doc);
+    } catch (err) {
+      console.error('Error cargando la factura para imprimir:', err);
+    } finally {
+      setPrintLoadingId(null);
+    }
+  };
 
   const handleDuplicar = async (order: PurchaseOrder) => {
     closeDropdown();
@@ -293,6 +308,19 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ orders, suppliers,
                             >
                               <span className="material-symbols-outlined text-[18px]">document_scanner</span>
                             </button>
+                            {merged.type === 'FACTURA' && (
+                              <button
+                                title="Imprimir factura"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  void handlePrintFactura(merged.documentId);
+                                }}
+                                disabled={printLoadingId === merged.documentId}
+                                className="text-outline hover:text-primary cursor-pointer tap-target disabled:opacity-50"
+                              >
+                                <span className="material-symbols-outlined text-[18px]">print</span>
+                              </button>
+                            )}
                             <button
                               title="Más acciones"
                               onClick={(e) => {
@@ -605,6 +633,9 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ orders, suppliers,
           onSaved={(patch) => setVoucherOverrides((prev) => ({ ...prev, [editingDoc.documentId]: patch }))}
         />
       )}
+
+      {/* Fiscal invoice print (simulated) */}
+      {printDoc && <FacturaPrintModal doc={printDoc} onClose={() => setPrintDoc(null)} />}
     </div>
   );
 };

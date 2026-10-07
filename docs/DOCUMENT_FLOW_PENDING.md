@@ -104,10 +104,10 @@ Recepción física o devolución al proveedor
   - [x] Frontend: envía dirección explícita y no permite editar ni reenviar contraparte, sucursal o depósito derivados.
 - [x] **F0.5 — Honestidad de interfaz (alcance UI completado; capacidades no implementadas).**
   - [x] Menú de Compras: retirar Ver, Editar y Anular mientras no tengan implementación válida; conservar Duplicar.
-  - [x] Detalle de Ventas: retirar Imprimir; no se implementó impresión.
+  - [x] Detalle de Ventas: retirar Imprimir; no se implementó impresión. (La impresión fiscal simulada llegó después, 2026-10-07: botón Imprimir en filas `FACTURA` de Compras con modal y QR AFIP local — ver §7undecies de `DOCUMENT_AUTOMATION.md`.)
   - [x] Captura de comprobantes: sólo manual; los valores históricos OCR/Lector se muestran como legado, no prueban procesamiento y no se sobrescriben al guardar.
   - [x] Facturación: identificar la operación como simulada y sin validez fiscal en los accesos y el formulario.
-  - **Fuera de alcance/no implementado:** anulación, impresión, OCR/Lector real e integración ARCA. Son capacidades futuras; no se ejecutan ni se simulan con estos cambios.
+  - **Fuera de alcance/no implementado:** anulación, OCR/Lector real e integración ARCA. Son capacidades futuras; no se ejecutan ni se simulan con estos cambios. (La impresión sí se implementó después como simulación fiscal — ver nota en F0.5.)
 
 ### Fase 1 — Trazabilidad y proyecciones
 

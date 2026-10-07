@@ -439,7 +439,7 @@ Vivo (API local :3001, ana): `GET /api/sale-points` 1 PV (backfill); `POST` PV 2
 
 - **Snapshots, no FK**: `InvoiceData.puntoVenta` sigue siendo `Int?` libre (congelado en la emisión). Borrar/reubicar un PV nunca invalida comprobantes ya emitidos — consistente con la filosofía de instantáneas de cabecera del repo.
 - **Número único por empresa** (no por sucursal): la serie del comprobante se deriva del número del PV; si dos sucursales pudieran tener PV 0001, `(companyId, type, series, number)` colisionaría. AFIP real obliga por sucursal; acá un PV por sucursal se logra con números distintos.
-- **Folio por PV**: la numeración ya existía (`reserveNextNumber` con `FOR UPDATE`); al derivar la serie del PV, el folio se reserva por PV automáticamente. La emisión "0001-00000042" queda consistente. La impresión/AFIP sigue siendo fase F (simulación).
+- **Folio por PV**: la numeración ya existía (`reserveNextNumber` con `FOR UPDATE`); al derivar la serie del PV, el folio se reserva por PV automáticamente. La emisión "0001-00000042" queda consistente. La impresión fiscal simulada se implementó después como fase F slice 1 (ver §7undecies).
 - **Edición = borrar y recrear** en la UI (PATCH existe en la API y se prueba, pero la tab sólo ofrece alta/borrado; renombrar = borrar y crear).
 - **POS sin cambios**: `puntoVenta` no participa de `posSaleLines`; el PV es identidad fiscal del comprobante FACTURA, no del punto de venta operativo.
 - El gate de lectura es ancho a propósito: la misma lista alimenta Configuración (`configuracion.leer`) y el formulario de factura (`compras`/`ventas`), y un operador de compras no tiene permisos de configuración.
@@ -466,6 +466,37 @@ Vivo (API local :3001, ana): `GET /api/sale-points` 1 PV (backfill); `POST` PV 2
 ### Evidencia
 
 Server `tsc` 0; unit tests del create **4/4** en el archivo extendido `server/test/documents-invoice-sale-point.unit.test.ts` (los 2 de PV + 2 nuevos: sin `currency` → maestro `USD`; con `currency: 'USD'` + `exchangeRate: 350` → el create los recibe). Batería completa en el commit. Verificación viva de creación de comprobante **no realizada a propósito**: el billing guarda las FACTURA y una COMPRA de prueba dejaría un comprobante basura consumiendo folio en la base de desarrollo — la prueba unitaria cubre exactamente la frontera del create.
+
+---
+
+## 7undecies. Fase F (slice 1) — Impresión fiscal simulada con QR AFIP (aplicado 2026-10-07)
+
+Sin backend: `GET /api/documents/:id` ya devuelve todo lo necesario (contraparte, ítems, pagos, `invoiceData` y snapshot de cabecera). La impresión de facturas vive en **Compras** (`PurchasesView` filtra `PurchasesView` por `type: 'FACTURA'`; `SalesView` no lista facturas).
+
+**Decisión de privacidad**: el QR se genera **localmente** (`qrcode`, sin red). Nada del comprobante sale del navegador; ningún servicio externo de QR ve una factura.
+
+| Archivo | Cambio |
+|---|---|
+| `package.json` / `package-lock.json` | `qrcode` 1.5.4 + `@types/qrcode` (solo adiciones, +319 líneas de lockfile) |
+| `src/lib/qrPayload.ts` | Builder puro del payload AFIP + `afipTipoCmp` (A=1, B=6, C=11, M=51) + `afipTipoDocRec` (80 si el id tiene 11 dígitos, 96 si no) |
+| `src/lib/qrPayload.test.ts` | 4 tests vitest: roundtrip base64 del payload, formatos (totales 2 decimales sin separador de miles, moneda mayúscula), mapeos de letra y detección CUIT/DNI |
+| `src/components/FacturaPrintModal.tsx` | Modal de impresión fiscal: cabecera empresa/folio, emisor/receptor con snapshot, tabla de ítems, totales, watermark «SIMULACIÓN» y chip «SIMULACIÓN — SIN VALIDEZ FISCAL»; QR solo si hay CAE y CUITs emisor/receptor con ≥8 dígitos |
+| `src/components/views/PurchasesView.tsx` | Botón **Imprimir** (icono `print`) solo en filas `FACTURA`; `GET /api/documents/:id` al abrir |
+| `src/index.css` | `@media print` ahora incluye `.print-fiscal` junto a `.print-order` (solo el detalle llega al papel) |
+
+### Formato del QR (forma AFIP real, simulación)
+
+`https://www.afip.gob.ar/fe/qr/?p=<base64(JSON)>` con `ver, fecha, cuit, ptoVta, tipoCmp, nroCmp, importe, moneda, ctz, tipoDocRec, nroDocRec, cae, imptoTotal, imptoTotConc, imptoTrib, imptoIVA`. Importes con `toFixed(2)` (nunca separador de miles); `ctz` como string; moneda en mayúsculas. `tipoDocRec` se resuelve tras quitar caracteres no numéricos: **80 (CUIT)** si quedan 11 dígitos, **96 (DNI)** si no — los CUIT de proveedores se guardan con guiones (`30-30112233-4`).
+
+### Decisiones
+
+- **El QR es identificación, no validación**: se dibuja cuando el comprobante tiene CAE simulado (`InvoiceData`) y ambos CUITs alcanzan la forma mínima. Si falta cualquiera de los dos, el modal muestra «Código QR no disponible» y habilita imprimir igual.
+- **Emisor/receptor por dirección**: ingreso → emisor es el proveedor (`invoiceData.supplierCuit ?? supplier.taxId`), receptor la empresa; egreso → emisor la empresa, receptor el cliente.
+- **Se mantiene el watermark**: aunque la forma es la de ARCA, esta factura no pasó por AFIP; la simulación queda explícita en pantalla y en papel.
+
+### Evidencia
+
+Frontend `tsc` 0; vitest **48/48** (44 previos + 4 `qrPayload.test.ts`); `npm run build` 0. **Verificación viva**: con el servidor levantado se leyó `GET /api/documents/45` (FACTURA A real de la base, USD 4957.84, CAE `70123456789654`, PV 4, 2 ítems) y se ejecutó el pipeline completo en Node: builder real + `qrcode` local produce `data:image/png` (8110 chars) con el payload AFIP decodificado correcto. Con los CUITs reales del seed (`30-30112233-4` -> `30301122334`, receptor `76.543.210-K` -> DNI `76543210`) el payload quedó `ver:1, tipoCmp:1, importe:'4957.84', moneda:'USD'`. El documento 45 tiene CUITs falsos (`A-12345678`) → el modal muestra correctamente «QR no disponible».
 
 ---
 
