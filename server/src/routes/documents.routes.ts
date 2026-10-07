@@ -1794,6 +1794,16 @@ const externalVoucherSchema = z.object({
   ingestionMethod: z.enum(['manual', 'lector', 'ocr']).optional(),
 });
 
+/** AFIP voucher letter implied by the supplier master tax condition. With no
+ * master data the capture flow falls back to the simulated 'X' letter. */
+function invoiceTypeFromSupplier(taxCondition: string | null | undefined): string {
+  const cond = taxCondition?.toLowerCase() ?? '';
+  if (cond.includes('monotributo') || cond.includes('no inscript')) return 'C';
+  if (cond.includes('exento')) return 'B';
+  if (cond.includes('responsable inscript')) return 'A';
+  return 'X';
+}
+
 /**
  * PATCH /api/documents/:id/external
  * Captures the counterpart's physical voucher (supplier remito/factura) that must
@@ -1814,11 +1824,16 @@ router.patch(
     if (!data) return;
 
     const result = await prisma.$transaction(async (tx) => {
-      const document = await tx.document.findFirst({
+const document = await tx.document.findFirst({
         where: { id, ...documentBranchWhere(req) },
-        select: { id: true, type: true },
+        select: { id: true, type: true, supplierId: true, externalNumber: true },
       });
       if (!document) throw Object.assign(new Error('Comprobante no encontrado'), { status: 404 });
+
+      const invoice = await tx.invoiceData.findUnique({
+        where: { documentId: id },
+        select: { confirmedAt: true },
+      });
 
       const hasData = Boolean(
         data.externalNumber ||
@@ -1830,6 +1845,28 @@ router.patch(
           data.externalTotal != null ||
           data.ingestionMethod,
       );
+
+      // The voucher letter comes from the supplier master, not a hardcoded 'X'.
+      const supplier = document.supplierId
+        ? await tx.supplier.findFirst({
+          where: { id: document.supplierId, companyId: req.authUser!.companyId },
+          select: { taxCondition: true },
+        })
+        : null;
+      const invoiceType = document.type === DocumentType.FACTURA
+        ? invoiceTypeFromSupplier(supplier?.taxCondition)
+        : null;
+
+      // Decision 5 of DOCUMENT_FLOW_PENDING.md: a confirmed capture is frozen.
+      // Corrections are compensatory (a new capture), never a rewrite. Re-sending
+      // the same number stays a no-op so the wizard can reload the whole form.
+      if (
+        data.externalNumber !== undefined
+        && data.externalNumber !== (document.externalNumber ?? null)
+        && invoice?.confirmedAt
+      ) {
+        throw Object.assign(new Error('El número externo ya fue confirmado; no se modifica'), { status: 400 });
+      }
 
       if (data.externalNumber !== undefined) {
         await tx.document.update({
@@ -1843,7 +1880,7 @@ router.patch(
           where: { documentId: id },
           create: {
             documentId: id,
-            invoiceType: document.type === DocumentType.FACTURA ? 'X' : null,
+            invoiceType,
             emissionDate: data.emissionDate ? new Date(data.emissionDate) : undefined,
             supplierCuit: data.supplierCuit,
             supplierName: data.supplierName,
@@ -1852,8 +1889,12 @@ router.patch(
             externalTotal: data.externalTotal,
             ingestionMethod: data.ingestionMethod,
             verifiedByUserId: req.authUser!.userId,
+            // The first voucher-data write confirms the capture. An attachment
+            // alone does not: the UI attaches first and fills the number next.
+            confirmedAt: new Date(),
           },
           update: {
+            invoiceType,
             emissionDate: data.emissionDate ? new Date(data.emissionDate) : undefined,
             supplierCuit: data.supplierCuit,
             supplierName: data.supplierName,
@@ -1863,6 +1904,7 @@ router.patch(
             ingestionMethod: data.ingestionMethod,
             // The last user to confirm the capture becomes the verifier.
             verifiedByUserId: req.authUser!.userId,
+            confirmedAt: invoice?.confirmedAt ?? new Date(),
           },
         });
       }
@@ -1932,22 +1974,32 @@ router.post(
     let result: { ok: true; attachmentUrl: string };
     try {
       result = await prisma.$transaction(async (tx) => {
-      const document = await tx.document.findFirst({
+const document = await tx.document.findFirst({
         where: { id, ...documentBranchWhere(req) },
-        select: { id: true, type: true },
+        select: { id: true, type: true, supplierId: true },
       });
       if (!document) throw Object.assign(new Error('Comprobante no encontrado'), { status: 404 });
+
+      const supplier = document.supplierId
+        ? await tx.supplier.findFirst({
+          where: { id: document.supplierId, companyId: req.authUser!.companyId },
+          select: { taxCondition: true },
+        })
+        : null;
+      const invoiceType = document.type === DocumentType.FACTURA
+        ? invoiceTypeFromSupplier(supplier?.taxCondition)
+        : null;
 
       const attachmentUrl = `/uploads/${filename}`;
       await tx.invoiceData.upsert({
         where: { documentId: id },
         create: {
           documentId: id,
-          invoiceType: document.type === DocumentType.FACTURA ? 'X' : null,
+          invoiceType,
           attachmentUrl,
           verifiedByUserId: req.authUser!.userId,
         },
-        update: { attachmentUrl, verifiedByUserId: req.authUser!.userId },
+        update: { invoiceType, attachmentUrl, verifiedByUserId: req.authUser!.userId },
       });
 
       await logAudit(

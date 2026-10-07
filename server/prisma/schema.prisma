@@ -509,6 +509,7 @@ model InvoiceData {
   ingestionMethod   String?   @db.VarChar(20) // manual | lector | ocr
   attachmentUrl     String?   @db.VarChar(500)
   verifiedByUserId  Int?
+  confirmedAt       DateTime? @db.DateTime(3) // first voucher-data write freezes the capture
   verifiedBy        User?     @relation("InvoiceDataVerifiedBy", fields: [verifiedByUserId], references: [id])
   document          Document  @relation(fields: [documentId], references: [id], onDelete: Cascade)
 

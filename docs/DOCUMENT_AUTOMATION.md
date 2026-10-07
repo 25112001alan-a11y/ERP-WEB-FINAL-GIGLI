@@ -590,6 +590,31 @@ Server `tsc` 0; batería serial **79/77/1/1** (+1 test; único fail: preexistent
 
 ---
 
+## 7sedecies. Deuda §8 — Facturación externa: letra desde el maestro y número confirmado congelado (resuelto 2026-10-07)
+
+Dos deudas del capture externo: (7) `PATCH /:id/external` y `/external/attach` fabricaban `invoiceType: 'X'` para toda FACTURA, contradiciendo la condición fiscal del proveedor en el maestro; (8) `externalNumber` seguía mutable después de la confirmación, contra la decisión 5 de `DOCUMENT_FLOW_PENDING.md` (correcciones compensatorias, nunca reescritura).
+
+| Archivo | Cambio |
+|---|---|
+| `server/prisma/schema.prisma` + migración `20261007063642_invoice_external_confirmed` | `InvoiceData.confirmedAt` (`DATETIME(3)`). Backfill: toda captura ya verificada (`verifiedByUserId`) queda confirmada con su momento; las filas solo-adjunto siguen sin confirmar |
+| `server/src/routes/documents.routes.ts` (helper) | `invoiceTypeFromSupplier(taxCondition)`: `Responsable Inscripto` → A, `Monotributo`/`No Inscripto` → C, `Exento` → B, sin maestro → X (simulado) |
+| `server/src/routes/documents.routes.ts` (PATCH external) | La letra se deriva del `taxCondition` del proveedor del documento (create **y** update, para corregir un 'X' escrito antes por attach); la primera escritura de datos de voucher setea `confirmedAt`. Cambiar `externalNumber` ya confirmado → 400 `El número externo ya fue confirmado; no se modifica`; reenviar el mismo valor es no-op 200 (el modal recarga todo el formulario) |
+| `server/src/routes/documents.routes.ts` (attach) | El adjunto también deriva `invoiceType` del maestro pero **no** confirma la captura: la UI adjunta primero y carga el número después |
+| `server/test/documents-external-invoice-type.unit.test.ts` | **Nuevo**, sin DB: FACTURA con proveedor `Responsable Inscripto` → `invoiceType 'A'`; proveedor sin condición → `'X'`; `confirmedAt` seteado en la primera escritura |
+| `server/test/voucher.test.ts` | +1 test e2e: después de la captura, número distinto → 400 `ya fue confirmado`; mismo número → 200 y el valor no cambia |
+
+### Reglas
+
+- **Confirmación = primera escritura de datos de voucher** (`confirmedAt`), no la existencia de `InvoiceData`: adjuntar un archivo no congela el número, para no romper el orden real del modal (attach → PATCH).
+- **La letra es del maestro, no del capricho**: una FACTURA no puede decir 'X' cuando el proveedor es Responsable Inscripto; sin condición cargada se mantiene la letra simulada.
+- **Migración aplicada** a la base local (`facturas_datos`: 68 filas backfilled a confirmadas).
+
+### Evidencia
+
+Server `tsc` 0; batería serial **81/79/1/1** (+2 tests; único fail: preexistente `branch-boundaries.test.ts:141`, de `/receive`, ajeno). Frontend: sin cambios. Nota: durante el trabajo se regeneró el cliente Prisma con `--no-engine` (cliente stub prisma://) y hubo que regenerar con motor tras reiniciar el dev server; el server quedó reiniciado en `:3001`.
+
+---
+
 ## 8. Deuda observada, fuera de alcance
 
 Registrada para no perderla. No corregir sin una unidad propia.
@@ -602,8 +627,8 @@ Registrada para no perderla. No corregir sin una unidad propia.
 | `series` nunca se valida: cualquier texto de ≤10 caracteres crea una serie de contador nueva | Resuelto (2026-10-07) — trim + `^[A-Za-z0-9-_]{1,10}$`; ver §7quattuordecies |
 | `/receive` es el único camino con idempotencia; el POST genérico descarta `idempotencyKey` porque no está en el schema Zod → doble clic duplica documento | Resuelto (2026-10-07) — `POST /api/documents` acepta `idempotencyKey` (uuid opcional) con replay y carrera cubierta por el índice único; ver §7tredecies |
 | `unitPrice`, `taxRate` y `discount` enviados sobre un documento derivado se **ignoran en silencio**; la UI coopera, pero un cliente API incorrecto recibe 200 con datos equivocados | Resuelto (2026-10-07) — un override que no coincide con el valor heredado es 400; ver §7tredecies |
-| `PATCH /:id/external` fabrica `invoiceType: 'X'` si la factura no tiene `InvoiceData`, e ignora la contradicción con el maestro de proveedor | `documents.routes.ts:1654`, `:1754` |
-| `externalNumber` es mutable después de la confirmación, contra la decisión 5 de `DOCUMENT_FLOW_PENDING.md` | `documents.routes.ts:1643-1647` |
+| `PATCH /:id/external` fabrica `invoiceType: 'X'` si la factura no tiene `InvoiceData`, e ignora la contradicción con el maestro de proveedor | Resuelto (2026-10-07) — letra derivada del `taxCondition` del proveedor en PATCH y attach; ver §7sedecies |
+| `externalNumber` es mutable después de la confirmación, contra la decisión 5 de `DOCUMENT_FLOW_PENDING.md` | Resuelto (2026-10-07) — captura confirmada (`InvoiceData.confirmedAt`) congela el número; ver §7sedecies |
 | `OC` no tiene endpoint de anulación; `PATCH /:id/status` es sólo de `PEDIDO`. El estado `Anulado` figura en la UI sin camino de escritura | Resuelto (2026-10-07) — `PATCH /:id/status` ahora acepta OC (Abierto→Anulado) con guard de derivados y permiso `compras.escribir`; ver §7duodecies |
 | `Payment.cashBoxId` existe y `CashBox` existe por sucursal, pero ningún camino de creación lo escribe | `schema.prisma:469` |
 | `POST /api/public/store/:slug/orders` fija `discount: 0` en toda línea y `client.type: 'Mayorista'`, en contraste con el default `'Persona'` | `public.routes.ts:118`, `:132` |

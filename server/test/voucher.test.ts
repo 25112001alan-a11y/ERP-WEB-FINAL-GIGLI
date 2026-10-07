@@ -89,6 +89,31 @@ test('GET /api/documents/:id — invoiceData reflects captured voucher', async (
   assert.ok(doc.invoiceData.verifiedBy?.firstName, 'verifiedBy must be set');
 });
 
+test('PATCH /api/documents/:id/external — the voucher number is frozen after confirmation', async () => {
+  // The capture above confirmed the voucher; decision 5 of DOCUMENT_FLOW_PENDING
+  // freezes it. A different number is rejected, the same number is a no-op.
+  const different = await fetch(`${base}/api/documents/${ocId}/external`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json', ...auth() },
+    body: JSON.stringify({ externalNumber: 'R-9999' }),
+  });
+  assert.equal(different.status, 400);
+  const body = await different.json();
+  assert.match(body.error ?? '', /ya fue confirmado/);
+
+  const same = await fetch(`${base}/api/documents/${ocId}/external`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json', ...auth() },
+    body: JSON.stringify({ externalNumber: 'R-9876' }),
+  });
+  assert.equal(same.status, 200);
+
+  const detail = (await (await fetch(`${base}/api/documents/${ocId}`, { headers: auth() })).json()) as {
+    externalNumber: string | null;
+  };
+  assert.equal(detail.externalNumber, 'R-9876', 'number unchanged');
+});
+
 test('POST /api/documents/:id/external/attach — upload file', async () => {
   const formData = new FormData();
   // Real PDF magic bytes: the server now validates content, not the declared type.
