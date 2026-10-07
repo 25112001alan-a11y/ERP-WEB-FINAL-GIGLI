@@ -64,14 +64,14 @@ Todas las rutas que el frontend llama existen en el server; las incoherencias so
 | Status de financiero mentiroso ("Completado" universal) | ✅ Resuelto |
 | POS envía todo el carrito a UN warehouse (falla checkout multi-warehouse) | ✅ Verificado (2026-10-07) — publicado: `posSaleLines` (`src/lib/branch.ts:107`, testeado en `branch.test.ts`) asigna `warehouseId` por línea dentro de la sucursal activa y bloquea líneas que requieran sumar stock entre depósitos, con explicación (`adjustmentWarehouses`/`minByDeposit`); `App.tsx:543` usa el warehouse de la primera línea como warehouse del documento. Ver sección "imageUrl, CRUD sin UI y multi-warehouse (2026-10-07)" |
 | Ajuste de stock: el motivo cargado en la vista no se envía (backend recibe "Ajuste manual desde el frontend") | ✅ Verificado (2026-10-07) — resuelto: `StockAdjustmentView.tsx:63-66` arma `reasonLabel: note` y `App.tsx:525` lo manda en el body; el string "Ajuste manual desde el frontend" solo existe en esta fila (0 refs en código). Ver sección "Motivo de ajuste e impuestos de sistema (2026-10-07)" |
-| Transferencias: la vista muestra stock total como máximo pero el backend exige stock en el origen | ⏳ Pendiente (mostrar stock por depósito en origen) |
-| `PurchasesView` resumen de OC con IVA hardcodeado 16% (el total guardado difiere) | ⏳ Pendiente |
-| Pedidos públicos nunca avanzan de estado ("Imprimir/Procesar" son `alert()` stubs) | ⏳ Pendiente (funcionalidad de flujo de pedidos) |
-| Finanzas: FACTURA emitida a cliente cuenta como egreso (solo VENTA es ingreso) | ⏳ Pendiente (lógica de negocio) |
+| Transferencias: la vista muestra stock total como máximo pero el backend exige stock en el origen | ✅ Verificado (2026-10-07) — resuelto: `StockTransferView.tsx:30-33` muestra "Stock en origen" por depósito seleccionado y valida con `transferError` (el backend descuenta del origen); `App.tsx:656` re-valida antes del POST. Ver sección "Cierre de filas 67-74 (2026-10-07)" |
+| `PurchasesView` resumen de OC con IVA hardcodeado 16% (el total guardado difiere) | ✅ Verificado (2026-10-07) — resuelto: 0 referencias a IVA/16 en `src/` y `server/`; los totales viajan reales (`PurchaseOrder.subtotal/totalTax` desde `mappers.ts:217-218` → `DocumentsView` -> `PurchasesView:317-318` -> `SupplierVoucherModal`). Ver sección "Cierre de filas 67-74 (2026-10-07)" |
+| Pedidos públicos nunca avanzan de estado ("Imprimir/Procesar" son `alert()` stubs) | ✅ Verificado (2026-10-07) — resuelto: `PublicOrdersView.tsx` tiene máquina de estados (`NEXT_STATUS`, contadores Nuevo/En Proceso/Enviado) y PATCH real a `/api/documents/:id/status` (:74-97); el backend expone `pedidoStatusSchema` y `statusTransitionsFor` (`documents.routes.ts:335-351`); "Imprimir" abre un modal real con `window.print()` (:331-395). Ver sección "Cierre de filas 67-74 (2026-10-07)" |
+| Finanzas: FACTURA emitida a cliente cuenta como egreso (solo VENTA es ingreso) | ✅ Verificado (2026-10-07) — resuelto: `finance.routes.ts:29-31` — `FACTURA` con `clientId` es **Ingreso**; FACTURA a proveedor y COMPRA son egreso. La regla que pedía la fila ya está. Ver sección "Cierre de filas 67-74 (2026-10-07)" |
 | `imageUrl` en tipos/UI sin columna en DB | ✅ Verificado (2026-10-07) — residual: 0 referencias en `src/` (tsx+ts) y 0 en `server/` (solo mime-sniffing de adjuntos, no relacionado). Ver sección "imageUrl, CRUD sin UI y multi-warehouse (2026-10-07)" |
-| Chips de filtro de auditoría no cubren módulos que el backend sí loguea (Configuración, billing) | ⏳ Pendiente (cosmético) |
+| Chips de filtro de auditoría no cubren módulos que el backend sí loguea (Configuración, billing) | ✅ Resuelto (2026-10-07) — los 5 módulos reales que escribe el backend (Seguridad/Inventario/Ventas/Compras/Configuración) están en chips; se quitaron 'Finanzas' y 'Facturación' (chips fantasma: 0 filas). billing loguea como 'Ventas' (retag a 'Facturación' queda como polish de producto, no deuda). Ver sección "Cierre de filas 67-74 (2026-10-07)" |
 | Impuestos del sistema (companyId null) se ven editables en Settings pero el PATCH responde 403 | ✅ Verificado (2026-10-07) — resuelto: `SettingsView.tsx:518` muestra badge "Sistema" sin toggle para `companyId == null`; el toggle (y su PATCH) solo existe para impuestos del tenant. El 403 del backend queda como contrato defensivo. Ver sección "Motivo de ajuste e impuestos de sistema (2026-10-07)" |
-| `README.md` desactualizado (refiere a AI Studio/GEMINI, ignora `server/`; `clean` usa `rm -rf` inválido en Windows) | ⏳ Pendiente |
+| `README.md` desactualizado (refiere a AI Studio/GEMINI, ignora `server/`; `clean` usa `rm -rf` inválido en Windows) | ✅ Resuelto (2026-10-07) — AI Studio/GEMINI ya no se menciona (0 refs); el README documenta `server/`, y `clean` ahora usa `fs.rmSync` (cross-platform, sin dependencias). Ver sección "Cierre de filas 67-74 (2026-10-07)" |
 
 ---
 
@@ -1023,3 +1023,26 @@ El motivo que se carga en la vista viaja completo hasta la API: `StockAdjustment
 - Fila 66: `StockAdjustmentView.tsx:63-66` → `App.tsx:517-529` → `stock.routes.ts:19`.
 - Fila 73: `SettingsView.tsx:510-534` → `App.tsx:638-641`.
 - Cierre por verificación, sin cambios de código.
+
+## Cierre de filas 67-74 (2026-10-07)
+
+De las filas que quedaban reales, 4 resultaron **ya resueltas por verificación**, 1 se resolvió con un fix de 3 líneas y 1 quedó pendiente de ambiente/decisión:
+
+| Fila | Estado hoy | Evidencia |
+| --- | --- | --- |
+| 67 Transferencias: stock total vs stock de origen | ✅ Ya resuelto | `StockTransferView.tsx:30-33` muestra «Stock en origen» por depósito elegido y valida con `transferError`; `App.tsx:656` re-valida antes del POST |
+| 68 IVA 16% hardcodeado en resumen de OC | ✅ Ya resuelto | 0 refs a IVA/16 en `src/` y `server/`; `PurchaseOrder.subtotal/totalTax` vienen reales desde el documento (`mappers.ts:217-218`) y fluyen hasta `SupplierVoucherModal` (`PurchasesView.tsx:317-318`) |
+| 69 Pedidos públicos no avanzan (`alert()` stubs) | ✅ Ya resuelto | `PublicOrdersView.tsx`: `NEXT_STATUS` + contadores reales, PATCH a `/api/documents/:id/status` (:74-97) contra la máquina de estados del backend (`documents.routes.ts:335-351`); Imprimir = modal real con `window.print()` (:331-395) |
+| 70 FACTURA a cliente cuenta como egreso | ✅ Ya resuelto | `finance.routes.ts:29-31`: `income = doc.type==='VENTA' || (doc.type==='FACTURA' && clientId!=null)`; FACTURA a proveedor y COMPRA siguen siendo egreso |
+| 72 Chips de auditoría | ✅ Fix (3 líneas) | Los módulos reales escritos son 5 (16 sitios `logAudit`): Seguridad/Inventario/Ventas/Compras/Configuración. Se quitaron los chips fantasma 'Finanzas' y 'Facturación' (0 filas en el backend). billing loguea como 'Ventas' (`billing.routes.ts:193`); retag a un módulo 'Facturación' queda como polish de producto, no deuda |
+| 74 README | ✅ Fix (3 líneas) | AI Studio/GEMINI: 0 refs (ya no existía). `clean` pasó de `rm -rf dist server.js` (roto en Windows) a `node -e "...fs.rmSync({recursive:true, force:true})"` — cross-platform, sin dependencias nuevas (`d80242f`) |
+
+### Limite declarado
+
+- Lote ECO: sigue **bloqueado por ambiente** — requiere Docker/MySQL desechable para correr migraciones y la serie de validación correspondiente; no se puede verificar sin esa infraestructura.
+- «Facturación» como módulo de auditoría (retag de billing) y la cobertura de Finanzas en auditoría son decisiones de modelo de datos/dominio, no deuda de cierre rápido.
+
+### Evidencia
+
+- Commit `d80242f` "fix(ui): chips de auditoria reales y clean cross-platform".
+- Gates: `tsc --noEmit` 0, vitest **48/48**, `npm run clean` verificado en Windows, `git diff --check` limpio.
