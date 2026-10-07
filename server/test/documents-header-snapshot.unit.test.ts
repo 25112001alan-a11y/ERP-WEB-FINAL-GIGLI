@@ -205,7 +205,7 @@ test('POST /api/documents freezes company, counterpart and branch identity plus 
         branchId: null,
         roles: [{ roleId: 1 }],
       }
-      : { roles: [{ role: { permissions: [{ permission: { name: 'compras.escribir' } }] } }] })),
+      : { roles: [{ role: { permissions: [{ permission: { name: 'ventas.escribir' } }] } }] })),
     configurable: true,
   });
   // A paid plan short-circuits the monthly document cap, so no count query runs.
@@ -234,9 +234,8 @@ test('POST /api/documents freezes company, counterpart and branch identity plus 
           'content-type': 'application/json',
         },
         body: JSON.stringify({
-          type: DocumentType.OC,
+          type: DocumentType.PEDIDO,
           clientId: 5,
-          supplierId: 6,
           branchId: 7,
           items: [{ productId: 9, quantity: 3 }],
         }),
@@ -256,12 +255,9 @@ test('POST /api/documents freezes company, counterpart and branch identity plus 
     assert.equal(created!.clientProvince, 'Mendoza');
     assert.equal(created!.clientPostalCode, '5500');
     assert.equal(created!.clientTaxCondition, 'Responsable Inscripto');
-    assert.equal(created!.supplierName, 'Proveedor Snapshot');
-    assert.equal(created!.supplierTaxId, '30-444555666-9');
-    assert.equal(created!.supplierAddress, 'Av. Proveedor 400');
-    assert.equal(created!.supplierProvince, 'Córdoba');
-    assert.equal(created!.supplierPostalCode, '5000');
-    assert.equal(created!.supplierTaxCondition, 'Monotributo');
+    // Supplier-side identity is covered by the /receive snapshot test below:
+    // a document has exactly one counterpart, so a single creation cannot
+    // freeze both a client and a supplier.
     assert.equal(created!.branchName, 'Sucursal Norte');
     assert.equal(created!.branchAddress, 'Av. Norte 456');
 

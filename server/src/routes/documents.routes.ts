@@ -137,7 +137,7 @@ const documentSchema = z.object({
   // permission can be checked without trusting a caller-supplied counterpart.
   // The source document remains authoritative for the actual party.
   direction: z.enum(['ingreso', 'egreso']).optional(),
-  series: z.string().max(10).optional().default('A'),
+  series: z.string().trim().regex(/^[A-Za-z0-9-_]{1,10}$/, 'Serie inválida').optional().default('A'),
   date: z.string().datetime().optional(),
   clientId: z.number().int().positive().optional(),
   clientName: z.string().min(1).max(150).optional(),
@@ -474,11 +474,29 @@ router.post('/', requireAnyPermission('ventas.escribir', 'compras.escribir'), as
   const hasSupplier = Boolean(data.supplierId || data.supplierName);
 
   const isDirectionalType = type === DocumentType.REMITO || type === DocumentType.FACTURA;
-  if (isDirectionalType && hasClient && hasSupplier) {
+  if (hasClient && hasSupplier) {
     res.status(400).json({
-      error: `Los comprobantes ${type} no pueden mezclar cliente y proveedor`,
+      error: 'Un comprobante no puede mezclar cliente y proveedor',
     });
     return;
+  }
+  // Derivation (source chaining, pending balances, inherited prices and the
+  // cancelled-source guard) only exists for the directional documents. A
+  // non-directional type that names an origin would mint a document pointing
+  // at a source nothing ever validates.
+  if (!isDirectionalType) {
+    if (data.sourceDocumentId) {
+      res.status(400).json({
+        error: 'Solo los REMITO y las FACTURA se crean derivados de otro comprobante',
+      });
+      return;
+    }
+    if (items.some((item) => item.sourceDocumentItemId !== undefined)) {
+      res.status(400).json({
+        error: 'Solo los documentos derivados indican líneas de origen',
+      });
+      return;
+    }
   }
   const direction: DocumentDirection | null = data.direction
     ?? (hasClient ? 'egreso' : hasSupplier ? 'ingreso' : null);

@@ -547,6 +547,30 @@ Server `tsc` 0; batería serial **77/75/1/1** (+2 tests de `documents-create-ide
 
 ---
 
+## 7quattuordecies. Deuda §8 — Validaciones de frontera en la creación (resuelto 2026-10-07)
+
+Tres deudas del create: (2) `COTIZACION` con `sourceDocumentId` derivaba sin que ningún bloque la validara (los checks direccionales estaban condicionados a `isDirectionalType`); (3) un comprobante no direccional aceptaba `clientId` y `supplierId` simultáneos; (4) `series` aceptaba cualquier texto ≤10 caracteres y creaba serie de contador nueva sin control.
+
+| Archivo | Cambio |
+|---|---|
+| `server/src/routes/documents.routes.ts` (schema) | `series` ahora se recorta y valida `^[A-Za-z0-9-_]{1,10}$` (400 `Serie inválida`); el `salePointSeries` de FACTURA (`0001`-style) y los `'A'` de la UI/camino público cumplen |
+| `server/src/routes/documents.routes.ts` (mix) | El rechazo 400 `Un comprobante no puede mezclar cliente y proveedor` deja de estar condicionado a tipos direccionales: aplica a todo documento |
+| `server/src/routes/documents.routes.ts` (derivación) | Para tipos no direccionales: `sourceDocumentId` → 400 `Solo los REMITO y las FACTURA se crean derivados de otro comprobante`; cualquier `sourceDocumentItemId` en las líneas → 400 `Solo los documentos derivados indican líneas de origen` (antes se ignoraba en silencio) |
+| `server/test/documents-create-validations.test.ts` | **Nuevo**, e2e contra DB real: OC con cliente+proveedor → 400; `COTIZACION` derivada de una OC → 400; `VENTA` con línea de origen → 400; series `'C 1'` (espacio) y `'É'` (no-ASCII) → 400; serie `' B '` → 201 y queda `'B'` (trim). Cleanup de los documentos creados |
+| `server/test/documents-header-snapshot.unit.test.ts` | El fixture del POST genérico usaba OC con cliente+proveedor a la vez para congelar ambos lados en un solo create; ahora es `PEDIDO` con cliente (el lado proveedor sigue cubierto por el test de `/receive`). El mock de permisos pasa a `ventas.escribir` |
+
+### Reglas
+
+- **Una contraparte por comprobante**: cliente y proveedor son mutuamente excluyentes en toda la clase documento; la instantánea de cabecera cubre ambos lados en caminos distintos (ventas vs compras), nunca en el mismo documento.
+- **La derivación es privilegio de los direccionales**: `REMITO` y `FACTURA` tienen la cadena completa (lock, contraparte única, ramas, saldos, herencia de precios). Fuera de ellos, nombrar un origen es un 400 explícito.
+- **Sin migración**: validaciones de entrada, no cambios de esquema.
+
+### Evidencia
+
+Server `tsc` 0; batería serial **78/76/1/1** (+1 test; único fail: preexistente `branch-boundaries.test.ts:141`, de `/receive`, ajeno). Frontend: sin cambios.
+
+---
+
 ## 8. Deuda observada, fuera de alcance
 
 Registrada para no perderla. No corregir sin una unidad propia.
@@ -554,9 +578,9 @@ Registrada para no perderla. No corregir sin una unidad propia.
 | Hallazgo | Ubicación |
 |---|---|
 | `OC` creada por endpoint genérico sin `unitPrice` también cae a `salePrice`; es la misma clase de bug que el fix 3 de U1 | `documents.routes.ts:944` |
-| `COTIZACION` con `sourceDocumentId` no valida nada: el bloque de trazabilidad está condicionado a `isDirectionalType`, que es `false` para ese tipo | `documents.routes.ts:684` |
-| Tipos no direccionales aceptan `clientId` y `supplierId` simultáneamente sin rechazo | `documents.routes.ts:439` |
-| `series` nunca se valida: cualquier texto de ≤10 caracteres crea una serie de contador nueva | `documents.routes.ts:1029`, `numbering.ts:26-45` |
+| `COTIZACION` con `sourceDocumentId` no valida nada: el bloque de trazabilidad está condicionado a `isDirectionalType`, que es `false` para ese tipo | Resuelto (2026-10-07) — fuera de los direccionales el origen es un 400 explícito; ver §7quattuordecies |
+| Tipos no direccionales aceptan `clientId` y `supplierId` simultáneamente sin rechazo | Resuelto (2026-10-07) — 400 en toda la clase documento; ver §7quattuordecies |
+| `series` nunca se valida: cualquier texto de ≤10 caracteres crea una serie de contador nueva | Resuelto (2026-10-07) — trim + `^[A-Za-z0-9-_]{1,10}$`; ver §7quattuordecies |
 | `/receive` es el único camino con idempotencia; el POST genérico descarta `idempotencyKey` porque no está en el schema Zod → doble clic duplica documento | Resuelto (2026-10-07) — `POST /api/documents` acepta `idempotencyKey` (uuid opcional) con replay y carrera cubierta por el índice único; ver §7tredecies |
 | `unitPrice`, `taxRate` y `discount` enviados sobre un documento derivado se **ignoran en silencio**; la UI coopera, pero un cliente API incorrecto recibe 200 con datos equivocados | Resuelto (2026-10-07) — un override que no coincide con el valor heredado es 400; ver §7tredecies |
 | `PATCH /:id/external` fabrica `invoiceType: 'X'` si la factura no tiene `InvoiceData`, e ignora la contradicción con el maestro de proveedor | `documents.routes.ts:1654`, `:1754` |
