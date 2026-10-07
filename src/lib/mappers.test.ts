@@ -87,6 +87,7 @@ describe('toFrontPurchaseOrder', () => {
     expect(toFrontPurchaseOrder(sampleDocument).receiptStatus).toBe('Pendiente');
     expect(toFrontPurchaseOrder({ ...sampleDocument, status: 'Abierto' }).receiptStatus).toBe('Pendiente');
     expect(toFrontPurchaseOrder({ ...sampleDocument, status: 'Abierto' }).paymentStatus).toBe('No Pagado');
+    expect(toFrontPurchaseOrder({ ...sampleDocument, status: 'Anulado' }).status).toBe('Anulado');
   });
 
   it('keeps a paid COMPRA received and paid independently of status', () => {

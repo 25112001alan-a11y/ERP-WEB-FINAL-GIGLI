@@ -81,6 +81,7 @@ export interface PurchaseOrder extends DocumentHeaderSnapshot {
   subtotal: number;
   totalTax: number;
   total: number;
+  status: string;
   receiptStatus: 'Pendiente' | 'Parcial' | 'Recibido';
   paymentStatus: 'Pagado' | 'No Pagado';
   hasExternalVoucher?: boolean;

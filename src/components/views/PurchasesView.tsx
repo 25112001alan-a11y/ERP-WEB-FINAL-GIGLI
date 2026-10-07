@@ -88,6 +88,20 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ orders, suppliers,
     }
   };
 
+  const handleAnular = async (order: PurchaseOrder) => {
+    closeDropdown();
+    if (!window.confirm(`¿Anular la orden de compra ${order.id} de ${order.supplier}? Esta acción no se puede deshacer.`)) return;
+    try {
+      await apiFetch(`/api/documents/${order.documentId}/status`, {
+        method: 'PATCH',
+        body: { status: 'Anulado' },
+      });
+      onSupplierCreated();
+    } catch (err) {
+      console.error('Error anulando orden:', err);
+    }
+  };
+
   const handleCreateSupplier = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newSupplier.name.trim()) {
@@ -251,14 +265,16 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ orders, suppliers,
                         <td className="py-sm px-xs text-center">
                           <span
                             className={`inline-flex items-center px-2 py-1 rounded-full text-label-md font-label-md text-[10px] uppercase tracking-wider ${
-                              merged.receiptStatus === 'Recibido'
+                              merged.status === 'Anulado'
+                                ? 'bg-error-container text-on-error-container'
+                                : merged.receiptStatus === 'Recibido'
                                 ? 'bg-tertiary-container text-on-tertiary-container'
                                 : merged.receiptStatus === 'Parcial'
                                 ? 'bg-secondary-container/20 text-secondary-container'
                                 : 'bg-surface-container-high text-on-surface-variant'
                             }`}
                           >
-                            {merged.receiptStatus}
+                            {merged.status === 'Anulado' ? 'Anulado' : merged.receiptStatus}
                           </span>
                         </td>
                         <td className="py-sm px-xs text-center">
@@ -351,6 +367,19 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ orders, suppliers,
                                   <span className="material-symbols-outlined text-[16px] inline-block align-middle mr-2">content_copy</span>
                                   Duplicar
                                 </button>
+                                {merged.type === 'OC' && merged.status !== 'Anulado' && (
+                                  <>
+                                    <div className="my-1 border-t border-outline-variant/20" />
+                                    <button
+                                      onClick={() => void handleAnular(merged)}
+                                      className="w-full px-md py-sm text-left font-body-md text-body-md text-error hover:bg-error-container/30 cursor-pointer"
+                                      role="menuitem"
+                                    >
+                                      <span className="material-symbols-outlined text-[16px] inline-block align-middle mr-2">block</span>
+                                      Anular
+                                    </button>
+                                  </>
+                                )}
                               </div>
                             )}
                           </div>

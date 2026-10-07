@@ -315,9 +315,10 @@ router.get('/:id', requireAnyPermission('ventas.leer', 'compras.leer'), async (r
 });
 
 /**
- * PATCH /api/documents/:id/status — PEDIDO lifecycle only:
- *   Abierto → En Proceso, either → Anulado before physical dispatch.
- * Enviado is assigned only by the final PEDIDO-derived REMITO transaction.
+ * PATCH /api/documents/:id/status — lifecycle for PEDIDO and OC:
+ *   PEDIDO: Abierto → En Proceso, either → Anulado before physical dispatch.
+ *     Enviado is assigned only by the final PEDIDO-derived REMITO transaction.
+ *   OC: Abierto → Anulado before any receipt (or other derived document).
  */
 const pedidoStatusSchema = z.object({
   status: z.enum(['En Proceso', 'Anulado']),
@@ -331,7 +332,17 @@ const PEDIDO_TRANSITIONS: Record<string, string[]> = {
   Anulado: [],
 };
 
-router.patch('/:id/status', requirePermission('ventas.escribir'), async (req, res) => {
+const OC_TRANSITIONS: Record<string, string[]> = {
+  Abierto: ['Anulado'],
+};
+
+function statusTransitionsFor(type: DocumentType): Record<string, string[]> | null {
+  if (type === DocumentType.PEDIDO) return PEDIDO_TRANSITIONS;
+  if (type === DocumentType.OC) return OC_TRANSITIONS;
+  return null;
+}
+
+router.patch('/:id/status', requireAnyPermission('ventas.escribir', 'compras.escribir'), async (req, res) => {
   const id = parsePositiveInt(req.params.id);
   if (id === null) {
     res.status(400).json({ error: 'Parámetro inválido' });
@@ -354,19 +365,32 @@ router.patch('/:id/status', requirePermission('ventas.escribir'), async (req, re
       select: { id: true, type: true, status: true, series: true, number: true },
     });
     if (!document) throw Object.assign(new Error('Comprobante no encontrado'), { status: 404 });
-    if (document.type !== DocumentType.PEDIDO) {
-      throw Object.assign(new Error('Solo los PEDIDO cambian de estado por esta vía'), { status: 400 });
+    // The route is shared by sales and purchases; enforce the permission of the
+    // document's own domain instead of the caller's least specific one.
+    const requiredPermission = DOCUMENT_PERMISSION[document.type];
+    if (requiredPermission && !(await getUserPermissions(req)).has(requiredPermission)) {
+      throw Object.assign(new Error(`Permiso requerido: ${requiredPermission}`), { status: 403 });
     }
-    const allowed = PEDIDO_TRANSITIONS[document.status] ?? [];
+    const transitions = statusTransitionsFor(document.type);
+    if (!transitions) {
+      throw Object.assign(new Error('Solo los PEDIDO y las OC cambian de estado por esta vía'), { status: 400 });
+    }
+    const allowed = transitions[document.status] ?? [];
     if (!allowed.includes(next)) {
       throw Object.assign(new Error(`Transición no permitida de ${document.status} a ${next}`), {
         status: 400,
       });
     }
     if (next === 'Anulado' && await tx.document.count({
-      where: { companyId: req.authUser!.companyId, sourceDocumentId: id, type: DocumentType.REMITO },
+      where: {
+        companyId: req.authUser!.companyId,
+        sourceDocumentId: id,
+        // A PEDIDO can only be blocked by dispatched REMITOs; an OC is blocked
+        // by any derived document (a receipt, or a future derived invoice).
+        ...(document.type === DocumentType.PEDIDO ? { type: DocumentType.REMITO } : {}),
+      },
     }) > 0) {
-      throw Object.assign(new Error('No se puede anular un PEDIDO con remitos despachados'), { status: 409 });
+      throw Object.assign(new Error('No se puede anular un comprobante con documentos derivados'), { status: 409 });
     }
     const updated = await tx.document.update({ where: { id }, data: { status: next } });
     await logAudit(
@@ -374,11 +398,11 @@ router.patch('/:id/status', requirePermission('ventas.escribir'), async (req, re
       req.authUser!.companyId,
       req.authUser!.userId,
       {
-        action: 'Cambio de estado de Pedido',
-        module: 'Ventas',
+        action: 'Cambio de estado de comprobante',
+        module: requiredPermission === 'compras.escribir' ? 'Compras' : 'Ventas',
         entity: 'Document',
         entityId: id,
-        details: `PEDIDO ${document.series}-${String(document.number).padStart(4, '0')}: ${document.status} → ${next}`,
+        details: `${document.type} ${document.series}-${String(document.number).padStart(4, '0')}: ${document.status} → ${next}`,
       },
       clientIp(req),
     );

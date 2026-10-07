@@ -217,6 +217,7 @@ export function toFrontPurchaseOrder(d: ApiDocument): PurchaseOrder {
     subtotal: Number(d.subtotal),
     totalTax: Number(d.totalTax),
     total: Number(d.total),
+    status: d.status,
     // A COMPRA is itself the physical receipt (it raises ENTRADA movements), so its
     // receipt badge is received by definition. Payment is a separate fact read from
     // status; routing a paid COMPRA through RECEIPT_STATUS would show it as pending.
