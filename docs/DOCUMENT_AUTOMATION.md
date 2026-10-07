@@ -638,6 +638,27 @@ Server `tsc` 0; batería serial **82/80/1/1** (+1 test; único fail: preexistent
 
 ---
 
+## 7duodevicens. Deuda §8 — Public store: shopper Persona y líneas sin descuento inventado (resuelto 2026-10-07)
+
+El checkout público (`POST /api/public/store/:slug/orders`) creaba el cliente con `type: 'Mayorista'` contra el default del esquema (`Persona`) y fijaba `discount: 0` línea por línea. Un comprador de la tienda es una persona minorista, no un mayorista consciente; y el descuento no existe a nivel producto, así que el hardcode era ruido.
+
+| Archivo | Cambio |
+|---|---|
+| `server/src/routes/public.routes.ts` (client create) | Se omite `type`: aplica el default del esquema `Persona`. El alta mayorista es decisión consciente desde la pantalla de clientes, nunca del checkout |
+| `server/src/routes/public.routes.ts` (líneas) | Se elimina el `discount: 0` hardcodeado; aplica el default `0` del item. `Product` no tiene descuento de catálogo, así que no hay valor que propagar |
+| `server/test/public-store-client-type.test.ts` | **Nuevo**, e2e sin auth: el pedido crea el cliente con `type: 'Persona'` y las líneas quedan con `discount 0` y el precio de catálogo |
+
+### Reglas
+
+- **Shopper = Persona por default**; un mayorista se marca desde la gestión de clientes.
+- **Sin descuento de catálogo, no se fabrica descuento**: la línea hereda el default `0` del esquema.
+
+### Evidencia
+
+Server `tsc` 0; batería serial **83/81/1/1** (+1 test; único fail: preexistente `branch-boundaries.test.ts:141`, de `/receive`, ajeno). Frontend: sin cambios. Con esta unidad, **la deuda §8 quedó cerrada en su totalidad** (filas 1-10).
+
+---
+
 ## 8. Deuda observada, fuera de alcance
 
 Registrada para no perderla. No corregir sin una unidad propia.
@@ -654,4 +675,4 @@ Registrada para no perderla. No corregir sin una unidad propia.
 | `externalNumber` es mutable después de la confirmación, contra la decisión 5 de `DOCUMENT_FLOW_PENDING.md` | Resuelto (2026-10-07) — captura confirmada (`InvoiceData.confirmedAt`) congela el número; ver §7sedecies |
 | `OC` no tiene endpoint de anulación; `PATCH /:id/status` es sólo de `PEDIDO`. El estado `Anulado` figura en la UI sin camino de escritura | Resuelto (2026-10-07) — `PATCH /:id/status` ahora acepta OC (Abierto→Anulado) con guard de derivados y permiso `compras.escribir`; ver §7duodecies |
 | `Payment.cashBoxId` existe y `CashBox` existe por sucursal, pero ningún camino de creación lo escribe | Resuelto (2026-10-07) — el efectivo se ata a la caja `Abierta` de la sucursal; métodos electrónicos sin caja; ver §7septendecies |
-| `POST /api/public/store/:slug/orders` fija `discount: 0` en toda línea y `client.type: 'Mayorista'`, en contraste con el default `'Persona'` | `public.routes.ts:118`, `:132` |
+| `POST /api/public/store/:slug/orders` fija `discount: 0` en toda línea y `client.type: 'Mayorista'`, en contraste con el default `'Persona'` | Resuelto (2026-10-07) — shopper `Persona` por default; sin descuento de catálogo no se inventa; ver §7duodevicens |

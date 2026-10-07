@@ -110,6 +110,8 @@ router.post('/store/:slug/orders', async (req, res) => {
       const taxAmount = (lineTotal * Number(product.tax.rate)) / 100;
       subtotal += lineTotal;
       totalTax += taxAmount;
+      // No catalog discount exists on Product, so every line keeps the schema
+      // default (0): the storefront never invents a discount for the order.
       lines.push({
         productId: product.id,
         sku: product.internalCode,
@@ -118,7 +120,6 @@ router.post('/store/:slug/orders', async (req, res) => {
         quantity: item.quantity,
         unitPrice: Number(product.salePrice),
         taxRate: Number(product.tax.rate),
-        discount: 0,
         lineTotal,
       });
     }
@@ -128,11 +129,12 @@ router.post('/store/:slug/orders', async (req, res) => {
       ? await tx.client.findFirst({ where: { companyId, email: data.clientEmail } })
       : await tx.client.findFirst({ where: { companyId, name: data.clientName } });
     if (!client) {
+      // A storefront shopper is a retail person by default; wholesale is only
+      // assigned consciously from the clients screen, never by checkout.
       client = await tx.client.create({
         data: {
           companyId,
           name: data.clientName,
-          type: 'Mayorista',
           email: data.clientEmail ?? null,
           phone: data.clientPhone ?? null,
         },
