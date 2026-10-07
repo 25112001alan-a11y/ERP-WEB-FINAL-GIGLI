@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { formatMoney } from '../../lib/format';
 import { ViewPath, PurchaseOrder, Supplier } from '../../types';
 import { SupplierVoucherModal, SupplierVoucherData } from '../SupplierVoucherModal';
 import { apiFetch } from '../../lib/api';
@@ -17,9 +18,9 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ orders, suppliers,
   const [poSearch, setPoSearch] = useState('');
   const [supplierSearch, setSupplierSearch] = useState('');
   const [voucherOverrides, setVoucherOverrides] = useState<Record<number, Partial<PurchaseOrder>>>({});
-  const [editingDoc, setEditingDoc] = useState<{ documentId: number; label: string; data: SupplierVoucherData } | null>(null);
+  const [editingDoc, setEditingDoc] = useState<{ documentId: number; label: string; total: number; data: SupplierVoucherData } | null>(null);
   const [showNewSupplier, setShowNewSupplier] = useState(false);
-  const [newSupplier, setNewSupplier] = useState({ name: '', taxId: '', email: '', phone: '' });
+  const [newSupplier, setNewSupplier] = useState({ name: '', taxId: '', email: '', phone: '', address: '', province: '', postalCode: '', taxCondition: '' });
   const [supplierSaving, setSupplierSaving] = useState(false);
   const [supplierError, setSupplierError] = useState('');
 
@@ -50,20 +51,6 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ orders, suppliers,
 
   const closeDropdown = () => setDropdownAnchor(null);
 
-  const handleVer = (order: PurchaseOrder) => {
-    closeDropdown();
-    // TODO: navigate to detail view when it exists
-    console.log('Ver', order.id);
-  };
-
-  const handleEditar = (order: PurchaseOrder) => {
-    closeDropdown();
-    if (order.paymentStatus === 'No Pagado' || order.receiptStatus === 'Pendiente') {
-      // TODO: navigate to edit view when it exists
-      console.log('Editar', order.id);
-    }
-  };
-
   const handleDuplicar = async (order: PurchaseOrder) => {
     closeDropdown();
     try {
@@ -86,23 +73,6 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ orders, suppliers,
     }
   };
 
-  const handleAnular = async (order: PurchaseOrder) => {
-    closeDropdown();
-    if (order.paymentStatus === 'Pagado' && order.receiptStatus === 'Recibido') return;
-    try {
-      await apiFetch(`/api/documents/${order.documentId}`, {
-        method: 'PATCH',
-        body: { status: 'Anulado' },
-      });
-      onSupplierCreated();
-    } catch (err) {
-      console.error('Error anulando orden:', err);
-    }
-  };
-
-  const canEdit = (order: PurchaseOrder) => order.paymentStatus === 'No Pagado' || order.receiptStatus === 'Pendiente';
-  const canAnular = (order: PurchaseOrder) => order.paymentStatus !== 'Pagado' && order.receiptStatus !== 'Recibido';
-
   const handleCreateSupplier = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newSupplier.name.trim()) {
@@ -119,10 +89,14 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ orders, suppliers,
           taxId: newSupplier.taxId.trim() || undefined,
           email: newSupplier.email.trim() || '',
           phone: newSupplier.phone.trim() || undefined,
+          address: newSupplier.address.trim() || undefined,
+          province: newSupplier.province.trim() || undefined,
+          postalCode: newSupplier.postalCode.trim() || undefined,
+          taxCondition: newSupplier.taxCondition.trim() || undefined,
         },
       });
       setShowNewSupplier(false);
-      setNewSupplier({ name: '', taxId: '', email: '', phone: '' });
+      setNewSupplier({ name: '', taxId: '', email: '', phone: '', address: '', province: '', postalCode: '', taxCondition: '' });
       onSupplierCreated();
     } catch (err) {
       setSupplierError(err instanceof Error ? err.message : 'No se pudo crear el proveedor.');
@@ -167,7 +141,7 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ orders, suppliers,
               className="flex items-center gap-sm px-md py-sm bg-surface text-on-surface font-label-md text-label-md uppercase tracking-wider rounded-lg shadow-sm hover:shadow-md transition-shadow cursor-pointer border border-outline-variant/30"
             >
               <span className="material-symbols-outlined text-[18px]">receipt_long</span>
-              Registrar Factura
+              Registrar Factura (simulada · sin validez fiscal)
             </button>
             <button
               onClick={() => onNavigate('registrar-remito')}
@@ -255,7 +229,7 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ orders, suppliers,
                             <span className="ml-1 text-xs text-on-surface-variant">({merged.externalNumber})</span>
                           )}
                         </td>
-                        <td className="py-sm px-xs text-right font-mono-sm text-mono-sm">${merged.total.toFixed(2)}</td>
+                        <td className="py-sm px-xs text-right font-mono-sm text-mono-sm">{formatMoney(merged.total)}</td>
                         <td className="py-sm px-xs text-center">
                           <span
                             className={`inline-flex items-center px-2 py-1 rounded-full text-label-md font-label-md text-[10px] uppercase tracking-wider ${
@@ -295,11 +269,20 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ orders, suppliers,
                               title="Documento del proveedor"
                               onClick={(e) => {
                                 e.stopPropagation();
+                                const supplierTaxId = suppliers.find((s) => s.name === merged.supplier)?.taxId;
                                 setEditingDoc({
                                   documentId: merged.documentId,
-                                  label: merged.id,
+                                  label: merged.supplier,
+                                  total: merged.total,
                                   data: {
                                     externalNumber: merged.externalNumber,
+                                    // Prefill from the masters so a failed detail fetch
+                                    // cannot leave the voucher identity blank.
+                                    supplierCuit: supplierTaxId ?? undefined,
+                                    supplierName: merged.supplier,
+                                    externalSubtotal: merged.subtotal,
+                                    externalTax: merged.totalTax,
+                                    externalTotal: merged.total,
                                   },
                                 });
                               }}
@@ -330,24 +313,6 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ orders, suppliers,
                                 role="menu"
                               >
                                 <button
-                                  onClick={() => handleVer(merged)}
-                                  className="w-full px-md py-sm text-left font-body-md text-body-md text-on-surface hover:bg-surface-container-low cursor-pointer"
-                                  role="menuitem"
-                                >
-                                  <span className="material-symbols-outlined text-[16px] inline-block align-middle mr-2">visibility</span>
-                                  Ver
-                                </button>
-                                {canEdit(merged) && (
-                                  <button
-                                    onClick={() => handleEditar(merged)}
-                                    className="w-full px-md py-sm text-left font-body-md text-body-md text-on-surface hover:bg-surface-container-low cursor-pointer"
-                                    role="menuitem"
-                                  >
-                                    <span className="material-symbols-outlined text-[16px] inline-block align-middle mr-2">edit</span>
-                                    Editar
-                                  </button>
-                                )}
-                                <button
                                   onClick={() => handleDuplicar(merged)}
                                   className="w-full px-md py-sm text-left font-body-md text-body-md text-on-surface hover:bg-surface-container-low cursor-pointer"
                                   role="menuitem"
@@ -355,16 +320,6 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ orders, suppliers,
                                   <span className="material-symbols-outlined text-[16px] inline-block align-middle mr-2">content_copy</span>
                                   Duplicar
                                 </button>
-                                {canAnular(merged) && (
-                                  <button
-                                    onClick={() => handleAnular(merged)}
-                                    className="w-full px-md py-sm text-left font-body-md text-body-md text-error hover:bg-error-container/10 cursor-pointer"
-                                    role="menuitem"
-                                  >
-                                    <span className="material-symbols-outlined text-[16px] inline-block align-middle mr-2">cancel</span>
-                                    Anular
-                                  </button>
-                                )}
                               </div>
                             )}
                           </div>
@@ -453,7 +408,7 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ orders, suppliers,
                   <div key={name} className="flex flex-col gap-xs">
                     <div className="flex justify-between font-body-md text-xs">
                       <span className="font-semibold text-on-surface">{name}</span>
-                      <span className="text-on-surface-variant font-mono-sm">${total.toLocaleString('es-ES', { maximumFractionDigits: 0 })} ({pct}%)</span>
+                      <span className="text-on-surface-variant font-mono-sm">{formatMoney(total)} ({pct}%)</span>
                     </div>
                     <div className="h-3 w-full bg-surface-container-high rounded-full overflow-hidden">
                       <div
@@ -542,6 +497,47 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ orders, suppliers,
                   className="w-full bg-surface border border-outline-variant/50 rounded-lg px-md py-sm focus:border-primary outline-none"
                 />
               </div>
+
+              <div className="flex flex-col gap-xs sm:col-span-2">
+                <label className="font-label-md text-label-md text-on-surface-variant uppercase">Domicilio Fiscal</label>
+                <input
+                  type="text"
+                  value={newSupplier.address}
+                  onChange={(e) => setNewSupplier({ ...newSupplier, address: e.target.value })}
+                  placeholder="Opcional"
+                  className="w-full bg-surface border border-outline-variant/50 rounded-lg px-md py-sm focus:border-primary outline-none"
+                />
+              </div>
+              <div className="flex flex-col gap-xs">
+                <label className="font-label-md text-label-md text-on-surface-variant uppercase">Provincia</label>
+                <input
+                  type="text"
+                  value={newSupplier.province}
+                  onChange={(e) => setNewSupplier({ ...newSupplier, province: e.target.value })}
+                  placeholder="Opcional"
+                  className="w-full bg-surface border border-outline-variant/50 rounded-lg px-md py-sm focus:border-primary outline-none"
+                />
+              </div>
+              <div className="flex flex-col gap-xs">
+                <label className="font-label-md text-label-md text-on-surface-variant uppercase">Código Postal</label>
+                <input
+                  type="text"
+                  value={newSupplier.postalCode}
+                  onChange={(e) => setNewSupplier({ ...newSupplier, postalCode: e.target.value })}
+                  placeholder="Opcional"
+                  className="w-full bg-surface border border-outline-variant/50 rounded-lg px-md py-sm focus:border-primary outline-none"
+                />
+              </div>
+              <div className="flex flex-col gap-xs sm:col-span-2">
+                <label className="font-label-md text-label-md text-on-surface-variant uppercase">Condición frente al IVA</label>
+                <input
+                  type="text"
+                  value={newSupplier.taxCondition}
+                  onChange={(e) => setNewSupplier({ ...newSupplier, taxCondition: e.target.value })}
+                  placeholder="Opcional"
+                  className="w-full bg-surface border border-outline-variant/50 rounded-lg px-md py-sm focus:border-primary outline-none"
+                />
+              </div>
             </div>
 
             <div className="flex justify-end gap-md pt-sm border-t border-surface-container-high">
@@ -570,6 +566,7 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ orders, suppliers,
         <SupplierVoucherModal
           documentId={editingDoc.documentId}
           documentLabel={editingDoc.label}
+          documentTotal={editingDoc.total}
           data={editingDoc.data}
           onClose={() => setEditingDoc(null)}
           onSaved={(patch) => setVoucherOverrides((prev) => ({ ...prev, [editingDoc.documentId]: patch }))}

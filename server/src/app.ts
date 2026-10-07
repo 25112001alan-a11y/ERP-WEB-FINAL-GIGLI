@@ -3,6 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import authRoutes from './routes/auth.routes.js';
+import platformRoutes from './routes/platform.routes.js';
 import productsRoutes from './routes/products.routes.js';
 import stockRoutes from './routes/stock.routes.js';
 import clientsRoutes from './routes/clients.routes.js';
@@ -15,7 +16,7 @@ import auditRoutes from './routes/audit.routes.js';
 import companyRoutes from './routes/company.routes.js';
 import publicRoutes from './routes/public.routes.js';
 import billingRoutes from './routes/billing.routes.js';
-import { apiLimiter, loginLimiter, registerLimiter, publicLimiter } from './middleware/rateLimit.js';
+import { apiLimiter, loginLimiter, activationLimiter, registerLimiter, publicLimiter } from './middleware/rateLimit.js';
 
 export const app = express();
 
@@ -57,6 +58,12 @@ app.use(
 // _body guard makes the global JSON parser below skip this path).
 app.use('/api/billing/webhook', express.raw({ type: '*/*' }));
 
+// Cover parser errors, rate-limit rejections, and successful activation alike.
+app.use('/api/auth/activate-owner', (_req, res, next) => {
+  res.set('Cache-Control', 'no-store');
+  next();
+});
+
 // 1 MB covers every JSON payload this API accepts (documents with lines).
 app.use(express.json({ limit: '1mb' }));
 
@@ -73,10 +80,13 @@ app.get('/api/health', (_req, res) => {
 // with an authenticated, tenant-checked request (no public static directory).
 app.use('/api', apiLimiter);
 app.use('/api/auth/login', loginLimiter);
+app.use('/api/auth/activate-owner', activationLimiter);
+app.use('/api/platform/login', loginLimiter);
 app.use('/api/auth/register', registerLimiter);
 app.use('/api/public', publicLimiter);
 
 app.use('/api/auth', authRoutes);
+app.use('/api/platform', platformRoutes);
 app.use('/api/products', productsRoutes);
 app.use('/api/stock', stockRoutes);
 app.use('/api/clients', clientsRoutes);

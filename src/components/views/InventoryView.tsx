@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { formatMoney } from '../../lib/format';
 import { ViewPath, Product, WarehouseOption } from '../../types';
 import { branchStock, warehouseIdsForBranch } from '../../lib/branch';
 
@@ -233,18 +234,14 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                 <tr key={product.id} className="hover:bg-surface-container-low transition-colors group">
                   <td className="p-md flex items-center gap-md">
                     <div className="w-12 h-12 rounded-lg bg-surface-container overflow-hidden shrink-0 flex items-center justify-center">
-                      {product.imageUrl ? (
-                        <img src={product.imageUrl} alt={product.name} className="w-full h-full object-cover" />
-                      ) : (
-                        <span className="material-symbols-outlined text-outline">inventory_2</span>
-                      )}
+                      <span className="material-symbols-outlined text-outline">inventory_2</span>
                     </div>
                     <span className="font-medium text-on-surface truncate max-w-[220px]">{product.name}</span>
                   </td>
                   <td className="p-md text-on-surface-variant font-mono-sm text-mono-sm">{product.sku}</td>
                   <td className="p-md">{product.category}</td>
                   <td className="p-md text-right font-medium">{displayStock(product)}</td>
-                  <td className="p-md text-right text-on-surface-variant">${product.price.toFixed(2)}</td>
+                  <td className="p-md text-right text-on-surface-variant">{formatMoney(product.price)}</td>
                   <td className="p-md text-center">
                     {displayStock(product) > product.minStock ? (
                       <span className="inline-flex items-center gap-xs px-sm py-xs rounded-full bg-tertiary-container/10 text-on-tertiary-container font-label-md text-label-md">

@@ -4,6 +4,8 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { requireAuth, requirePermission, tenantWhere, getUserPermissions, PLATFORM_ONLY_PERMISSIONS } from '../middleware/auth.js';
 import { logAudit, clientIp } from '../lib/audit.js';
+import { parseBody } from '../lib/parseBody.js';
+import { parsePagination, paginateResponse } from '../lib/params.js';
 
 const router = Router();
 
@@ -27,8 +29,8 @@ router.get('/roles', requirePermission('usuarios.leer'), async (req, res) => {
       id: r.id,
       name: r.name,
       description: r.description,
-      permissions: r.permissions.map((rp) => rp.permission.name),
-      permissionCount: r.permissions.length,
+      permissions: r.permissions.map((rp) => rp.permission.name).filter((name) => !PLATFORM_ONLY_PERMISSIONS.includes(name)),
+      permissionCount: r.permissions.filter((rp) => !PLATFORM_ONLY_PERMISSIONS.includes(rp.permission.name)).length,
       userCount: r._count.users,
     })),
   );
@@ -40,22 +42,15 @@ router.get('/permissions', requirePermission('usuarios.leer'), async (req, res) 
     select: { id: true, name: true, description: true },
     orderBy: { name: 'asc' },
   });
-  // Platform-only permissions (e.g. billing.manage) are hidden from
-  // requesters who don't hold them, so company owners can't even see —
-  // let alone re-grant — cross-tenant access.
-  const held = await getUserPermissions(req);
-  res.json(permissions.filter((p) => held.has(p.name) || !PLATFORM_ONLY_PERMISSIONS.includes(p.name)));
+  res.json(permissions.filter((p) => !PLATFORM_ONLY_PERMISSIONS.includes(p.name)));
 });
 
 /**
- * Platform-only permission names in `names` that the requester does NOT
- * hold — granting any of these would be a self-grant privilege escalation.
+ * A role manager cannot grant permissions they do not already hold.
  */
-async function unheldPlatformOnly(req: Parameters<typeof getUserPermissions>[0], names: string[]): Promise<string[]> {
-  const wanted = [...new Set(names)].filter((n) => PLATFORM_ONLY_PERMISSIONS.includes(n));
-  if (wanted.length === 0) return [];
+async function unheldPermissions(req: Parameters<typeof getUserPermissions>[0], names: string[]): Promise<string[]> {
   const held = await getUserPermissions(req);
-  return wanted.filter((n) => !held.has(n));
+  return [...new Set(names)].filter((n) => !held.has(n));
 }
 
 const roleSchema = z.object({
@@ -74,13 +69,14 @@ async function resolvePermissionsOrNull(tx: { permission: { findMany: typeof pri
 
 /** POST /api/users/roles — create a FULLY CUSTOM role from the global catalog */
 router.post('/roles', requirePermission('usuarios.escribir'), async (req, res) => {
-  const parsed = roleSchema.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
+  const data = parseBody(res, roleSchema, req.body);
+  if (!data) return;
+  const companyId = req.authUser!.companyId;
+  const { name, description, permissionNames } = data;
+  if (name === 'Super Admin') {
+    res.status(403).json({ error: 'El rol Super Admin está reservado' });
     return;
   }
-  const companyId = req.authUser!.companyId;
-  const { name, description, permissionNames } = parsed.data;
 
   const duplicate = await prisma.role.findFirst({ where: { companyId, name } });
   if (duplicate) {
@@ -94,9 +90,9 @@ router.post('/roles', requirePermission('usuarios.escribir'), async (req, res) =
     return;
   }
 
-  const forbidden = await unheldPlatformOnly(req, permissionNames);
+  const forbidden = await unheldPermissions(req, permissionNames);
   if (forbidden.length > 0) {
-    res.status(400).json({ error: `Permiso reservado a la plataforma: ${forbidden.join(', ')}` });
+    res.status(400).json({ error: `Permiso no autorizado: ${forbidden.join(', ')}` });
     return;
   }
 
@@ -135,11 +131,8 @@ const patchRoleSchema = roleSchema.partial().extend({
 
 /** PATCH /api/users/roles/:id — rename + replace permission set (Super Admin keeps full set) */
 router.patch('/roles/:id', requirePermission('usuarios.escribir'), async (req, res) => {
-  const parsed = patchRoleSchema.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
-    return;
-  }
+  const data = parseBody(res, patchRoleSchema, req.body);
+  if (!data) return;
   const companyId = req.authUser!.companyId;
   const roleId = Number(req.params.id);
   if (!Number.isInteger(roleId) || roleId <= 0) {
@@ -156,13 +149,17 @@ router.patch('/roles/:id', requirePermission('usuarios.escribir'), async (req, r
   }
 
   const isSuperAdmin = role.name === 'Super Admin';
-  if (isSuperAdmin && parsed.data.name !== undefined && parsed.data.name !== role.name) {
+  if (isSuperAdmin && data.name !== undefined && data.name !== role.name) {
     res.status(400).json({ error: "El rol 'Super Admin' no puede renombrarse" });
     return;
   }
-  if (parsed.data.name !== undefined) {
+  if (!isSuperAdmin && data.name === 'Super Admin') {
+    res.status(403).json({ error: 'El rol Super Admin está reservado' });
+    return;
+  }
+  if (data.name !== undefined) {
     const clash = await prisma.role.findFirst({
-      where: { companyId, name: parsed.data.name, id: { not: roleId } },
+      where: { companyId, name: data.name, id: { not: roleId } },
     });
     if (clash) {
       res.status(409).json({ error: 'Ya existe un rol con ese nombre' });
@@ -171,22 +168,20 @@ router.patch('/roles/:id', requirePermission('usuarios.escribir'), async (req, r
   }
 
   let catalog: { id: number; name: string }[] | null = null;
-  if (parsed.data.permissionNames !== undefined) {
-    const resolved = await resolvePermissionsOrNull(prisma, parsed.data.permissionNames);
+  if (data.permissionNames !== undefined) {
+    const resolved = await resolvePermissionsOrNull(prisma, data.permissionNames);
     if (!resolved) {
       res.status(400).json({ error: 'Permiso desconocido en permissionNames' });
       return;
     }
     catalog = resolved;
-    const forbidden = await unheldPlatformOnly(req, parsed.data.permissionNames);
+    const forbidden = await unheldPermissions(req, data.permissionNames);
     if (forbidden.length > 0) {
-      res.status(400).json({ error: `Permiso reservado a la plataforma: ${forbidden.join(', ')}` });
+      res.status(400).json({ error: `Permiso no autorizado: ${forbidden.join(', ')}` });
       return;
     }
     if (isSuperAdmin) {
-      // The owner Super Admin legitimately lacks platform-only permissions,
-      // so the invariant is "must keep every non-platform permission".
-      // (Extras are allowed: platform staff Super Admins keep billing.manage.)
+      // Legacy platform permissions are never part of the tenant role contract.
       const required = await prisma.permission.findMany({
         where: { name: { notIn: PLATFORM_ONLY_PERMISSIONS } },
         select: { name: true },
@@ -210,8 +205,8 @@ router.patch('/roles/:id', requirePermission('usuarios.escribir'), async (req, r
     const next = await tx.role.update({
       where: { id: roleId },
       data: {
-        ...(parsed.data.name !== undefined ? { name: parsed.data.name } : {}),
-        ...(parsed.data.description !== undefined ? { description: parsed.data.description ?? null } : {}),
+        ...(data.name !== undefined ? { name: data.name } : {}),
+        ...(data.description !== undefined ? { description: data.description ?? null } : {}),
       },
       select: {
         id: true,
@@ -240,7 +235,7 @@ router.patch('/roles/:id', requirePermission('usuarios.escribir'), async (req, r
     id: updated.id,
     name: updated.name,
     description: updated.description,
-    permissions: updated.permissions.map((rp) => rp.permission.name),
+    permissions: updated.permissions.map((rp) => rp.permission.name).filter((name) => !PLATFORM_ONLY_PERMISSIONS.includes(name)),
   });
 });
 
@@ -292,6 +287,11 @@ router.delete('/roles/:id', requirePermission('usuarios.escribir'), async (req, 
 
 /** GET /api/users — tenant-scoped users with roles and last access */
 router.get('/', requirePermission('usuarios.leer'), async (req, res) => {
+  const pagination = parsePagination(req.query);
+  if (pagination !== null && 'error' in pagination) {
+    res.status(400).json({ error: pagination.error });
+    return;
+  }
   const users = await prisma.user.findMany({
     where: tenantWhere(req),
     select: {
@@ -309,21 +309,20 @@ router.get('/', requirePermission('usuarios.leer'), async (req, res) => {
     orderBy: { createdAt: 'asc' },
   });
 
-  res.json(
-    users.map((u) => ({
-      id: u.id,
-      firstName: u.firstName,
-      lastName: u.lastName,
-      name: `${u.firstName} ${u.lastName}`,
-      email: u.email,
-      status: u.status,
-      createdAt: u.createdAt,
-      lastAccess: u.lastAccess,
-      branchId: u.branchId,
-      branch: u.branch,
-      roles: u.roles.map((ur) => ur.role.name),
-    })),
-  );
+  const shaped = users.map((u) => ({
+    id: u.id,
+    firstName: u.firstName,
+    lastName: u.lastName,
+    name: `${u.firstName} ${u.lastName}`,
+    email: u.email,
+    status: u.status,
+    createdAt: u.createdAt,
+    lastAccess: u.lastAccess,
+    branchId: u.branchId,
+    branch: u.branch,
+    roles: u.roles.map((ur) => ur.role.name),
+  }));
+  res.json(pagination ? paginateResponse(shaped, pagination) : shaped);
 });
 
 const createUserSchema = z.object({
@@ -332,21 +331,9 @@ const createUserSchema = z.object({
   email: z.string().email('Email inválido'),
   password: z.string().min(8, 'La contraseña debe tener al menos 8 caracteres').max(100),
   roleId: z.number().int().positive(),
-  // Branch lock: null = all-access (owner). Only a Super Admin may set it.
+  // A null branch grants no branch access unless the user holds Super Admin.
   branchId: z.number().int().positive().nullable().optional(),
 });
-
-/**
- * True when the caller holds the Super Admin role in their company.
- * Branch assignment is an ownership act, not a regular 'usuarios.escribir' one.
- */
-async function callerIsSuperAdmin(companyId: number, userId: number): Promise<boolean> {
-  const caller = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { roles: { select: { role: { select: { name: true } } } } },
-  });
-  return caller?.roles.some((ur) => ur.role.name === 'Super Admin') ?? false;
-}
 
 async function resolveBranchOr400(companyId: number, branchId: number | null | undefined) {
   if (branchId === undefined || branchId === null) return null;
@@ -356,12 +343,8 @@ async function resolveBranchOr400(companyId: number, branchId: number | null | u
 
 /** POST /api/users — creates a user inside the caller's company with a role */
 router.post('/', requirePermission('usuarios.escribir'), async (req, res) => {
-  const parsed = createUserSchema.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
-    return;
-  }
-  const data = parsed.data;
+  const data = parseBody(res, createUserSchema, req.body);
+  if (!data) return;
   const companyId = req.authUser!.companyId;
 
   const existing = await prisma.user.findUnique({ where: { email: data.email } });
@@ -377,10 +360,24 @@ router.post('/', requirePermission('usuarios.escribir'), async (req, res) => {
     res.status(400).json({ error: 'Rol no válido' });
     return;
   }
+  if (role.name === 'Super Admin' && !req.authUser!.isOwner) {
+    res.status(403).json({ error: 'Solo el Super Admin puede asignar este rol' });
+    return;
+  }
+  if (!req.authUser!.isOwner) {
+    const targetPermissions = await prisma.rolePermission.findMany({
+      where: { roleId: role.id }, select: { permission: { select: { name: true } } },
+    });
+    const unheld = await unheldPermissions(req, targetPermissions.map((rp) => rp.permission.name));
+    if (unheld.length > 0) {
+      res.status(403).json({ error: 'No podés asignar un rol con permisos que no tenés' });
+      return;
+    }
+  }
 
   // Only a Super Admin may lock a user to a branch.
   if (data.branchId !== undefined && data.branchId !== null) {
-    if (!(await callerIsSuperAdmin(companyId, req.authUser!.userId))) {
+    if (!req.authUser!.isOwner) {
       res.status(403).json({ error: 'Solo el Super Admin puede asignar sucursal' });
       return;
     }
@@ -434,19 +431,16 @@ router.post('/', requirePermission('usuarios.escribir'), async (req, res) => {
 });
 
 const setBranchSchema = z.object({
-  // null = unlock (all-access / owner behavior).
+  // null clears the assignment; only Super Admin retains all-branch access.
   branchId: z.number().int().positive().nullable(),
 });
 
 /** PATCH /api/users/:id/branch — lock/unlock a user to a branch (Super Admin only) */
 router.patch('/:id/branch', requirePermission('usuarios.escribir'), async (req, res) => {
-  const parsed = setBranchSchema.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
-    return;
-  }
+  const data = parseBody(res, setBranchSchema, req.body);
+  if (!data) return;
   const companyId = req.authUser!.companyId;
-  if (!(await callerIsSuperAdmin(companyId, req.authUser!.userId))) {
+  if (!req.authUser!.isOwner) {
     res.status(403).json({ error: 'Solo el Super Admin puede asignar sucursal' });
     return;
   }
@@ -462,7 +456,7 @@ router.patch('/:id/branch', requirePermission('usuarios.escribir'), async (req, 
     return;
   }
 
-  const branch = await resolveBranchOr400(companyId, parsed.data.branchId);
+  const branch = await resolveBranchOr400(companyId, data.branchId);
   if (branch === 'invalid') {
     res.status(400).json({ error: 'Sucursal no válida para esta empresa' });
     return;

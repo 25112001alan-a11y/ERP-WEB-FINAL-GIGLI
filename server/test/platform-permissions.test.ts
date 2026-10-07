@@ -4,8 +4,7 @@ import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { app } from '../src/app.js';
 
-// Guards the platform/tenant boundary: company owners must never hold,
-// see, or self-grant billing.manage (cross-tenant overview gate).
+// Guards the tenant role contract; platform authority is a separate principal.
 
 let server: Server;
 let base: string;
@@ -95,7 +94,7 @@ test('owner cannot self-grant billing.manage via role create/update -> 400', asy
   assert.equal(patch.status, 200);
 });
 
-test('platform staff (ana.silva) keeps billing.manage: catalog + overview -> 200', async () => {
+test('legacy demo tenant role cannot expose billing.manage or access platform overview', async () => {
   const login = await api('/api/auth/login', {
     method: 'POST',
     body: JSON.stringify({ email: 'ana.silva@empresa.com', password: 'password123' }),
@@ -105,9 +104,8 @@ test('platform staff (ana.silva) keeps billing.manage: catalog + overview -> 200
 
   const perms = await api('/api/users/permissions', { headers: { authorization: auth } });
   assert.equal(perms.status, 200);
-  assert.ok(perms.body.some((p: { name: string }) => p.name === 'billing.manage'));
+  assert.ok(!perms.body.some((p: { name: string }) => p.name === 'billing.manage'));
 
   const overview = await api('/api/billing/admin/overview', { headers: { authorization: auth } });
-  assert.equal(overview.status, 200);
-  assert.ok(typeof overview.body.totals.companies === 'number');
+  assert.equal(overview.status, 403);
 });

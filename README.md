@@ -1,34 +1,39 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
-
 # Nexus ERP
 
-Sistema de gestión empresarial integral (SaaS ERP) con inventario, POS, compras, ventas, finanzas, pedidos públicos, reportes y configuración.
+An ERP web app with inventory, sales, purchasing, finance, and a separate Express API.
 
-View your app in AI Studio: https://ai.studio/apps/4b039737-0080-4aa5-8684-7b4de8e69ba4
+## Run locally
 
-## Run Locally
+You need Node.js 22.12+ (22.x) or 24+, npm, and a local MySQL database for the API. The frontend and API have separate dependency trees and lockfiles.
 
-**Prerequisites:** Node.js
+1. Install dependencies from the repository root:
 
-1. Install dependencies:
-   `npm install`
-2. Create your environment file from the example and set the values:
-   `copy .env.example .env`
-   - `GEMINI_API_KEY`: your Gemini API key, required for Gemini AI API calls.
-   - `APP_URL`: the URL where the app is hosted, used for self-referential links and API endpoints.
-3. Run the app in development mode (served at http://localhost:3000):
-   `npm run dev`
+   ```sh
+   npm ci
+   npm ci --prefix server
+   ```
 
-## Available Scripts
+2. Create `server/.env` (see `server/.env.example`) and set `DATABASE_URL` for your MySQL database and `JWT_SECRET` for signing tokens. The server reads its environment from the `server` working directory. On startup it applies pending migrations and seeds an empty database unless disabled by `SKIP_MIGRATIONS=true` or `SKIP_SEED=true`.
 
-- `npm run dev` — start the Vite dev server on port 3000 (0.0.0.0).
-- `npm run build` — build the app for production.
-- `npm run preview` — preview the production build locally.
-- `npm run lint` — type-check with `tsc --noEmit`.
-- `npm run clean` — remove `dist` and `server.js`.
+3. In separate terminals, from the repository root:
 
-## Deploy
+   ```sh
+   npm --prefix server run dev
+   npm run dev
+   ```
 
-When hosted in AI Studio, `GEMINI_API_KEY` and `APP_URL` are injected automatically at runtime from user secrets; no local `.env` is required in that environment.
+   Open http://localhost:3000. The API listens on http://localhost:3001 (`/api/health`). The frontend calls that API directly; Vite does not proxy requests. To use another API address, set `VITE_API_URL` for the frontend. If the frontend runs on a different origin, include it in the API's `CORS_ORIGINS` (comma-separated; default: `http://localhost:3000`).
+
+Use the server-prefixed command above to start the API: the root `npm run dev:server` script runs from the repository root, while the API bootstrap looks for Prisma under its working directory's `node_modules`.
+
+## Scripts
+
+| From the repository root | Purpose |
+| --- | --- |
+| `npm run dev` | Vite frontend on port 3000 |
+| `npm --prefix server run dev` | API on port 3001 by default |
+| `npm run build` / `npm run build:server` | Type-check and build frontend / compile API |
+| `npm run lint` / `npm run lint:server` | Type-check frontend / API |
+| `npm test` / `npm run test:server` | Run frontend / API tests |
+| `npm run preview` | Preview the built frontend (allow its origin in API CORS when needed) |
+| `npm run clean` | Remove build artifacts (uses `rm -rf`; requires a Unix-compatible shell) |

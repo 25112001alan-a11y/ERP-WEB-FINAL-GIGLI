@@ -1,14 +1,16 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
-import { requireAuth, requirePermission, tenantWhere } from '../middleware/auth.js';
+import { requireAuth, requirePermission, requireAssignedBranch, tenantWhere } from '../middleware/auth.js';
 import { logAudit, clientIp } from '../lib/audit.js';
 import { parsePositiveInt } from '../lib/params.js';
+import { parseBody } from '../lib/parseBody.js';
 
 const router = Router();
 
 router.use(requireAuth);
 router.use(requirePermission('inventario.leer'));
+router.use(requireAssignedBranch);
 
 const adjustSchema = z.object({
   productId: z.number().int().positive(),
@@ -31,7 +33,10 @@ router.get('/', async (req, res) => {
       ...(parsedWarehouseId !== undefined ? { warehouseId: parsedWarehouseId } : {}),
       // Stock has no companyId: tenancy resolves through product/warehouse relations.
       product: { companyId: req.authUser!.companyId },
-      warehouse: { companyId: req.authUser!.companyId },
+      warehouse: {
+        companyId: req.authUser!.companyId,
+        ...(!req.authUser!.isOwner ? { branchId: req.authUser!.branchId! } : {}),
+      },
     },
     include: {
       product: { select: { id: true, name: true, internalCode: true, salePrice: true } },
@@ -45,9 +50,12 @@ router.get('/', async (req, res) => {
 /** GET /api/stock/warehouses — tenant-scoped warehouse catalog (for receipt/transfer pickers).
  * Includes the parent branch so the frontend can offer a branch filter without
  * an extra endpoint. */
-router.get('/warehouses', async (_req, res) => {
+router.get('/warehouses', async (req, res) => {
   const warehouses = await prisma.warehouse.findMany({
-    where: { companyId: _req.authUser!.companyId },
+    where: {
+      companyId: req.authUser!.companyId,
+      ...(!req.authUser!.isOwner ? { branchId: req.authUser!.branchId! } : {}),
+    },
     include: { branch: { select: { id: true, name: true } } },
     orderBy: { name: 'asc' },
   });
@@ -59,12 +67,9 @@ router.get('/warehouses', async (_req, res) => {
  * Atomically updates the stock row and writes a StockMovement for traceability.
  */
 router.post('/adjust', requirePermission('inventario.escribir'), async (req, res) => {
-  const parsed = adjustSchema.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
-    return;
-  }
-  const { productId, warehouseId, delta, reason } = parsed.data;
+  const body = parseBody(res, adjustSchema, req.body);
+  if (!body) return;
+  const { productId, warehouseId, delta, reason } = body;
 
   const result = await prisma.$transaction(async (tx) => {
     const product = await tx.product.findFirst({
@@ -79,6 +84,9 @@ router.post('/adjust', requirePermission('inventario.escribir'), async (req, res
     });
     if (!warehouse) {
       throw Object.assign(new Error('Depósito no válido'), { status: 400 });
+    }
+    if (!req.authUser!.isOwner && warehouse.branchId !== req.authUser!.branchId) {
+      throw Object.assign(new Error('Depósito fuera de la sucursal asignada'), { status: 403 });
     }
 
     const stock = await tx.stock.findUnique({
@@ -149,12 +157,9 @@ const transferSchema = z.object({
  * atomically and writes a TRANSFERENCIA movement with both sides.
  */
 router.post('/transfer', requirePermission('inventario.escribir'), async (req, res) => {
-  const parsed = transferSchema.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
-    return;
-  }
-  const { productId, fromWarehouseId, toWarehouseId, quantity, reason } = parsed.data;
+  const body = parseBody(res, transferSchema, req.body);
+  if (!body) return;
+  const { productId, fromWarehouseId, toWarehouseId, quantity, reason } = body;
 
   if (fromWarehouseId === toWarehouseId) {
     res.status(400).json({ error: 'Los depósitos de origen y destino deben ser distintos' });
@@ -181,6 +186,10 @@ router.post('/transfer', requirePermission('inventario.escribir'), async (req, r
     if (!toWarehouse) {
       throw Object.assign(new Error('Depósito de destino no válido'), { status: 400 });
     }
+    if (!req.authUser!.isOwner &&
+        (fromWarehouse.branchId !== req.authUser!.branchId || toWarehouse.branchId !== req.authUser!.branchId)) {
+      throw Object.assign(new Error('Depósito fuera de la sucursal asignada'), { status: 403 });
+    }
 
     const fromStock = await tx.stock.findUnique({
       where: { productId_warehouseId: { productId, warehouseId: fromWarehouseId } },
@@ -190,18 +199,13 @@ router.post('/transfer', requirePermission('inventario.escribir'), async (req, r
         status: 404,
       });
     }
-    const currentFrom = Number(fromStock.quantity);
-    if (currentFrom < quantity) {
-      throw Object.assign(
-        new Error(`Stock insuficiente en origen (disponible: ${currentFrom})`),
-        { status: 409 },
-      );
-    }
-
-    await tx.stock.update({
-      where: { id: fromStock.id },
+    const updated = await tx.stock.updateMany({
+      where: { id: fromStock.id, quantity: { gte: quantity } },
       data: { quantity: { decrement: quantity } },
     });
+    if (updated.count === 0) {
+      throw Object.assign(new Error('Stock insuficiente en origen'), { status: 409 });
+    }
 
     const toStock = await tx.stock.findUnique({
       where: { productId_warehouseId: { productId, warehouseId: toWarehouseId } },

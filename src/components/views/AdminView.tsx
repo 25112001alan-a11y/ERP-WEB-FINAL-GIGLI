@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ViewPath, User, RoleOption, PermissionOption, BillingAdminOverview } from '../../types';
+import { ViewPath, User, RoleOption, PermissionOption } from '../../types';
 import { apiFetch, ApiError } from '../../lib/api';
 import { Modal } from '../Modal';
 
@@ -50,17 +50,8 @@ function describePermission(name: string, catalog: PermissionOption[]): string {
 }
 
 export const AdminView: React.FC<AdminViewProps> = ({ users, roles, permissions, onNavigate, onRolesChanged }) => {
-  const [activeTab, setActiveTab] = useState<'usuarios' | 'roles' | 'permisos' | 'billing'>('usuarios');
-  const canViewBilling = permissions.includes('billing.manage');
+  const [activeTab, setActiveTab] = useState<'usuarios' | 'roles' | 'permisos'>('usuarios');
   const canManageRoles = permissions.includes('usuarios.escribir');
-
-  // Billing overview (SuperAdmin – billing.manage)
-  const [overview, setOverview] = useState<BillingAdminOverview | null>(null);
-  const [overviewLoading, setOverviewLoading] = useState(false);
-  const [overviewError, setOverviewError] = useState('');
-
-  // Company count for header
-  const [companyCount, setCompanyCount] = useState<number | null>(null);
 
   // Roles + global permission catalog (Fase 2: custom roles)
   const [roleDetails, setRoleDetails] = useState<RoleDetail[]>([]);
@@ -192,45 +183,6 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, roles, permissions,
     }
   };
 
-  useEffect(() => {
-    if (!canViewBilling || activeTab !== 'billing') return;
-    let cancelled = false;
-    setOverviewLoading(true);
-    apiFetch<BillingAdminOverview>('/api/billing/admin/overview')
-      .then((data) => {
-        if (!cancelled) setOverview(data);
-      })
-      .catch(() => {
-        if (!cancelled) setOverviewError('No se pudo cargar el resumen de facturación.');
-      })
-      .finally(() => {
-        if (!cancelled) setOverviewLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [canViewBilling, activeTab]);
-
-  // Fetch company count for header (SuperAdmin gets total, regular admin gets 1)
-  useEffect(() => {
-    let cancelled = false;
-    if (canViewBilling) {
-      apiFetch<BillingAdminOverview>('/api/billing/admin/overview')
-        .then((data) => {
-          if (!cancelled) setCompanyCount(data.totals.companies);
-        })
-        .catch(() => {
-          if (!cancelled) setCompanyCount(1);
-        });
-    } else {
-      // Regular admin: their own company
-      setCompanyCount(1);
-    }
-    return () => {
-      cancelled = true;
-    };
-  }, [canViewBilling]);
-
   return (
     <div className="flex flex-col w-full h-full gap-lg font-body-md text-on-surface">
       {/* Header */}
@@ -239,9 +191,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, roles, permissions,
           <span className="font-label-md text-label-md text-primary tracking-widest uppercase">Administración del Sistema</span>
           <h1 className="font-display-lg text-display-lg text-on-surface">Panel de Administración</h1>
           <p className="font-body-lg text-body-lg text-on-surface-variant">
-            {companyCount !== null
-              ? `${companyCount} ${companyCount === 1 ? 'empresa' : 'empresas'} • Gestión de usuarios, roles, permisos y seguridad.`
-              : 'Gestión de usuarios, roles, permisos y seguridad de la plataforma.'}
+            1 empresa • Gestión de usuarios, roles, permisos y seguridad.
           </p>
         </div>
         <div className="flex gap-md flex-wrap">
@@ -289,16 +239,6 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, roles, permissions,
           >
             Permisos ({catalog.length})
           </button>
-          {canViewBilling && (
-            <button
-              onClick={() => setActiveTab('billing')}
-              className={`py-sm px-md font-label-md text-label-md uppercase tracking-wider border-b-2 cursor-pointer transition-colors whitespace-nowrap ${
-                activeTab === 'billing' ? 'border-primary text-primary font-bold' : 'border-transparent text-on-surface-variant hover:text-on-surface'
-              }`}
-            >
-              Facturación
-            </button>
-          )}
         </div>
 
         {/* Tab Content */}
@@ -464,85 +404,6 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, roles, permissions,
                     <p className="text-on-surface-variant text-sm">No hay permisos en el catálogo.</p>
                   )}
                 </div>
-              )}
-            </div>
-          )}
-
-          {activeTab === 'billing' && canViewBilling && (
-            <div className="space-y-md">
-              <p className="font-body-md text-on-surface-variant">Resumen de suscripciones, ingresos recurrentes (MRR) y eventos de Mercado Pago.</p>
-
-              {overviewError && (
-                <p className="text-sm text-on-error-container bg-error-container/20 rounded-lg p-sm">{overviewError}</p>
-              )}
-
-              {!overviewLoading && overview && (
-                <>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-md">
-                    <div className="p-md rounded-xl bg-surface-container-low border border-outline-variant/30">
-                      <p className="font-label-md text-label-md uppercase text-on-surface-variant">Empresas</p>
-                      <p className="font-display-lg text-display-lg text-on-surface">{overview.totals.companies}</p>
-                    </div>
-                    <div className="p-md rounded-xl bg-surface-container-low border border-outline-variant/30">
-                      <p className="font-label-md text-label-md uppercase text-on-surface-variant">Suscripciones activas</p>
-                      <p className="font-display-lg text-display-lg text-primary">{overview.totals.activeSubscriptions}</p>
-                      <p className="text-xs text-on-surface-variant">
-                        {overview.totals.pendingSubscriptions} pendientes · {overview.totals.pastDueSubscriptions} vencidas ·{' '}
-                        {overview.totals.canceledSubscriptions} canceladas
-                      </p>
-                    </div>
-                    <div className="p-md rounded-xl bg-surface-container-low border border-outline-variant/30">
-                      <p className="font-label-md text-label-md uppercase text-on-surface-variant">MRR (USD)</p>
-                      <p className="font-display-lg text-display-lg text-on-surface">{overview.totals.mrrUsd.toFixed(2)}</p>
-                    </div>
-                    <div className="p-md rounded-xl bg-surface-container-low border border-outline-variant/30">
-                      <p className="font-label-md text-label-md uppercase text-on-surface-variant">Sin suscripción</p>
-                      <p className="font-display-lg text-display-lg text-on-surface">{overview.unsubscribedCompanies.length}</p>
-                      <p className="text-xs text-on-surface-variant line-clamp-2 break-words">
-                        {overview.unsubscribedCompanies.map((c) => c.name).join(', ') || '—'}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="rounded-lg border border-outline-variant/20">
-                    <div className="bg-surface-container-low px-md py-sm font-label-md text-label-md text-on-surface-variant uppercase">
-                      Últimos eventos de Mercado Pago
-                    </div>
-                    <div className="overflow-x-auto">
-                    <table className="w-full text-left border-collapse">
-                      <thead>
-                        <tr className="bg-surface-container-low border-b border-outline-variant/20 font-label-md text-label-md text-on-surface-variant uppercase">
-                          <th className="py-sm px-md">Evento</th>
-                          <th className="py-sm px-md">Topic</th>
-                          <th className="py-sm px-md">Fecha</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-outline-variant/10 text-body-md">
-                        {overview.recentEvents.map((ev) => (
-                          <tr key={ev.eventId} className="hover:bg-surface-container/20">
-                            <td className="py-sm px-md font-mono-sm text-on-surface">{ev.eventId}</td>
-                            <td className="py-sm px-md">
-                              <span className="px-2 py-1 rounded bg-secondary-container/20 text-secondary font-label-md text-xs">
-                                {ev.topic}
-                              </span>
-                            </td>
-                            <td className="py-sm px-md text-on-surface-variant text-xs">
-                              {new Date(ev.createdAt).toLocaleString('es-AR')}
-                            </td>
-                          </tr>
-                        ))}
-                        {overview.recentEvents.length === 0 && (
-                          <tr>
-                            <td colSpan={3} className="py-sm px-md text-on-surface-variant text-sm">
-                              Aún no hay eventos registrados.
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                    </div>
-                  </div>
-                </>
               )}
             </div>
           )}

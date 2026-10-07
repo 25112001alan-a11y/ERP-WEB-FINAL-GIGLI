@@ -2,14 +2,12 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import bcrypt from 'bcryptjs';
 import { app } from '../src/app.js';
 import { prisma } from '../src/lib/prisma.js';
 import { signToken } from '../src/lib/jwt.js';
 
-// End-to-end PEDIDO flow: public checkout -> owner advances statuses ->
-// customer tracks each state by email. Runs against the live seeded database
-// and deletes every document/client it creates.
+// End-to-end PEDIDO flow: public checkout -> processing; dispatch is not manual.
+// Runs against the live seeded database and deletes every document/client it creates.
 let server: Server;
 let base: string;
 
@@ -39,7 +37,7 @@ async function api(path: string, options: RequestInit = {}, token?: string) {
 const createdDocIds: number[] = [];
 const createdClientIds: number[] = [];
 
-test('pedido flow: checkout -> En Proceso -> Enviado, tracked by email', async () => {
+test('pedido flow: checkout -> En Proceso, manual shipping blocked, no public email lookup', async () => {
   const login = await api('/api/auth/login', {
     method: 'POST',
     body: JSON.stringify({ email: 'ana.silva@empresa.com', password: 'password123' }),
@@ -85,10 +83,13 @@ test('pedido flow: checkout -> En Proceso -> Enviado, tracked by email', async (
   assert.ok(Number.isInteger(docId));
   createdDocIds.push(docId);
 
-  const track = async () =>
-    pub(`/orders?email=${encodeURIComponent(email)}`);
+  const privateLookup = async () => api(`/api/documents/${docId}`, {}, token);
+  // Public checkout still works, but email must not expose any order history.
+  const slug = await resolveSlug();
+  const publicLookup = await api(`/api/public/store/${slug}/orders?email=${encodeURIComponent(email)}`);
+  assert.equal(publicLookup.status, 404);
 
-  // 2) Owner advances Abierto -> En Proceso; customer sees it.
+  // 2) Owner advances Abierto -> En Proceso; authenticated owner sees it.
   const toProcess = await api(
     `/api/documents/${docId}/status`,
     { method: 'PATCH', body: JSON.stringify({ status: 'En Proceso' }) },
@@ -96,27 +97,29 @@ test('pedido flow: checkout -> En Proceso -> Enviado, tracked by email', async (
   );
   assert.equal(toProcess.status, 200);
   assert.equal(toProcess.body.status, 'En Proceso');
-  const tracked1 = await track();
+  const tracked1 = await privateLookup();
   assert.equal(tracked1.status, 200);
-  assert.equal(tracked1.body[0]?.status, 'En Proceso');
+  assert.equal(tracked1.body.status, 'En Proceso');
 
-  // 3) Owner advances En Proceso -> Enviado; customer sees it.
+  // 3) Only the final physical REMITO may mark Enviado.
   const toShipped = await api(
     `/api/documents/${docId}/status`,
     { method: 'PATCH', body: JSON.stringify({ status: 'Enviado' }) },
     token,
   );
-  assert.equal(toShipped.status, 200);
-  const tracked2 = await track();
-  assert.equal(tracked2.body[0]?.status, 'Enviado');
+  assert.equal(toShipped.status, 400);
+  const tracked2 = await privateLookup();
+  assert.equal(tracked2.status, 200);
+  assert.equal(tracked2.body.status, 'En Proceso');
 
-  // 4) Terminal state: nothing advances from Enviado.
-  const fromShipped = await api(
+  // 4) Anulado is allowed before physical dispatch, then terminal.
+  const cancelled = await api(
     `/api/documents/${docId}/status`,
     { method: 'PATCH', body: JSON.stringify({ status: 'Anulado' }) },
     token,
   );
-  assert.equal(fromShipped.status, 400);
+  assert.equal(cancelled.status, 200);
+  assert.equal(cancelled.body.status, 'Anulado');
 
   // 5) Skipping a step is rejected: Abierto -> Enviado.
   const order2 = await pub('/orders', {
@@ -179,13 +182,15 @@ test('pedido flow: checkout -> En Proceso -> Enviado, tracked by email', async (
       permissions: { create: { permissionId: perm.id } },
     },
   });
+  const branchB = await prisma.branch.create({ data: { companyId: companyB.id, name: 'Fixture branch' } });
   const userB = await prisma.user.create({
     data: {
       companyId: companyB.id,
+      branchId: branchB.id,
       firstName: 'Test',
       lastName: 'Tenant',
       email: `status-${stamp}@test.local`,
-      passwordHash: await bcrypt.hash('clave-segura-123', 10),
+      passwordHash: 'not-a-login-secret',
       status: 'Activo',
       roles: { create: { roleId: roleB.id } },
     },

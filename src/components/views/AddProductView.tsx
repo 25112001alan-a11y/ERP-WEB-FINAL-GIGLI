@@ -21,7 +21,6 @@ export const AddProductView: React.FC<AddProductViewProps> = ({ onAddProduct, on
   const [taxId, setTaxId] = useState<number>(taxes[0]?.id ?? 0);
   const [active, setActive] = useState(true);
   const [allowOversell, setAllowOversell] = useState(false);
-  const [imageUrl, setImageUrl] = useState('');
 
   const marginPercentage = price > 0 ? (((price - costPrice) / price) * 100).toFixed(1) : '0.0';
 
@@ -47,7 +46,6 @@ export const AddProductView: React.FC<AddProductViewProps> = ({ onAddProduct, on
       stockInicial: initialStock,
       active,
       status: initialStock > minStock ? 'InStock' : initialStock > 0 ? 'LowStock' : 'OutOfStock',
-      imageUrl: imageUrl || undefined,
     });
 
     onNavigate('inventario');
@@ -252,42 +250,6 @@ export const AddProductView: React.FC<AddProductViewProps> = ({ onAddProduct, on
 
           {/* Right Sidebar */}
           <div className="col-span-12 lg:col-span-4 flex flex-col gap-lg">
-            {/* Image Upload */}
-            <section className="bg-surface-container-lowest rounded-xl p-lg shadow-sm border border-outline-variant/20 flex-1">
-              <h2 className="font-headline-md text-headline-md text-on-surface mb-lg flex items-center gap-sm">
-                <span className="material-symbols-outlined text-secondary">image</span>
-                Fotografía del Producto
-              </h2>
-              <div className="border-2 border-dashed border-outline-variant rounded-xl flex flex-col items-center justify-center p-xl text-center cursor-pointer hover:bg-surface-container-low transition-colors group relative overflow-hidden">
-                {imageUrl ? (
-                  <div className="relative w-full h-40">
-                    <img src={imageUrl} alt="Vista previa" className="w-full h-full object-contain" />
-                    <button
-                      type="button"
-                      onClick={() => setImageUrl('')}
-                      className="absolute top-2 right-2 bg-error text-on-error p-1 rounded-full text-xs"
-                    >
-                      <span className="material-symbols-outlined text-[16px]">close</span>
-                    </button>
-                  </div>
-                ) : (
-                  <>
-                    <div className="w-16 h-16 rounded-full bg-surface-container flex items-center justify-center mb-md group-hover:scale-110 transition-transform">
-                      <span className="material-symbols-outlined text-[32px] text-secondary">cloud_upload</span>
-                    </div>
-                    <p className="font-label-md text-label-md text-on-surface mb-xs">Ingresa URL de la imagen</p>
-                    <input
-                      type="url"
-                      value={imageUrl}
-                      onChange={(e) => setImageUrl(e.target.value)}
-                      placeholder="https://..."
-                      className="w-full bg-surface-container-low border border-outline-variant rounded-lg p-sm text-xs font-mono-sm mt-sm outline-none"
-                    />
-                  </>
-                )}
-              </div>
-            </section>
-
             {/* Status & Visibility */}
             <section className="bg-surface-container-lowest rounded-xl p-lg shadow-sm border border-outline-variant/20">
               <h2 className="font-headline-md text-headline-md text-on-surface mb-lg flex items-center gap-sm">

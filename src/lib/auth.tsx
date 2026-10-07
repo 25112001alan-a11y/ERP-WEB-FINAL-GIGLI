@@ -28,7 +28,7 @@ export interface AuthUser {
   company: AuthCompany | null;
   roles: string[];
   permissions: string[];
-  // Branch lock: set = user locked to that branch; null = owner/all-access.
+  // Null requires the Super Admin role for all-branch access.
   branchId: number | null;
   isOwner: boolean;
   allowedBranches: AllowedBranch[];

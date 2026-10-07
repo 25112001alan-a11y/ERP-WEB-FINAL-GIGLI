@@ -1,14 +1,22 @@
 import React, { useState } from 'react';
+import { formatMoney } from '../../lib/format';
 import { ViewPath, SaleTransaction } from '../../types';
 
 interface SalesViewProps {
   sales: SaleTransaction[];
   onNavigate: (view: ViewPath) => void;
-  /** Opens the invoice form already locked to a sale invoice (egreso). */
-  onOpenRegistrarFactura: () => void;
+  /** Opens the invoice form locked to the sale (egreso). */
+  onOpenRegistrarFactura: (docId: string) => void;
+  /** Opens the delivery note locked to the sale. */
+  onOpenRemitoSalida: (docId: string) => void;
 }
 
-export const SalesView: React.FC<SalesViewProps> = ({ sales, onNavigate, onOpenRegistrarFactura }) => {
+export const SalesView: React.FC<SalesViewProps> = ({
+  sales,
+  onNavigate,
+  onOpenRegistrarFactura,
+  onOpenRemitoSalida,
+}) => {
   const [selectedSale, setSelectedSale] = useState<SaleTransaction | null>(sales[0] || null);
 
   const now = new Date();
@@ -31,7 +39,7 @@ export const SalesView: React.FC<SalesViewProps> = ({ sales, onNavigate, onOpenR
           <div className="flex justify-between items-start z-10">
             <div className="flex flex-col">
               <span className="font-label-md text-label-md text-on-surface-variant uppercase tracking-widest">Ingresos Totales (Mes)</span>
-              <span className="font-display-lg text-display-lg text-on-surface mt-sm">${totalMonth.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+              <span className="font-display-lg text-display-lg text-on-surface mt-sm">{formatMoney(totalMonth)}</span>
             </div>
             <div className="w-10 h-10 rounded-full bg-tertiary-container text-on-tertiary-container flex items-center justify-center shrink-0">
               <span className="material-symbols-outlined text-[20px]" style={{ fontVariationSettings: "'FILL' 1" }}>trending_up</span>
@@ -47,7 +55,7 @@ export const SalesView: React.FC<SalesViewProps> = ({ sales, onNavigate, onOpenR
           <div className="flex justify-between items-start">
             <div className="flex flex-col">
               <span className="font-label-md text-label-md text-on-error-container uppercase tracking-widest">Cuentas por Cobrar</span>
-              <span className="font-display-lg text-display-lg text-on-surface mt-sm">${receivables.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+              <span className="font-display-lg text-display-lg text-on-surface mt-sm">{formatMoney(receivables)}</span>
             </div>
             <div className="w-10 h-10 rounded-full bg-error-container text-on-error-container flex items-center justify-center shrink-0">
               <span className="material-symbols-outlined text-[20px]">schedule</span>
@@ -139,7 +147,7 @@ export const SalesView: React.FC<SalesViewProps> = ({ sales, onNavigate, onOpenR
                           </div>
                         </div>
                       </td>
-                      <td className="py-sm px-md text-right font-mono-sm font-semibold">${sale.amount.toFixed(2)}</td>
+                      <td className="py-sm px-md text-right font-mono-sm font-semibold">{formatMoney(sale.amount)}</td>
                       <td className="py-sm px-md text-center">
                         <span
                           className={`inline-flex items-center px-2 py-1 rounded-full text-label-md font-label-md gap-xs ${
@@ -199,7 +207,7 @@ export const SalesView: React.FC<SalesViewProps> = ({ sales, onNavigate, onOpenR
                 <div className="h-8 w-px bg-outline-variant/30"></div>
                 <div className="flex flex-col text-right">
                   <span className="font-label-md text-label-md text-on-surface-variant">Monto Total</span>
-                  <span className="font-body-md text-body-md text-primary font-bold">${selectedSale.amount.toFixed(2)}</span>
+                  <span className="font-body-md text-body-md text-primary font-bold">{formatMoney(selectedSale.amount)}</span>
                 </div>
               </div>
 
@@ -224,7 +232,7 @@ export const SalesView: React.FC<SalesViewProps> = ({ sales, onNavigate, onOpenR
                               </div>
                             </td>
                             <td className="py-2 px-sm text-right">{item.quantity}</td>
-                            <td className="py-2 px-sm text-right font-mono-sm">${(item.quantity * item.unitPrice).toFixed(2)}</td>
+                            <td className="py-2 px-sm text-right font-mono-sm">{formatMoney((item.quantity * item.unitPrice))}</td>
                           </tr>
                         ))}
                         {selectedSale.itemsCount > 0 && (!selectedSale.items || selectedSale.items.length === 0) && (
@@ -252,22 +260,18 @@ export const SalesView: React.FC<SalesViewProps> = ({ sales, onNavigate, onOpenR
 
             <div className="p-md bg-surface-container-low border-t border-outline-variant/30 flex flex-col gap-sm">
               <button
-                onClick={() => onOpenRegistrarFactura()}
+                onClick={() => onOpenRegistrarFactura(selectedSale.id)}
                 className="w-full py-2 bg-secondary text-on-secondary rounded font-label-md text-label-md flex items-center justify-center gap-sm hover:opacity-90 transition-opacity cursor-pointer shadow-sm"
               >
                 <span className="material-symbols-outlined text-[18px]">receipt_long</span>
-                Registrar Factura (AFIP)
+                Registrar Factura (simulada · sin validez fiscal)
               </button>
               <button
-                onClick={() => onNavigate('remito-salida')}
+                onClick={() => onOpenRemitoSalida(selectedSale.id)}
                 className="w-full py-2 bg-transparent text-on-surface border border-outline-variant rounded font-label-md text-label-md flex items-center justify-center gap-sm hover:bg-surface-variant transition-colors cursor-pointer"
               >
                 <span className="material-symbols-outlined text-[18px]">local_shipping</span>
                 Registrar Remito de Salida
-              </button>
-              <button onClick={() => window.print()} className="w-full py-2 bg-transparent text-on-surface border border-outline-variant rounded font-label-md text-label-md flex items-center justify-center gap-xs hover:bg-surface-variant transition-colors cursor-pointer">
-                <span className="material-symbols-outlined text-[16px]">print</span>
-                Imprimir
               </button>
             </div>
           </div>

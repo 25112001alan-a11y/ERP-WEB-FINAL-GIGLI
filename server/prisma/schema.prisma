@@ -19,6 +19,10 @@ model Company {
   slug      String?  @unique @db.VarChar(80)
   legalName String?  @db.VarChar(200)
   taxId     String?  @unique @db.VarChar(50)
+  address       String? @db.VarChar(200)
+  province      String? @db.VarChar(100)
+  postalCode    String? @db.VarChar(20)
+  taxCondition  String? @db.VarChar(40)
   currency  String   @default("ARS") @db.VarChar(3)
   timezone  String?  @db.VarChar(50)
   createdAt DateTime @default(now())
@@ -38,11 +42,44 @@ model Company {
   taxes      Tax[]
   documentCounters DocumentCounter[]
   subscription CompanySubscription?
+  ownerInvitations OwnerInvitation[]
+  platformAuditEvents PlatformAuditEvent[]
 
   @@map("empresas")
 }
 
 // ============ SECURITY / RBAC ============
+
+model PlatformUser {
+  id           Int      @id @default(autoincrement())
+  email        String   @unique @db.VarChar(150)
+  passwordHash String   @db.VarChar(255)
+  status       String   @default("Activo") @db.VarChar(20)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  ownerInvitations OwnerInvitation[]
+  auditEvents PlatformAuditEvent[]
+
+  @@map("usuarios_plataforma")
+}
+
+model OwnerInvitation {
+  id             Int           @id @default(autoincrement())
+  companyId      Int
+  userId         Int           @unique
+  platformUserId Int
+  tokenHash      String        @unique @db.Char(64)
+  expiresAt      DateTime
+  consumedAt     DateTime?
+  createdAt      DateTime      @default(now())
+  company        Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  platformUser   PlatformUser  @relation(fields: [platformUserId], references: [id])
+
+  @@index([companyId])
+  @@index([platformUserId])
+  @@map("invitaciones_dueno")
+}
 
 model User {
   id           Int       @id @default(autoincrement())
@@ -68,6 +105,7 @@ model User {
   documents      Document[]
   stockMovements StockMovement[]
   verifiedInvoices InvoiceData[] @relation("InvoiceDataVerifiedBy")
+  ownerInvitations OwnerInvitation[]
 
   @@index([companyId])
   @@index([branchId])
@@ -274,6 +312,10 @@ model Supplier {
   email     String? @db.VarChar(150)
   phone     String? @db.VarChar(30)
   contact   String? @db.VarChar(120)
+  address       String? @db.VarChar(200)
+  province      String? @db.VarChar(100)
+  postalCode    String? @db.VarChar(20)
+  taxCondition  String? @db.VarChar(40)
   company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
   documents Document[] @relation("DocumentSupplier")
@@ -308,9 +350,34 @@ model Document {
   warehouseId   Int?
   destinationWarehouseId Int?
   sourceDocumentId Int?
+  // Stable client-generated key for retry-safe operational commands. It is
+  // nullable because legacy and non-command documents are not idempotent yet.
+  idempotencyKey String?      @db.VarChar(64)
+  // Server-generated SHA-256 binding the key to the canonical command payload.
+  receiptFingerprint String?  @db.Char(64)
   // Reference number of the counterpart's physical document (supplier remito,
   // supplier invoice number, etc.). Structured replacement for free-text notes.
   externalNumber String?    @db.VarChar(50)
+  // Header identity frozen at creation so renaming a company, client, supplier
+  // or branch never rewrites historical documents. NULL on legacy rows: readers
+  // fall back to the live relation.
+  companyName         String?  @db.VarChar(200)
+  companyTaxId        String?  @db.VarChar(50)
+  companyAddress      String?  @db.VarChar(200)
+  companyProvince     String?  @db.VarChar(100)
+  companyPostalCode   String?  @db.VarChar(20)
+  companyTaxCondition String?  @db.VarChar(40)
+  clientName          String?  @db.VarChar(150)
+  clientTaxId         String?  @db.VarChar(50)
+  clientAddress       String?  @db.VarChar(200)
+  supplierName        String?  @db.VarChar(150)
+  supplierTaxId       String?  @db.VarChar(50)
+  supplierAddress     String?  @db.VarChar(200)
+  supplierProvince    String?  @db.VarChar(100)
+  supplierPostalCode  String?  @db.VarChar(20)
+  supplierTaxCondition String? @db.VarChar(40)
+  branchName          String?  @db.VarChar(100)
+  branchAddress       String?  @db.VarChar(200)
   status        String       @default("Abierto") @db.VarChar(30)
   subtotal      Decimal      @db.Decimal(14, 2)
   totalTax      Decimal      @db.Decimal(14, 2)
@@ -336,6 +403,7 @@ model Document {
   invoiceData InvoiceData?
 
   @@unique([companyId, type, series, number])
+  @@unique([companyId, idempotencyKey])
   @@index([companyId, type, date])
   @@index([clientId])
   @@index([supplierId])
@@ -361,7 +429,12 @@ model DocumentCounter {
 model DocumentItem {
   id            Int     @id @default(autoincrement())
   documentId    Int
+  sourceDocumentItemId Int?
   productId     Int?
+  // Frozen catalog identity (Product.internalCode, Tax.name) so catalog
+  // renames never rewrite item history. NULL on legacy rows.
+  sku           String? @db.VarChar(50)
+  taxName       String? @db.VarChar(80)
   description   String  @db.VarChar(200)
   quantity      Decimal @db.Decimal(14, 3)
   unitPrice     Decimal @db.Decimal(14, 2)
@@ -369,9 +442,12 @@ model DocumentItem {
   discount      Decimal @default(0) @db.Decimal(14, 2)
   lineTotal     Decimal @db.Decimal(14, 2)
   document      Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  sourceDocumentItem DocumentItem? @relation("DocumentItemChain", fields: [sourceDocumentItemId], references: [id], onDelete: SetNull)
+  derivedItems  DocumentItem[] @relation("DocumentItemChain")
   product       Product?  @relation(fields: [productId], references: [id])
 
   @@index([documentId])
+  @@index([sourceDocumentItemId])
   @@map("comprobante_items")
 }
 
@@ -489,6 +565,20 @@ model BillingEvent {
 }
 
 // ============ AUDIT ============
+
+model PlatformAuditEvent {
+  id               Int          @id @default(autoincrement())
+  platformUserId   Int
+  targetCompanyId  Int
+  action           String       @db.VarChar(60)
+  createdAt        DateTime     @default(now())
+  platformUser     PlatformUser @relation(fields: [platformUserId], references: [id])
+  targetCompany    Company      @relation(fields: [targetCompanyId], references: [id])
+
+  @@index([platformUserId])
+  @@index([targetCompanyId, createdAt])
+  @@map("eventos_auditoria_plataforma")
+}
 
 model AuditLog {
   id         Int      @id @default(autoincrement())

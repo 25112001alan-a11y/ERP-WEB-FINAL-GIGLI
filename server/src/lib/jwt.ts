@@ -23,7 +23,7 @@ export interface AuthTokenPayload {
 }
 
 export function signToken(payload: AuthTokenPayload): string {
-  return jwt.sign(payload, JWT_SECRET, {
+  return jwt.sign({ ...payload, principal: 'tenant' }, JWT_SECRET, {
     expiresIn: JWT_EXPIRES_IN as jwt.SignOptions['expiresIn'],
     issuer: JWT_ISSUER,
     audience: JWT_AUDIENCE,
@@ -32,9 +32,41 @@ export function signToken(payload: AuthTokenPayload): string {
 }
 
 export function verifyToken(token: string): AuthTokenPayload {
-  return jwt.verify(token, JWT_SECRET, {
+  const payload = jwt.verify(token, JWT_SECRET, {
     issuer: JWT_ISSUER,
     audience: JWT_AUDIENCE,
     algorithms: ['HS256'],
-  }) as unknown as AuthTokenPayload;
+  });
+  if (typeof payload === 'string' ||
+      (payload.principal !== undefined && payload.principal !== 'tenant') ||
+      typeof payload.sub !== 'number' || !Number.isSafeInteger(payload.sub) || payload.sub <= 0 ||
+      !Number.isSafeInteger(payload.companyId) || payload.companyId <= 0 ||
+      typeof payload.email !== 'string') {
+    throw new Error('Invalid tenant token');
+  }
+  return payload as unknown as AuthTokenPayload;
+}
+
+// Platform tokens have a distinct audience and cannot authorize tenant routes.
+export function signPlatformToken(platformUserId: number): string {
+  return jwt.sign({ sub: platformUserId, principal: 'platform' }, JWT_SECRET, {
+    expiresIn: JWT_EXPIRES_IN as jwt.SignOptions['expiresIn'],
+    issuer: JWT_ISSUER,
+    audience: `${JWT_AUDIENCE}-platform`,
+    algorithm: 'HS256',
+  });
+}
+
+export function verifyPlatformToken(token: string): number {
+  const payload = jwt.verify(token, JWT_SECRET, {
+    issuer: JWT_ISSUER,
+    audience: `${JWT_AUDIENCE}-platform`,
+    algorithms: ['HS256'],
+  });
+  if (typeof payload === 'string' || payload.principal !== 'platform' ||
+      typeof payload.sub !== 'number' || !Number.isSafeInteger(payload.sub) || payload.sub <= 0 ||
+      payload.companyId !== undefined) {
+    throw new Error('Invalid platform token');
+  }
+  return payload.sub;
 }

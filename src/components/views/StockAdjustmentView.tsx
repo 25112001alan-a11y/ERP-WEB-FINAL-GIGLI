@@ -1,18 +1,22 @@
 import React, { useState } from 'react';
-import { ViewPath, Product } from '../../types';
+import { ViewPath, Product, WarehouseOption } from '../../types';
+import { adjustmentWarehouses } from '../../lib/branch';
 
 interface StockAdjustmentViewProps {
   products: Product[];
-  onApplyAdjustment: (productId: string, delta: number) => void;
+  warehouses: WarehouseOption[];
+  onApplyAdjustment: (productId: string, warehouseId: number, delta: number, reason: string) => Promise<void>;
   onNavigate: (view: ViewPath) => void;
 }
 
 export const StockAdjustmentView: React.FC<StockAdjustmentViewProps> = ({
   products,
+  warehouses,
   onApplyAdjustment,
   onNavigate,
 }) => {
-  const [selectedProduct, setSelectedProduct] = useState<Product | null>(products[0] || null);
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [warehouseId, setWarehouseId] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResultsOpen, setSearchResultsOpen] = useState(false);
   const [type, setType] = useState<'increment' | 'decrement'>('increment');
@@ -20,25 +24,55 @@ export const StockAdjustmentView: React.FC<StockAdjustmentViewProps> = ({
   const [reason, setReason] = useState('miscount');
   const [note, setNote] = useState('');
   const [appliedMessage, setAppliedMessage] = useState<string | null>(null);
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [refreshFailed, setRefreshFailed] = useState(false);
+  const eligibleWarehouses = adjustmentWarehouses(selectedProduct ?? undefined, warehouses);
+  const chosenWarehouseId = warehouseId
+    ? (eligibleWarehouses.some((w) => w.id === Number(warehouseId)) ? Number(warehouseId) : null)
+    : eligibleWarehouses.length === 1 ? eligibleWarehouses[0].id : null;
+  const currentStock = selectedProduct?.stocks.find((s) => s.warehouseId === chosenWarehouseId)?.quantity;
+
+  const REASON_LABELS: Record<string, string> = {
+    miscount: 'Error de Conteo (Inventario)',
+    damage: 'Deterioro / Daño',
+    theft: 'Robo / Pérdida',
+    return: 'Devolución no registrada',
+    other: 'Otro',
+  };
 
   const handleSelectProduct = (prod: Product) => {
     setSelectedProduct(prod);
+    setWarehouseId('');
     setSearchQuery(prod.name);
     setSearchResultsOpen(false);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedProduct || amount <= 0) return;
+    if (saving || refreshFailed) return;
+    setError('');
+    if (!selectedProduct || !chosenWarehouseId || !Number.isFinite(amount) || amount <= 0 ||
+      !eligibleWarehouses.some((w) => w.id === chosenWarehouseId)) {
+      setError('Seleccioná un producto y un depósito con stock registrado, e ingresá una cantidad válida mayor a cero.');
+      return;
+    }
 
     const delta = type === 'increment' ? amount : -amount;
-    onApplyAdjustment(selectedProduct.id, delta);
-
-    setAppliedMessage(`Ajuste de stock aplicado a "${selectedProduct.name}" (${type === 'increment' ? '+' : '-'}${amount} unidades)`);
-    setTimeout(() => {
-      setAppliedMessage(null);
-      onNavigate('inventario');
-    }, 1500);
+    const reasonLabel = REASON_LABELS[reason] ?? reason;
+    const fullReason = note.trim() ? `${reasonLabel}: ${note.trim()}` : reasonLabel;
+    setSaving(true);
+    try {
+      await onApplyAdjustment(selectedProduct.id, chosenWarehouseId, delta, fullReason);
+      setAppliedMessage(`Ajuste de stock aplicado a "${selectedProduct.name}" (${type === 'increment' ? '+' : '-'}${amount} unidades)`);
+      setTimeout(() => onNavigate('inventario'), 1500);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'No se pudo ajustar el stock. Intentá de nuevo.';
+      setError(message);
+      if (message.startsWith('El ajuste se registró')) setRefreshFailed(true);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const filtered = products.filter(
@@ -75,6 +109,7 @@ export const StockAdjustmentView: React.FC<StockAdjustmentViewProps> = ({
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="p-xl flex flex-col gap-lg">
+            {error && <p role="alert" className="p-sm bg-error-container/20 text-on-error-container rounded-lg">{error}</p>}
             <div className="flex items-start justify-between">
               <div>
                 <h1 className="font-display-lg text-display-lg text-on-surface mb-xs tracking-tight">Ajuste de Stock</h1>
@@ -96,6 +131,8 @@ export const StockAdjustmentView: React.FC<StockAdjustmentViewProps> = ({
                     value={searchQuery}
                     onChange={(e) => {
                       setSearchQuery(e.target.value);
+                      setSelectedProduct(null);
+                      setWarehouseId('');
                       setSearchResultsOpen(true);
                     }}
                     onFocus={() => setSearchResultsOpen(true)}
@@ -118,7 +155,9 @@ export const StockAdjustmentView: React.FC<StockAdjustmentViewProps> = ({
                           <p className="font-mono-sm text-mono-sm text-outline">SKU: {prod.sku}</p>
                         </div>
                         <span className="font-mono-sm text-mono-sm bg-surface-container px-sm py-base rounded text-on-surface-variant font-bold">
-                          Stock: {prod.stock}
+                          {adjustmentWarehouses(prod, warehouses).length
+                            ? `Stock: ${prod.stocks.filter((s) => warehouses.some((w) => w.id === s.warehouseId)).reduce((sum, s) => sum + s.quantity, 0)}`
+                            : 'Sin registro de stock'}
                         </span>
                       </button>
                     ))}
@@ -126,15 +165,29 @@ export const StockAdjustmentView: React.FC<StockAdjustmentViewProps> = ({
                 )}
               </div>
 
+              <div className="flex flex-col gap-xs md:col-span-2">
+                <label htmlFor="adjustment-warehouse" className="font-label-md text-label-md text-on-surface-variant uppercase">Depósito</label>
+                <select
+                  id="adjustment-warehouse"
+                  value={chosenWarehouseId ?? ''}
+                  onChange={(e) => setWarehouseId(e.target.value)}
+                  className="w-full bg-surface-container rounded-lg py-md px-md text-on-surface"
+                  required
+                >
+                  <option value="">{eligibleWarehouses.length ? 'Seleccioná un depósito' : 'Sin stock registrado en esta sucursal'}</option>
+                  {eligibleWarehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+                </select>
+              </div>
+
               {/* Current Stock Preview Card */}
               <div className="bg-surface-container-low p-md rounded-lg flex flex-col justify-center relative overflow-hidden group border border-outline-variant/20">
                 <div className="absolute right-0 bottom-0 opacity-5 group-hover:scale-110 transition-transform duration-500">
                   <span className="material-symbols-outlined text-[100px] leading-none" style={{ fontVariationSettings: "'FILL' 1" }}>dataset</span>
                 </div>
-                <label className="font-label-md text-label-md text-on-surface-variant uppercase mb-xs z-10">Stock Actual</label>
+                <label className="font-label-md text-label-md text-on-surface-variant uppercase mb-xs z-10">Stock en depósito</label>
                 <div className="flex items-baseline gap-sm z-10">
                   <span className="font-display-lg text-display-lg text-on-surface">
-                    {selectedProduct ? selectedProduct.stock : 0}
+                     {currentStock ?? '—'}
                   </span>
                   <span className="font-body-md text-body-md text-on-surface-variant">unidades</span>
                 </div>
@@ -174,7 +227,8 @@ export const StockAdjustmentView: React.FC<StockAdjustmentViewProps> = ({
                 <label className="font-label-md text-label-md text-on-surface-variant uppercase">Cantidad a Ajustar</label>
                 <input
                   type="number"
-                  min="1"
+                   min="0"
+                   step="any"
                   value={amount || ''}
                   onChange={(e) => setAmount(Number(e.target.value))}
                   placeholder="0"
@@ -226,10 +280,11 @@ export const StockAdjustmentView: React.FC<StockAdjustmentViewProps> = ({
               </button>
               <button
                 type="submit"
+                disabled={saving || refreshFailed || !selectedProduct || !chosenWarehouseId}
                 className="px-lg py-md rounded-lg bg-secondary text-on-secondary font-label-md text-label-md hover:bg-secondary-container hover:text-on-secondary-container hover:shadow-md transition-all flex items-center gap-sm cursor-pointer"
               >
                 <span className="material-symbols-outlined text-[18px]">save</span>
-                Aplicar Ajuste
+                {saving ? 'Procesando...' : 'Aplicar Ajuste'}
               </button>
             </div>
           </form>

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { formatMoney } from '../../lib/format';
 import { ViewPath } from '../../types';
 import { ApiError, apiFetch } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
@@ -145,10 +146,10 @@ export const PublicClientStoreView: React.FC<PublicClientStoreViewProps> = ({ sl
         <div className="p-lg text-center flex flex-col items-center justify-center py-10 gap-sm">
           <span className="material-symbols-outlined text-[48px] text-on-tertiary-container">check_circle</span>
           <h3 className="font-headline-md text-on-surface">¡Pedido {confirmedOrder.number} recibido!</h3>
-          <p className="font-body-md text-on-surface-variant text-xs">Total: ${confirmedOrder.total.toFixed(2)}{currency ? ` ${currency}` : ''}. Ya está visible para administración.</p>
+          <p className="font-body-md text-on-surface-variant text-xs">Total: {formatMoney(confirmedOrder.total, currency)}. Ya está visible para administración.</p>
           <a
             href={`https://wa.me/?text=${encodeURIComponent(
-              `Hola ${companyName}, hice el pedido ${confirmedOrder.number} por $${confirmedOrder.total.toFixed(2)}${currency ? ` ${currency}` : ''} en ${companyName}. ¿Me confirmás?`
+              `Hola ${companyName}, hice el pedido ${confirmedOrder.number} por ${formatMoney(confirmedOrder.total, currency)} en ${companyName}. ¿Me confirmás?`
             )}`}
             target="_blank"
             rel="noopener noreferrer"
@@ -182,7 +183,7 @@ export const PublicClientStoreView: React.FC<PublicClientStoreViewProps> = ({ sl
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="font-body-md text-body-md text-on-surface truncate font-semibold">{item.product.name}</p>
-                    <p className="font-body-md text-body-md text-on-surface-variant text-[12px]">{item.quantity} x ${item.product.price.toFixed(2)}</p>
+                    <p className="font-body-md text-body-md text-on-surface-variant text-[12px]">{item.quantity} x {formatMoney(item.product.price, currency)}</p>
                   </div>
                   <button
                     type="button"
@@ -202,15 +203,15 @@ export const PublicClientStoreView: React.FC<PublicClientStoreViewProps> = ({ sl
           <div className="flex flex-col gap-xs font-body-md text-body-md text-on-surface-variant">
             <div className="flex justify-between">
               <span>Subtotal</span>
-              <span>${subtotal.toFixed(2)}{currency ? ` ${currency}` : ''}</span>
+              <span>{formatMoney(subtotal, currency)}</span>
             </div>
             <div className="flex justify-between">
               <span>Impuestos</span>
-              <span>${tax.toFixed(2)}{currency ? ` ${currency}` : ''}</span>
+              <span>{formatMoney(tax, currency)}</span>
             </div>
             <div className="flex justify-between font-headline-lg text-headline-lg text-on-surface mt-sm pt-sm border-t border-outline-variant/30">
               <span>Total</span>
-              <span>${total.toFixed(2)}{currency ? ` ${currency}` : ''}</span>
+              <span>{formatMoney(total, currency)}</span>
             </div>
           </div>
 
@@ -372,7 +373,7 @@ export const PublicClientStoreView: React.FC<PublicClientStoreViewProps> = ({ sl
                     <div className="p-md flex flex-col flex-1 gap-sm">
                       <div className="flex justify-between items-start gap-sm">
                         <h3 className="font-headline-md text-headline-md text-on-surface line-clamp-2 min-w-0">{prod.name}</h3>
-                        <span className="font-headline-md text-headline-md text-primary shrink-0">${prod.price.toFixed(2)}</span>
+                        <span className="font-headline-md text-headline-md text-primary shrink-0">{formatMoney(prod.price, currency)}</span>
                       </div>
                       <p className="font-body-md text-body-md text-on-surface-variant line-clamp-2 flex-1">{prod.description || 'Producto de excelente calidad garantizada.'}</p>
                       <button
@@ -409,7 +410,7 @@ export const PublicClientStoreView: React.FC<PublicClientStoreViewProps> = ({ sl
             <span className="material-symbols-outlined text-[20px]">shopping_cart</span>
             Ver pedido ({cart.length})
           </span>
-          <span className="font-headline-md text-headline-md">${total.toFixed(2)}</span>
+          <span className="font-headline-md text-headline-md">{formatMoney(total, currency)}</span>
         </button>
       )}
 

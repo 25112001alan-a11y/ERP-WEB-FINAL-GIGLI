@@ -88,6 +88,16 @@ describe('toFrontPurchaseOrder', () => {
     expect(toFrontPurchaseOrder({ ...sampleDocument, status: 'Abierto' }).receiptStatus).toBe('Pendiente');
     expect(toFrontPurchaseOrder({ ...sampleDocument, status: 'Abierto' }).paymentStatus).toBe('No Pagado');
   });
+
+  it('keeps a paid COMPRA received and paid independently of status', () => {
+    const paid = toFrontPurchaseOrder({ ...sampleDocument, type: 'COMPRA', status: 'Pagado' });
+    expect(paid.receiptStatus).toBe('Recibido');
+    expect(paid.paymentStatus).toBe('Pagado');
+
+    const unpaid = toFrontPurchaseOrder({ ...sampleDocument, type: 'COMPRA', status: 'Recibido' });
+    expect(unpaid.receiptStatus).toBe('Recibido');
+    expect(unpaid.paymentStatus).toBe('No Pagado');
+  });
 });
 
 describe('toFrontPurchaseDocument', () => {

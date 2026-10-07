@@ -1,4 +1,5 @@
 import React from 'react';
+import { formatMoney } from '../../lib/format';
 import { ViewPath, DashboardData } from '../../types';
 
 interface DashboardViewProps {
@@ -7,7 +8,7 @@ interface DashboardViewProps {
 }
 
 function formatCurrency(value: number): string {
-  return `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return formatMoney(value);
 }
 
 const STATUS_BADGE: Record<string, string> = {

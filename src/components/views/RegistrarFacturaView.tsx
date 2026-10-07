@@ -1,21 +1,34 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { formatMoney } from '../../lib/format';
 import { ViewPath, Supplier, Product } from '../../types';
 import type { ApiDocument } from '../../lib/mappers';
+import { resolveClientSelection, type ClientOption } from '../../lib/clientSelection';
+import {
+  derivedCounterparty,
+  derivedDocumentLines,
+  invoiceSourceDocuments,
+  resolveSourceSelection,
+} from '../../lib/documentDerivation';
+
+const STALE_SOURCE_ERROR = 'El documento origen ya no está disponible. Seleccione un origen válido nuevamente.';
 
 interface RegistrarFacturaViewProps {
   suppliers: Supplier[];
+  clients: ClientOption[];
   salesDocs: ApiDocument[];
   remitoDocs: ApiDocument[];
   products: Product[];
   /** Fixed by the entry point: Compras opens 'ingreso', Ventas opens 'egreso'. */
   direction: 'ingreso' | 'egreso';
+  /** Document chosen in Ventas: preloaded as origin when it is still eligible. */
+  initialSourceId?: string | null;
   onCreateFactura: (payload: {
     direction: 'ingreso' | 'egreso';
     sourceDocumentId?: number;
     supplierId?: number;
     clientId?: number;
     clientName?: string;
-    items: { productId: number; quantity: number; unitPrice: number }[];
+    items: { productId: number; sourceDocumentItemId?: number; quantity: number; unitPrice?: number }[];
     invoice: { invoiceType: string; cae?: string; caeDueDate?: string; puntoVenta?: number };
     externalNumber?: string;
     paymentMethod?: string;
@@ -25,23 +38,43 @@ interface RegistrarFacturaViewProps {
 }
 
 interface DraftLine {
+  key: string;
+  sourceDocumentItemId?: number;
+  originalQuantity?: number;
   productId: string;
   sku: string;
   name: string;
   quantity: number;
   unitPrice: number;
+  maxQuantity?: number;
 }
 
 export const RegistrarFacturaView: React.FC<RegistrarFacturaViewProps> = ({
   suppliers,
+  clients,
   salesDocs,
   remitoDocs,
   products,
   direction,
+  initialSourceId,
   onCreateFactura,
   onNavigate,
 }) => {
-  const [sourceId, setSourceId] = useState('');
+  // Computed before the state below: the initial selection needs the list.
+  const sourceDocs = useMemo(
+    () => invoiceSourceDocuments(direction, salesDocs, remitoDocs),
+    [direction, salesDocs, remitoDocs],
+  );
+  // The origin starts preselected so the derived path is the default: the
+  // document picked in Ventas when it is eligible, otherwise the newest
+  // eligible one. "Sin origen" stays in the list, it just stops being the
+  // default.
+  const [sourceId, setSourceId] = useState(() => {
+    if (initialSourceId) {
+      return sourceDocs.some((d) => String(d.id) === initialSourceId) ? initialSourceId : '';
+    }
+    return sourceDocs[0] ? String(sourceDocs[0].id) : '';
+  });
   const [supplierId, setSupplierId] = useState('');
   const [clientName, setClientName] = useState('');
   const [externalNumber, setExternalNumber] = useState('');
@@ -57,36 +90,40 @@ export const RegistrarFacturaView: React.FC<RegistrarFacturaViewProps> = ({
   const [error, setError] = useState('');
   const [saved, setSaved] = useState(false);
 
-  // ingreso: REMITOs de proveedor; egreso: VENTAs + REMITOs a cliente
-  const sourceDocs = direction === 'ingreso'
-    ? remitoDocs.filter((d) => d.supplier)
-    : salesDocs.filter((d) => d.client);
-  const selectedSource = sourceDocs.find((d) => String(d.id) === sourceId);
+  const sourceSelection = resolveSourceSelection(sourceId, sourceDocs);
+  const selectedSource = sourceSelection.source;
 
-  // Rebuild draft lines from the selected source document.
+  // Selecting a source replaces every derived value; stale manual state never
+  // survives a source change.
   useEffect(() => {
-    if (!selectedSource) {
+    if (sourceSelection.state !== 'valid' || !selectedSource) {
       setLines([]);
+      setSupplierId('');
+      setClientName('');
+      setError((current) => sourceSelection.state === 'stale'
+        ? STALE_SOURCE_ERROR
+        : current === STALE_SOURCE_ERROR ? '' : current);
       return;
     }
-    const next = selectedSource.items
-      .filter((i) => i.productId != null)
-      .map((i) => ({
-        productId: String(i.productId),
-        sku: '',
-        name: i.description,
-        quantity: Number(i.quantity),
-        unitPrice: Number(i.unitPrice ?? 0),
-      }));
-    setLines(next);
-    setSupplierId((prev) => prev || (selectedSource.supplier ? String(selectedSource.supplier.id) : ''));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sourceId, direction]);
+    setLines(derivedDocumentLines(selectedSource).map((line) => ({ ...line, sku: '' })));
+    const party = derivedCounterparty(selectedSource, direction);
+    setSupplierId(party.supplierId);
+    setClientName(party.clientName);
+    setError((current) => current === STALE_SOURCE_ERROR ? '' : current);
+  }, [direction, selectedSource, sourceSelection.state]);
 
   const addManualLine = () => {
+    if (selectedSource) return;
     const product = products.find((p) => p.id === draftProductId);
     if (!product) return;
-    setLines((prev) => [...prev, { productId: product.id, sku: product.sku, name: product.name, quantity: 1, unitPrice: product.price }]);
+    setLines((prev) => [...prev, {
+      key: `manual-${product.id}-${prev.length}`,
+      productId: product.id,
+      sku: product.sku,
+      name: product.name,
+      quantity: 1,
+      unitPrice: product.price,
+    }]);
     setDraftProductId('');
   };
 
@@ -95,9 +132,20 @@ export const RegistrarFacturaView: React.FC<RegistrarFacturaViewProps> = ({
 
   const handleSubmit = async () => {
     setError('');
+    if (sourceId && sourceSelection.state !== 'valid') {
+      setError(STALE_SOURCE_ERROR);
+      return;
+    }
     const payloadLines = lines
       .filter((l) => l.quantity > 0)
-      .map((l) => ({ productId: Number(l.productId), quantity: l.quantity, unitPrice: l.unitPrice }));
+      .map((l) => ({
+        productId: Number(l.productId),
+        ...(selectedSource && l.sourceDocumentItemId !== undefined
+          ? { sourceDocumentItemId: l.sourceDocumentItemId }
+          : {}),
+        quantity: l.quantity,
+        ...(selectedSource ? {} : { unitPrice: l.unitPrice }),
+      }));
     if (payloadLines.length === 0) {
       setError('Agregue al menos un ítem con cantidad mayor a cero.');
       return;
@@ -119,19 +167,21 @@ export const RegistrarFacturaView: React.FC<RegistrarFacturaViewProps> = ({
       paymentMethod: paymentMethod || undefined,
       notes: notes || undefined,
     };
-    if (direction === 'ingreso') {
+    if (selectedSource) {
+      payload.sourceDocumentId = selectedSource.id;
+    } else if (direction === 'ingreso') {
       if (!supplierId) {
         setError('Seleccione el proveedor de la factura.');
         return;
       }
       payload.supplierId = Number(supplierId);
-      payload.sourceDocumentId = selectedSource ? selectedSource.id : undefined;
     } else {
-      if (selectedSource?.client) {
-        payload.clientId = selectedSource.client.id;
-        payload.sourceDocumentId = selectedSource.id;
-      } else if (clientName.trim()) {
-        payload.clientName = clientName.trim();
+      // Free-typed client: linked to the master when the name matches it,
+      // plain name otherwise (the server keeps its find-or-create fallback).
+      const selection = resolveClientSelection(clientName, clients);
+      if (selection.clientName) {
+        payload.clientName = selection.clientName;
+        if (selection.clientId !== undefined) payload.clientId = selection.clientId;
       } else {
         setError('Seleccione una venta/remito de cliente o ingrese el nombre del cliente.');
         return;
@@ -151,6 +201,11 @@ export const RegistrarFacturaView: React.FC<RegistrarFacturaViewProps> = ({
 
   return (
     <div className="flex flex-col w-full h-full p-lg gap-lg font-body-md text-on-surface">
+      <datalist id="factura-clients">
+        {clients.map((client) => (
+          <option key={client.id} value={client.name} />
+        ))}
+      </datalist>
       <header className="flex items-center justify-between pb-sm border-b border-outline-variant/30 flex-wrap gap-sm">
         <div>
           <nav className="flex items-center gap-2 text-label-md text-on-surface-variant mb-xs">
@@ -164,7 +219,7 @@ export const RegistrarFacturaView: React.FC<RegistrarFacturaViewProps> = ({
             <span className="text-on-surface font-semibold">Registrar Factura</span>
           </nav>
           <h1 className="font-display-lg text-display-lg text-on-surface tracking-tight">
-            Registrar Factura de {direction === 'ingreso' ? 'Compra' : 'Venta'} (AFIP)
+            Registrar Factura de {direction === 'ingreso' ? 'Compra' : 'Venta'} (simulada · sin validez fiscal)
           </h1>
         </div>
         <div className="flex gap-sm flex-wrap">
@@ -205,6 +260,10 @@ export const RegistrarFacturaView: React.FC<RegistrarFacturaViewProps> = ({
           )}
 
           {/* Direction is fixed by the entry point (Compras / Ventas) */}
+
+          <div role="note" className="rounded-lg border border-amber-500/40 bg-amber-50 px-md py-sm text-amber-950">
+            <strong>Simulación — sin validez fiscal.</strong> Este formulario sólo registra datos cargados manualmente; no se conecta con ARCA ni autoriza comprobantes.
+          </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-lg">
             <div className="lg:col-span-2 space-y-lg">
@@ -307,12 +366,13 @@ export const RegistrarFacturaView: React.FC<RegistrarFacturaViewProps> = ({
                     </option>
                     {sourceDocs.map((d) => (
                       <option key={d.id} value={d.id}>
-                        {d.type} {d.series}-{String(d.number).padStart(4, '0')} — {d.supplier?.name ?? d.client?.name} (${Number(d.total).toFixed(2)})
+                        {d.type} {d.series}-{String(d.number).padStart(4, '0')} — {d.supplier?.name ?? d.client?.name} ({formatMoney(Number(d.total))})
                       </option>
                     ))}
                   </select>
                   <p className="text-xs text-on-surface-variant">
-                    Al seleccionar un origen se copian sus ítems; la cantidad queda editable.
+                    El origen define contraparte, productos y precios. Sólo puede reducir las cantidades;
+                    el servidor valida el saldo todavía pendiente.
                   </p>
                 </div>
               </section>
@@ -328,7 +388,8 @@ export const RegistrarFacturaView: React.FC<RegistrarFacturaViewProps> = ({
                     <select
                       value={supplierId}
                       onChange={(e) => setSupplierId(e.target.value)}
-                      className="w-full bg-surface px-md py-sm rounded-lg border border-outline-variant/50 focus:border-primary outline-none cursor-pointer"
+                      disabled={Boolean(selectedSource)}
+                      className="w-full bg-surface px-md py-sm rounded-lg border border-outline-variant/50 focus:border-primary outline-none cursor-pointer disabled:opacity-70 disabled:cursor-not-allowed"
                     >
                       <option value="">Seleccione el proveedor...</option>
                       {suppliers.map((s) => (
@@ -342,10 +403,12 @@ export const RegistrarFacturaView: React.FC<RegistrarFacturaViewProps> = ({
                   <div className="flex flex-col gap-xs">
                     <input
                       type="text"
+                      list="factura-clients"
                       value={clientName}
                       onChange={(e) => setClientName(e.target.value)}
+                      disabled={Boolean(selectedSource)}
                       placeholder="Nombre del cliente (si no usó un documento de origen)"
-                      className="w-full bg-surface px-md py-sm rounded-lg border border-outline-variant/50 focus:border-primary outline-none"
+                      className="w-full bg-surface px-md py-sm rounded-lg border border-outline-variant/50 focus:border-primary outline-none disabled:opacity-70 disabled:cursor-not-allowed"
                     />
                   </div>
                 )}
@@ -358,7 +421,7 @@ export const RegistrarFacturaView: React.FC<RegistrarFacturaViewProps> = ({
                     <span className="material-symbols-outlined">rule</span>
                     Ítems de la Factura
                   </h2>
-                  <div className="flex items-center gap-sm flex-wrap">
+                  {!selectedSource && <div className="flex items-center gap-sm flex-wrap">
                     <select
                       value={draftProductId}
                       onChange={(e) => setDraftProductId(e.target.value)}
@@ -377,14 +440,14 @@ export const RegistrarFacturaView: React.FC<RegistrarFacturaViewProps> = ({
                     >
                       <span className="material-symbols-outlined text-[16px]">add</span> Agregar
                     </button>
-                  </div>
+                  </div>}
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-left border-collapse">
                     <thead>
                       <tr className="bg-surface-container-low border-b border-outline-variant/20 font-label-md text-label-md text-on-surface-variant uppercase">
                         <th className="py-sm px-md">Producto</th>
-                        <th className="py-sm px-md text-right">Cant.</th>
+                        <th className="py-sm px-md text-right">Cant. / saldo</th>
                         <th className="py-sm px-md text-right">P. Unit.</th>
                         <th className="py-sm px-md text-right">Subtotal</th>
                         <th className="py-sm px-md w-8"></th>
@@ -392,15 +455,22 @@ export const RegistrarFacturaView: React.FC<RegistrarFacturaViewProps> = ({
                     </thead>
                     <tbody className="font-body-md divide-y divide-outline-variant/10">
                       {lines.map((line, idx) => (
-                        <tr key={`${line.productId}-${idx}`} className="hover:bg-surface-container/20">
-                          <td className="py-md px-md font-medium"><span className="truncate max-w-[220px]">{line.sku ? `${line.sku} — ` : ''}{line.name}</span></td>
+                        <tr key={line.key} className="hover:bg-surface-container/20">
+                          <td className="py-md px-md font-medium">
+                            <span className="truncate max-w-[220px]">{line.sku ? `${line.sku} — ` : ''}{line.name}</span>
+                            {selectedSource && line.originalQuantity !== undefined && <span className="block text-xs text-on-surface-variant">Origen: {line.originalQuantity} u. · pendiente: {line.maxQuantity} u.</span>}
+                          </td>
                           <td className="py-md px-md text-right">
                             <input
                               type="number"
                               min="0"
+                              max={line.maxQuantity}
                               value={line.quantity}
                               onChange={(e) => {
-                                const val = Math.max(0, Number(e.target.value) || 0);
+                                const requested = Math.max(0, Number(e.target.value) || 0);
+                                const val = line.maxQuantity === undefined
+                                  ? requested
+                                  : Math.min(line.maxQuantity, requested);
                                 setLines((prev) => prev.map((l, i) => (i === idx ? { ...l, quantity: val } : l)));
                               }}
                               className="w-24 bg-surface border border-outline-variant rounded px-sm py-xs text-right font-mono-sm focus:border-primary outline-none"
@@ -411,14 +481,15 @@ export const RegistrarFacturaView: React.FC<RegistrarFacturaViewProps> = ({
                               type="number"
                               min="0"
                               value={line.unitPrice}
+                              disabled={Boolean(selectedSource)}
                               onChange={(e) => {
                                 const val = Math.max(0, Number(e.target.value) || 0);
                                 setLines((prev) => prev.map((l, i) => (i === idx ? { ...l, unitPrice: val } : l)));
                               }}
-                              className="w-28 bg-surface border border-outline-variant rounded px-sm py-xs text-right font-mono-sm focus:border-primary outline-none"
+                              className="w-28 bg-surface border border-outline-variant rounded px-sm py-xs text-right font-mono-sm focus:border-primary outline-none disabled:opacity-70 disabled:cursor-not-allowed"
                             />
                           </td>
-                          <td className="py-md px-md text-right font-mono-sm">${lineTotal(line).toFixed(2)}</td>
+                          <td className="py-md px-md text-right font-mono-sm">{formatMoney(lineTotal(line))}</td>
                           <td className="py-md px-md text-right">
                             <button
                               onClick={() => setLines((prev) => prev.filter((_, i) => i !== idx))}
@@ -463,11 +534,11 @@ export const RegistrarFacturaView: React.FC<RegistrarFacturaViewProps> = ({
                 </div>
                 <div className="flex items-center justify-between font-body-md">
                   <span className="text-on-surface-variant">Subtotal</span>
-                  <span className="font-mono-sm">${subtotal.toFixed(2)}</span>
+                  <span className="font-mono-sm">{formatMoney(subtotal)}</span>
                 </div>
                 <div className="flex items-center justify-between font-body-lg border-t border-outline-variant/20 pt-sm">
                   <span className="font-semibold">Total (sin IVA calculado)</span>
-                  <span className="font-mono-sm font-bold">${subtotal.toFixed(2)}</span>
+                  <span className="font-mono-sm font-bold">{formatMoney(subtotal)}</span>
                 </div>
                 <p className="text-xs text-on-surface-variant">
                   El total final incluye el IVA según la categoría fiscal de cada producto.

@@ -1,9 +1,10 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
-import { requireAuth, requirePermission } from '../middleware/auth.js';
+import { requireAuth, requirePlatformAuth, requirePermission, requireAssignedBranch, documentBranchWhere } from '../middleware/auth.js';
 import { logAudit, clientIp } from '../lib/audit.js';
 import { parsePositiveInt } from '../lib/params.js';
+import { parseBody } from '../lib/parseBody.js';
 import {
   PLAN_CATALOG,
   getCompanySubscription,
@@ -60,11 +61,8 @@ const checkoutSchema = z.object({
 });
 
 router.post('/checkout', requireAuth, async (req, res) => {
-  const parsed = checkoutSchema.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
-    return;
-  }
+  const data = parseBody(res, checkoutSchema, req.body);
+  if (!data) return;
 
   try {
     const user = await prisma.user.findUnique({
@@ -78,7 +76,7 @@ router.post('/checkout', requireAuth, async (req, res) => {
     });
 
     const result = await createMpCheckout({
-      planCode: parsed.data.planCode,
+      planCode: data.planCode,
       companyName: company?.name ?? 'Nexus',
       companyId: req.authUser!.companyId,
       userEmail: user?.email ?? '',
@@ -115,16 +113,13 @@ const collectionSchema = z.object({
   method: z.enum(['Tarjeta', 'QR / Transf.']).optional().default('QR / Transf.'),
 });
 
-router.post('/payments', requireAuth, requirePermission('ventas.escribir'), async (req, res) => {
-  const parsed = collectionSchema.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
-    return;
-  }
+router.post('/payments', requireAuth, requirePermission('ventas.escribir'), requireAssignedBranch, async (req, res) => {
+  const data = parseBody(res, collectionSchema, req.body);
+  if (!data) return;
   const companyId = req.authUser!.companyId;
 
   const document = await prisma.document.findFirst({
-    where: { id: parsed.data.documentId, companyId },
+    where: { id: data.documentId, ...documentBranchWhere(req) },
     select: { id: true, type: true, series: true, number: true, status: true, total: true, currency: true },
   });
   if (!document) {
@@ -185,7 +180,7 @@ router.post('/payments', requireAuth, requirePermission('ventas.escribir'), asyn
           companyId,
           documentId: document.id,
           amount,
-          method: parsed.data.method,
+          method: data.method,
           status: 'Pendiente',
         },
       }));
@@ -198,7 +193,7 @@ router.post('/payments', requireAuth, requirePermission('ventas.escribir'), asyn
         module: 'Ventas',
         entity: 'Payment',
         entityId: row.id,
-        details: `VENTA ${document.series}-${String(document.number).padStart(4, '0')} por $${amount.toFixed(2)} (${parsed.data.method})`,
+        details: `VENTA ${document.series}-${String(document.number).padStart(4, '0')} por $${amount.toFixed(2)} (${data.method})`,
       },
       clientIp(req),
     );
@@ -219,7 +214,7 @@ router.post('/payments', requireAuth, requirePermission('ventas.escribir'), asyn
 // Local primero; si sigue pendiente y MP está configurado, consulta MP y
 // aplica el aprobado en el acto (cubre webhooks que aún no llegaron).
 // ---------------------------------------------------------------------------
-router.get('/payments/:id', requireAuth, requirePermission('ventas.escribir'), async (req, res) => {
+router.get('/payments/:id', requireAuth, requirePermission('ventas.escribir'), requireAssignedBranch, async (req, res) => {
   const id = parsePositiveInt(req.params.id);
   if (id === null) {
     res.status(400).json({ error: 'Parámetro inválido' });
@@ -228,7 +223,7 @@ router.get('/payments/:id', requireAuth, requirePermission('ventas.escribir'), a
   const companyId = req.authUser!.companyId;
 
   const payment = await prisma.payment.findFirst({
-    where: { id, companyId },
+    where: { id, companyId, document: { is: documentBranchWhere(req) } },
     select: { id: true, documentId: true, status: true },
   });
   if (!payment) {
@@ -293,33 +288,9 @@ router.post('/webhook', async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// GET /api/billing/admin/overview  (SuperAdmin — panel de billing)
+// GET /api/billing/admin/overview  (platform principal only)
 // ---------------------------------------------------------------------------
-router.get('/admin/overview', requireAuth, async (req, res) => {
-  // Only users with the billing.manage permission may access the overview.
-  const user = await prisma.user.findUnique({
-    where: { id: req.authUser!.userId },
-    select: {
-      roles: {
-        select: {
-          role: {
-            select: {
-              permissions: { select: { permission: { select: { name: true } } } },
-            },
-          },
-        },
-      },
-    },
-  });
-
-  const permissions = new Set(
-    user?.roles.flatMap((ur) => ur.role.permissions.map((rp) => rp.permission.name)) ?? [],
-  );
-  if (!permissions.has('billing.manage')) {
-    res.status(403).json({ error: 'Permiso requerido: billing.manage' });
-    return;
-  }
-
+router.get('/admin/overview', requirePlatformAuth, async (_req, res) => {
   const [totals, recentEvents, unsubscribedCompanies] = await Promise.all([
     prisma.companySubscription.groupBy({
       by: ['status'],

@@ -4,7 +4,8 @@ import { prisma } from '../lib/prisma.js';
 import { requireAuth, requirePermission, tenantWhere } from '../middleware/auth.js';
 import { logAudit, clientIp } from '../lib/audit.js';
 import { assertProductCreationAllowed } from '../lib/billing.js';
-import { parsePositiveInt } from '../lib/params.js';
+import { parsePositiveInt, parsePagination, paginateResponse } from '../lib/params.js';
+import { parseBody } from '../lib/parseBody.js';
 
 const router = Router();
 
@@ -55,13 +56,10 @@ async function isValidTaxForTenant(
 
 /** POST /api/products/taxes — create a tenant-owned tax rate */
 router.post('/taxes', requirePermission('inventario.escribir'), async (req, res) => {
-  const parsed = taxCreateSchema.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
-    return;
-  }
+  const data = parseBody(res, taxCreateSchema, req.body);
+  if (!data) return;
   const tax = await prisma.tax.create({
-    data: { ...parsed.data, companyId: req.authUser!.companyId },
+    data: { ...data, companyId: req.authUser!.companyId },
   });
   res.status(201).json(tax);
 });
@@ -76,11 +74,8 @@ router.patch('/taxes/:id', requirePermission('inventario.escribir'), async (req,
     res.status(400).json({ error: 'Parámetro inválido' });
     return;
   }
-  const parsed = taxUpdateSchema.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
-    return;
-  }
+  const data = parseBody(res, taxUpdateSchema, req.body);
+  if (!data) return;
   const existing = await prisma.tax.findFirst({
     where: { id, ...tenantWhere(req) },
   });
@@ -93,7 +88,7 @@ router.patch('/taxes/:id', requirePermission('inventario.escribir'), async (req,
     res.status(404).json({ error: 'Impuesto no encontrado' });
     return;
   }
-  const tax = await prisma.tax.update({ where: { id }, data: parsed.data });
+  const tax = await prisma.tax.update({ where: { id }, data });
   res.json(tax);
 });
 
@@ -104,14 +99,11 @@ const categorySchema = z.object({
 
 /** POST /api/products/categories — create a tenant category */
 router.post('/categories', requirePermission('inventario.escribir'), async (req, res) => {
-  const parsed = categorySchema.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
-    return;
-  }
-  if (parsed.data.parentId) {
+  const data = parseBody(res, categorySchema, req.body);
+  if (!data) return;
+  if (data.parentId) {
     const parent = await prisma.category.findFirst({
-      where: { id: parsed.data.parentId, ...tenantWhere(req) },
+      where: { id: data.parentId, ...tenantWhere(req) },
     });
     if (!parent) {
       res.status(400).json({ error: 'Categoría padre inválida' });
@@ -119,7 +111,7 @@ router.post('/categories', requirePermission('inventario.escribir'), async (req,
     }
   }
   const category = await prisma.category.create({
-    data: { ...tenantWhere(req), name: parsed.data.name },
+    data: { ...tenantWhere(req), name: data.name },
   });
   res.status(201).json(category);
 });
@@ -131,17 +123,14 @@ router.patch('/categories/:id', requirePermission('inventario.escribir'), async 
     res.status(400).json({ error: 'Parámetro inválido' });
     return;
   }
-  const parsed = z.object({ name: z.string().min(1).max(80) }).safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
-    return;
-  }
+  const data = parseBody(res, z.object({ name: z.string().min(1).max(80) }), req.body);
+  if (!data) return;
   const existing = await prisma.category.findFirst({ where: { id, ...tenantWhere(req) } });
   if (!existing) {
     res.status(404).json({ error: 'Categoría no encontrada' });
     return;
   }
-  const category = await prisma.category.update({ where: { id }, data: { name: parsed.data.name } });
+  const category = await prisma.category.update({ where: { id }, data: { name: data.name } });
   res.json(category);
 });
 
@@ -170,6 +159,11 @@ const productCreateSchema = productSchema.extend({
 
 /** GET /api/products — list tenant products with stock summary */
 router.get('/', async (req, res) => {
+  const pagination = parsePagination(req.query);
+  if (pagination !== null && 'error' in pagination) {
+    res.status(400).json({ error: pagination.error });
+    return;
+  }
   const { search } = req.query;
   const products = await prisma.product.findMany({
     where: {
@@ -187,11 +181,13 @@ router.get('/', async (req, res) => {
     include: {
       category: { select: { name: true } },
       tax: { select: { name: true, rate: true } },
-      stocks: { select: { warehouseId: true, quantity: true, minStock: true } },
+      stocks: { where: { warehouse: { companyId: req.authUser!.companyId,
+        ...(!req.authUser!.isOwner ? { branchId: req.authUser!.branchId ?? -1 } : {}) } },
+        select: { warehouseId: true, quantity: true, minStock: true } },
     },
     orderBy: { name: 'asc' },
   });
-  res.json(products);
+  res.json(pagination ? paginateResponse(products, pagination) : products);
 });
 
 /** GET /api/products/:id — tenant-scoped product detail */
@@ -206,7 +202,9 @@ router.get('/:id', async (req, res) => {
     include: {
       category: { select: { name: true } },
       tax: { select: { name: true, rate: true } },
-      stocks: { include: { warehouse: { select: { name: true } } } },
+      stocks: { where: { warehouse: { companyId: req.authUser!.companyId,
+        ...(!req.authUser!.isOwner ? { branchId: req.authUser!.branchId ?? -1 } : {}) } },
+        include: { warehouse: { select: { name: true } } } },
     },
   });
   if (!product) {
@@ -230,12 +228,8 @@ router.post('/', requirePermission('inventario.escribir'), async (req, res) => {
     throw err;
   }
 
-  const parsed = productCreateSchema.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
-    return;
-  }
-  const data = parsed.data;
+  const data = parseBody(res, productCreateSchema, req.body);
+  if (!data) return;
 
   // Optional initial stock entries must ship as a pair, never one without the other.
   const { stockInicial, warehouseId: initialWarehouseId, ...productData } = data;
@@ -265,6 +259,11 @@ router.post('/', requirePermission('inventario.escribir'), async (req, res) => {
         where: { id: initialWarehouseId, ...tenantWhere(req) },
       });
       if (!warehouse) throw Object.assign(new Error('Depósito no válido'), { status: 400 });
+      if (!req.authUser!.isOwner && warehouse.branchId !== req.authUser!.branchId) {
+        throw Object.assign(new Error(req.authUser!.branchId === null
+          ? 'Solicitá al Super Admin que te asigne una sucursal'
+          : 'Depósito fuera de la sucursal asignada'), { status: 403 });
+      }
     }
 
     const created = await tx.product.create({
@@ -309,11 +308,8 @@ router.patch('/:id', requirePermission('inventario.escribir'), async (req, res) 
     res.status(400).json({ error: 'Parámetro inválido' });
     return;
   }
-  const parsed = productUpdateSchema.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
-    return;
-  }
+  const data = parseBody(res, productUpdateSchema, req.body);
+  if (!data) return;
 
   const existing = await prisma.product.findFirst({ where: { id, ...tenantWhere(req) } });
   if (!existing) {
@@ -321,9 +317,9 @@ router.patch('/:id', requirePermission('inventario.escribir'), async (req, res) 
     return;
   }
 
-  if (parsed.data.categoryId) {
+  if (data.categoryId) {
     const category = await prisma.category.findFirst({
-      where: { id: parsed.data.categoryId, ...tenantWhere(req) },
+      where: { id: data.categoryId, ...tenantWhere(req) },
     });
     if (!category) {
       res.status(400).json({ error: 'Categoría inválida para esta empresa' });
@@ -331,14 +327,14 @@ router.patch('/:id', requirePermission('inventario.escribir'), async (req, res) 
     }
   }
 
-  if (parsed.data.taxId && !(await isValidTaxForTenant(req, parsed.data.taxId))) {
+  if (data.taxId && !(await isValidTaxForTenant(req, data.taxId))) {
     res.status(400).json({ error: 'Impuesto inválido para esta empresa' });
     return;
   }
 
   const product = await prisma.product.update({
     where: { id },
-    data: parsed.data,
+    data,
     include: { category: true, tax: true },
   });
   res.json(product);

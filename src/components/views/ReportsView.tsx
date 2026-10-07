@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { formatMoney } from '../../lib/format';
 import { ViewPath, Product, SaleTransaction } from '../../types';
 
 interface ReportsViewProps {
@@ -76,7 +77,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ products, sales }) => 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-md">
         <div className="bg-surface-container-lowest rounded-xl p-lg shadow-sm border border-outline-variant/20 flex flex-col gap-xs">
           <span className="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Ventas Totales</span>
-          <p className="font-display-lg text-display-lg font-mono-sm text-primary">${totalSalesVal.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</p>
+          <p className="font-display-lg text-display-lg font-mono-sm text-primary">{formatMoney(totalSalesVal)}</p>
           {salesDelta !== null && (
             <span className={`text-xs flex items-center gap-1 font-semibold ${salesDelta >= 0 ? 'text-tertiary-container' : 'text-error'}`}>
               <span className="material-symbols-outlined text-xs">{salesDelta >= 0 ? 'trending_up' : 'trending_down'}</span>
@@ -87,14 +88,14 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ products, sales }) => 
 
         <div className="bg-surface-container-lowest rounded-xl p-lg shadow-sm border border-outline-variant/20 flex flex-col gap-xs">
           <span className="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Ticket Promedio</span>
-          <p className="font-display-lg text-display-lg font-mono-sm text-on-surface">${avgTicket.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</p>
+          <p className="font-display-lg text-display-lg font-mono-sm text-on-surface">{formatMoney(avgTicket)}</p>
           <span className="text-xs text-on-surface-variant">Basado en {salesInWindow.length} transacciones</span>
         </div>
 
         <div className="bg-surface-container-lowest rounded-xl p-lg shadow-sm border border-outline-variant/20 flex flex-col gap-xs">
           <span className="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Valorización de Inventario</span>
-          <p className="font-display-lg text-display-lg font-mono-sm text-on-surface">${totalStockVal.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</p>
-          <span className="text-xs text-on-surface-variant">Costo Base: ${totalCostVal.toLocaleString('es-ES', { minimumFractionDigits: 2 })}</span>
+          <p className="font-display-lg text-display-lg font-mono-sm text-on-surface">{formatMoney(totalStockVal)}</p>
+          <span className="text-xs text-on-surface-variant">Costo Base: {formatMoney(totalCostVal)}</span>
         </div>
 
         <div className="bg-surface-container-lowest rounded-xl p-lg shadow-sm border border-outline-variant/20 flex flex-col gap-xs">
@@ -171,7 +172,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ products, sales }) => 
                     </div>
                   </div>
                   <div className="text-right">
-                    <p className="font-mono-sm font-bold text-primary">${p.price.toFixed(2)}</p>
+                    <p className="font-mono-sm font-bold text-primary">{formatMoney(p.price)}</p>
                     <p className="text-xs font-medium">{p.stock} dispon. / mín {p.minStock}</p>
                   </div>
                 </div>

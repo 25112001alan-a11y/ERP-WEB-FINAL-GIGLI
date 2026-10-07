@@ -43,15 +43,40 @@ export interface Product {
   stockInicial?: number;
   warehouseId?: number;
   description?: string;
-  imageUrl?: string;
 }
 
-export interface PurchaseOrder {
+/**
+ * Header identity frozen when the document was created; null on legacy rows.
+ * Renaming a company, client, supplier or branch never rewrites history.
+ */
+export interface DocumentHeaderSnapshot {
+  companyName?: string | null;
+  companyTaxId?: string | null;
+  companyAddress?: string | null;
+  companyProvince?: string | null;
+  companyPostalCode?: string | null;
+  companyTaxCondition?: string | null;
+  clientName?: string | null;
+  clientTaxId?: string | null;
+  clientAddress?: string | null;
+  supplierName?: string | null;
+  supplierTaxId?: string | null;
+  supplierAddress?: string | null;
+  supplierProvince?: string | null;
+  supplierPostalCode?: string | null;
+  supplierTaxCondition?: string | null;
+  branchName?: string | null;
+  branchAddress?: string | null;
+}
+
+export interface PurchaseOrder extends DocumentHeaderSnapshot {
   id: string;
   documentId: number;
   type: string;
   date: string;
   supplier: string;
+  subtotal: number;
+  totalTax: number;
   total: number;
   receiptStatus: 'Pendiente' | 'Parcial' | 'Recibido';
   paymentStatus: 'Pagado' | 'No Pagado';
@@ -67,9 +92,13 @@ export interface Supplier {
   taxId: string | null;
   contact?: string | null;
   contactPerson?: string;
+  address?: string | null;
+  province?: string | null;
+  postalCode?: string | null;
+  taxCondition?: string | null;
 }
 
-export interface SaleTransaction {
+export interface SaleTransaction extends DocumentHeaderSnapshot {
   id: string;
   type: string;
   date: string;
@@ -82,7 +111,7 @@ export interface SaleTransaction {
   fulfillmentStatus: 'Entregado' | 'En Preparación' | 'Nuevo';
   paymentMethod: string;
   itemsCount: number;
-  items?: { description: string; quantity: number; unitPrice: number }[];
+  items?: { description: string; quantity: number; unitPrice: number; sku?: string | null; taxName?: string | null }[];
 }
 
 export interface DashboardRecent {
@@ -114,7 +143,7 @@ export interface DashboardData {
   topProducts: { name: string; sku: string; units: number }[];
 }
 
-export interface PublicOrder {
+export interface PublicOrder extends DocumentHeaderSnapshot {
   id: string;
   documentId: number;
   client: string;
@@ -124,6 +153,7 @@ export interface PublicOrder {
   total: number;
   paymentStatus: 'Pagado' | 'Pendiente';
   logisticsStatus: 'Nuevo' | 'En Proceso' | 'Enviado' | 'Anulado';
+  hasDispatch: boolean;
   address?: string;
   clientPhone?: string | null;
 }
@@ -161,6 +191,8 @@ export interface TaxRate {
   name: string;
   rate: number;
   active: boolean;
+  // null = catálogo del sistema (solo lectura); con valor = impuesto propio.
+  companyId: number | null;
 }
 
 export interface AuditLog {
@@ -169,7 +201,7 @@ export interface AuditLog {
   user: string;
   userInitials: string;
   action: string;
-  module: 'Seguridad' | 'Inventario' | 'Ventas' | 'Compras' | 'Finanzas' | 'Configuración';
+  module: 'Seguridad' | 'Inventario' | 'Ventas' | 'Compras' | 'Finanzas' | 'Configuración' | 'Facturación';
   ip: string;
   details: string;
 }
@@ -190,15 +222,18 @@ export interface CartItem {
 }
 
 export interface PurchaseItem {
+  sourceDocumentItemId: number;
   productId: string;
   name: string;
   sku: string;
+  taxName?: string | null;
   ordered: number;
+  pendingQuantity: number;
   received: number;
   unitPrice: number;
 }
 
-export interface PurchaseDocument {
+export interface PurchaseDocument extends DocumentHeaderSnapshot {
   id: string;
   number: string;
   type: string;
@@ -207,6 +242,8 @@ export interface PurchaseDocument {
   total: number;
   status: string;
   externalNumber?: string;
+  /** Branch the order belongs to; null when it is not branch-scoped. */
+  branchId?: number | null;
   items: PurchaseItem[];
 }
 

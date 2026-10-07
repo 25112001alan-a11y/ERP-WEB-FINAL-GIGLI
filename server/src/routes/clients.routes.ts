@@ -2,7 +2,8 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { requireAuth, requirePermission, tenantWhere } from '../middleware/auth.js';
-import { parsePositiveInt } from '../lib/params.js';
+import { parsePositiveInt, parsePagination, paginateResponse } from '../lib/params.js';
+import { parseBody } from '../lib/parseBody.js';
 
 const router = Router();
 
@@ -22,6 +23,11 @@ const clientUpdateSchema = clientSchema.partial();
 
 /** GET /api/clients — tenant-scoped list */
 router.get('/', async (req, res) => {
+  const pagination = parsePagination(req.query);
+  if (pagination !== null && 'error' in pagination) {
+    res.status(400).json({ error: pagination.error });
+    return;
+  }
   const { search } = req.query;
   const clients = await prisma.client.findMany({
     where: {
@@ -32,7 +38,7 @@ router.get('/', async (req, res) => {
     },
     orderBy: { name: 'asc' },
   });
-  res.json(clients);
+  res.json(pagination ? paginateResponse(clients, pagination) : clients);
 });
 
 /** GET /api/clients/:id */
@@ -52,13 +58,10 @@ router.get('/:id', async (req, res) => {
 
 /** POST /api/clients */
 router.post('/', requirePermission('ventas.escribir'), async (req, res) => {
-  const parsed = clientSchema.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
-    return;
-  }
+  const data = parseBody(res, clientSchema, req.body);
+  if (!data) return;
   const client = await prisma.client.create({
-    data: { ...tenantWhere(req), ...parsed.data },
+    data: { ...tenantWhere(req), ...data },
   });
   res.status(201).json(client);
 });
@@ -70,17 +73,14 @@ router.patch('/:id', requirePermission('ventas.escribir'), async (req, res) => {
     res.status(400).json({ error: 'Parámetro inválido' });
     return;
   }
-  const parsed = clientUpdateSchema.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
-    return;
-  }
+  const data = parseBody(res, clientUpdateSchema, req.body);
+  if (!data) return;
   const existing = await prisma.client.findFirst({ where: { id, ...tenantWhere(req) } });
   if (!existing) {
     res.status(404).json({ error: 'Cliente no encontrado' });
     return;
   }
-  const client = await prisma.client.update({ where: { id }, data: parsed.data });
+  const client = await prisma.client.update({ where: { id }, data });
   res.json(client);
 });
 

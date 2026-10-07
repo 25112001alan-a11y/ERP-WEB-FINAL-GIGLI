@@ -16,6 +16,10 @@ interface CompanyProfile {
   slug: string | null;
   legalName: string | null;
   taxId: string | null;
+  address: string | null;
+  province: string | null;
+  postalCode: string | null;
+  taxCondition: string | null;
   currency: string | null;
   timezone: string | null;
 }
@@ -48,6 +52,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ taxes, onAddTax, onT
   const [companySlug, setCompanySlug] = useState('');
   const [legalName, setLegalName] = useState('');
   const [taxId, setTaxId] = useState('');
+  const [address, setAddress] = useState('');
+  const [province, setProvince] = useState('');
+  const [postalCode, setPostalCode] = useState('');
+  const [taxCondition, setTaxCondition] = useState('');
   const [currency, setCurrency] = useState('USD');
   const [timezone, setTimezone] = useState('America/Argentina/Buenos_Aires');
   const [savedMsg, setSavedMsg] = useState(false);
@@ -76,6 +84,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ taxes, onAddTax, onT
         setCompanySlug(c.slug ?? '');
         setLegalName(c.legalName ?? '');
         setTaxId(c.taxId ?? '');
+        setAddress(c.address ?? '');
+        setProvince(c.province ?? '');
+        setPostalCode(c.postalCode ?? '');
+        setTaxCondition(c.taxCondition ?? '');
         setCurrency(c.currency ?? 'USD');
         setTimezone(c.timezone ?? 'America/Argentina/Buenos_Aires');
       })
@@ -150,6 +162,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ taxes, onAddTax, onT
           slug: companySlug.trim(),
           legalName: legalName.trim() || null,
           taxId: taxId.trim() || null,
+          address: address.trim() || null,
+          province: province.trim() || null,
+          postalCode: postalCode.trim() || null,
+          taxCondition: taxCondition.trim() || null,
           currency,
           timezone,
         },
@@ -325,6 +341,48 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ taxes, onAddTax, onT
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-md">
                     <div className="flex flex-col gap-xs">
+                      <label className="font-label-md text-label-md uppercase text-on-surface-variant">Domicilio Fiscal</label>
+                      <input
+                        type="text"
+                        value={address}
+                        onChange={(e) => setAddress(e.target.value)}
+                        className="bg-surface border border-outline-variant/50 rounded-lg p-sm outline-none focus:border-primary font-body-md"
+                      />
+                    </div>
+
+                    <div className="flex flex-col gap-xs">
+                      <label className="font-label-md text-label-md uppercase text-on-surface-variant">Provincia</label>
+                      <input
+                        type="text"
+                        value={province}
+                        onChange={(e) => setProvince(e.target.value)}
+                        className="bg-surface border border-outline-variant/50 rounded-lg p-sm outline-none focus:border-primary font-body-md"
+                      />
+                    </div>
+
+                    <div className="flex flex-col gap-xs">
+                      <label className="font-label-md text-label-md uppercase text-on-surface-variant">Código Postal</label>
+                      <input
+                        type="text"
+                        value={postalCode}
+                        onChange={(e) => setPostalCode(e.target.value)}
+                        className="bg-surface border border-outline-variant/50 rounded-lg p-sm outline-none focus:border-primary font-mono-sm"
+                      />
+                    </div>
+
+                    <div className="flex flex-col gap-xs">
+                      <label className="font-label-md text-label-md uppercase text-on-surface-variant">Condición frente al IVA</label>
+                      <input
+                        type="text"
+                        value={taxCondition}
+                        onChange={(e) => setTaxCondition(e.target.value)}
+                        className="bg-surface border border-outline-variant/50 rounded-lg p-sm outline-none focus:border-primary font-body-md"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-md">
+                    <div className="flex flex-col gap-xs">
                       <label className="font-label-md text-label-md uppercase text-on-surface-variant">Moneda Principal</label>
                       <select
                         value={currency}
@@ -381,14 +439,20 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ taxes, onAddTax, onT
                     </div>
                     <div className="flex items-center gap-md shrink-0">
                       <span className="font-mono-sm font-bold text-primary text-headline-md">{Number(t.rate).toFixed(1)}%</span>
-                      <button
-                        onClick={() => onToggleTax(t.id, !t.active)}
-                        className={`px-2 py-1 rounded-full text-xs font-semibold cursor-pointer ${
-                          t.active ? 'bg-tertiary-container/20 text-on-tertiary-container' : 'bg-surface-container-high text-on-surface-variant'
-                        }`}
-                      >
-                        {t.active ? 'Activa' : 'Inactiva'}
-                      </button>
+                      {t.companyId == null ? (
+                        <span className="px-2 py-1 rounded-full text-xs font-semibold bg-surface-container-high text-on-surface-variant">
+                          Sistema
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => onToggleTax(t.id, !t.active)}
+                          className={`px-2 py-1 rounded-full text-xs font-semibold cursor-pointer ${
+                            t.active ? 'bg-tertiary-container/20 text-on-tertiary-container' : 'bg-surface-container-high text-on-surface-variant'
+                          }`}
+                        >
+                          {t.active ? 'Activa' : 'Inactiva'}
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}

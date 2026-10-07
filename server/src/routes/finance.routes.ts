@@ -1,17 +1,17 @@
 import { Router } from 'express';
 import { prisma } from '../lib/prisma.js';
-import { requireAuth, requirePermission } from '../middleware/auth.js';
+import { requireAuth, requirePermission, requireAssignedBranch, documentBranchWhere } from '../middleware/auth.js';
 
 const router = Router();
 
 router.use(requireAuth);
 
 /** GET /api/finance — cash-flow movements derived from document payments */
-router.get('/', requirePermission('finanzas.leer'), async (req, res) => {
+router.get('/', requirePermission('finanzas.leer'), requireAssignedBranch, async (req, res) => {
   const companyId = req.authUser!.companyId;
 
   const payments = await prisma.payment.findMany({
-    where: { companyId },
+    where: { companyId, document: { is: documentBranchWhere(req) } },
     include: {
       document: {
         include: {
@@ -26,7 +26,9 @@ router.get('/', requirePermission('finanzas.leer'), async (req, res) => {
 
   const txs = payments.map((p) => {
     const doc = p.document;
-    const income = doc.type === 'VENTA';
+    // Ingreso: VENTA siempre; FACTURA solo cuando es de cliente (clientId).
+    // La FACTURA a proveedor es egreso, igual que la COMPRA.
+    const income = doc.type === 'VENTA' || (doc.type === 'FACTURA' && doc.clientId != null);
     const partyName = doc.client?.name ?? doc.supplier?.name ?? '';
     const amount = Number(p.amount);
     return {

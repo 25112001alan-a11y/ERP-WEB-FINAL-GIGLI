@@ -1,12 +1,15 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { formatMoney } from '../../lib/format';
 import { ViewPath, Product, CartItem, SaleTransaction, BranchOption } from '../../types';
 import { branchStock } from '../../lib/branch';
 import { ApiError, apiFetch } from '../../lib/api';
+import { ClientOption, resolveClientSelection } from '../../lib/clientSelection';
 
 export interface CompleteSalePayload {
   items: CartItem[];
   method: string;
   clientName: string;
+  clientId?: number;
   payments?: { method: string; amount: number }[];
   // Cobro online: crea la VENTA pendiente (sin pagos) para cobrarla por MP.
   pending?: boolean;
@@ -24,6 +27,7 @@ interface PosViewProps {
   onClearBranch?: () => void;
   onSelectBranch?: (branchId: number) => void;
   branchLocked?: boolean;
+  clients?: ClientOption[];
   onCompleteSale: (payload: CompleteSalePayload) => Promise<SaleTransaction>;
   onNavigate: (view: ViewPath) => void;
 }
@@ -37,6 +41,7 @@ export const PosView: React.FC<PosViewProps> = ({
   onClearBranch,
   onSelectBranch,
   branchLocked = false,
+  clients = [],
   onCompleteSale,
   onNavigate,
 }) => {
@@ -306,7 +311,7 @@ export const PosView: React.FC<PosViewProps> = ({
     setCheckingOut(true);
     setSaleError(null);
     try {
-      await onCompleteSale({ items: cart, method, clientName, payments: [{ method, amount: total }] });
+      await onCompleteSale({ items: cart, method, ...resolveClientSelection(clientName, clients), payments: [{ method, amount: total }] });
       setSaleCompleted(true);
       setCartOpen(false);
       setTimeout(() => {
@@ -333,7 +338,7 @@ export const PosView: React.FC<PosViewProps> = ({
     try {
       // Venta real en efectivo: una fila de pago por el total (el vuelto es
       // solo informativo del cliente, no se persiste).
-      await onCompleteSale({ items: cart, method: 'Efectivo', clientName, payments: [{ method: 'Efectivo', amount: total }] });
+      await onCompleteSale({ items: cart, method: 'Efectivo', ...resolveClientSelection(clientName, clients), payments: [{ method: 'Efectivo', amount: total }] });
       setSaleCompleted(true);
       setCartOpen(false);
       // TODO: show change to user (toast)
@@ -368,7 +373,7 @@ export const PosView: React.FC<PosViewProps> = ({
       await onCompleteSale({
         items: cart,
         method: payments.map((p) => p.method).join(' + '),
-        clientName,
+        ...resolveClientSelection(clientName, clients),
         payments,
       });
       setSaleCompleted(true);
@@ -414,6 +419,7 @@ export const PosView: React.FC<PosViewProps> = ({
           <span className="material-symbols-outlined text-outline px-sm">person_search</span>
           <input
             type="text"
+            list="pos-client-options"
             value={clientName}
             onChange={(e) => setClientName(e.target.value)}
             className="bg-transparent border-none w-full font-body-lg text-body-lg text-on-surface focus:outline-none"
@@ -441,15 +447,11 @@ export const PosView: React.FC<PosViewProps> = ({
           cart.map((item) => (
             <div key={item.product.id} className="flex items-center gap-md bg-surface-container-lowest p-md rounded-xl shadow-sm border border-outline-variant/20">
               <div className="w-12 h-12 rounded-lg bg-surface-container-low flex items-center justify-center shrink-0 overflow-hidden">
-                {item.product.imageUrl ? (
-                  <img src={item.product.imageUrl} alt={item.product.name} className="w-full h-full object-cover mix-blend-multiply" />
-                ) : (
-                  <span className="material-symbols-outlined text-outline">inventory_2</span>
-                )}
+                <span className="material-symbols-outlined text-outline">inventory_2</span>
               </div>
               <div className="flex-1 flex flex-col min-w-0">
                 <span className="font-body-md text-body-md text-on-surface font-semibold truncate">{item.product.name}</span>
-                <span className="font-mono-sm text-mono-sm text-outline">${item.product.price.toFixed(2)} c/u</span>
+                <span className="font-mono-sm text-mono-sm text-outline">{formatMoney(item.product.price)} c/u</span>
               </div>
               <div className="flex items-center gap-xs bg-surface-container-low rounded-full px-sm py-xs shrink-0">
                 <button
@@ -469,7 +471,7 @@ export const PosView: React.FC<PosViewProps> = ({
                 </button>
               </div>
               <div className="text-right font-body-lg text-body-lg text-on-surface font-bold shrink-0">
-                ${(item.product.price * item.quantity).toFixed(2)}
+                {formatMoney((item.product.price * item.quantity))}
               </div>
             </div>
           ))
@@ -481,7 +483,7 @@ export const PosView: React.FC<PosViewProps> = ({
         <div className="flex flex-col gap-sm border-b border-outline-variant/30 pb-md">
           <div className="flex justify-between items-center">
             <span className="font-body-md text-body-md text-on-surface-variant">Subtotal</span>
-            <span className="font-mono-sm text-mono-sm text-on-surface">${subtotal.toFixed(2)}</span>
+            <span className="font-mono-sm text-mono-sm text-on-surface">{formatMoney(subtotal)}</span>
           </div>
           <div className="flex justify-between items-center text-error">
             <span className="font-body-md text-body-md flex items-center gap-xs cursor-pointer hover:underline">
@@ -491,13 +493,13 @@ export const PosView: React.FC<PosViewProps> = ({
           </div>
           <div className="flex justify-between items-center">
             <span className="font-body-md text-body-md text-on-surface-variant">Impuestos (IVA)</span>
-            <span className="font-mono-sm text-mono-sm text-on-surface">${tax.toFixed(2)}</span>
+            <span className="font-mono-sm text-mono-sm text-on-surface">{formatMoney(tax)}</span>
           </div>
         </div>
 
         <div className="flex justify-between items-end pb-sm">
           <span className="font-headline-md text-headline-md text-on-surface font-light uppercase tracking-widest">Total</span>
-          <span className="font-display-lg text-display-lg text-primary font-bold leading-none">${total.toFixed(2)}</span>
+          <span className="font-display-lg text-display-lg text-primary font-bold leading-none">{formatMoney(total)}</span>
         </div>
 
         {saleError && (
@@ -555,7 +557,7 @@ export const PosView: React.FC<PosViewProps> = ({
             disabled={checkingOut || needsBranch}
             className="flex-1 rounded-xl bg-secondary text-on-secondary flex items-center justify-center font-label-md text-label-md uppercase tracking-wider shadow-md hover:shadow-lg transition-all cursor-pointer py-3 disabled:opacity-60 disabled:cursor-not-allowed min-w-0"
           >
-            {checkingOut ? 'Procesando...' : `Cobrar ${total.toFixed(2)}`}
+            {checkingOut ? 'Procesando...' : `Cobrar ${formatMoney(total)}`}
           </button>
         </div>
       </div>
@@ -564,6 +566,11 @@ export const PosView: React.FC<PosViewProps> = ({
 
   return (
     <div className="flex flex-col w-full h-full max-h-dvh">
+      <datalist id="pos-client-options">
+        {clients.map((client) => (
+          <option key={client.id} value={client.name} />
+        ))}
+      </datalist>
       <div className="flex flex-1 overflow-hidden flex-col lg:flex-row">
         {/* Left Panel: Product Search & Grid */}
         <div className="flex-1 flex flex-col bg-surface overflow-hidden min-h-0 pb-24 lg:pb-0">
@@ -659,11 +666,7 @@ export const PosView: React.FC<PosViewProps> = ({
                   }`}
                 >
                   <div className="aspect-square relative bg-surface-container-low p-sm flex items-center justify-center">
-                    {prod.imageUrl ? (
-                      <img src={prod.imageUrl} alt={prod.name} className="w-full h-full object-contain mix-blend-multiply" />
-                    ) : (
-                      <span className="material-symbols-outlined text-[32px] text-outline opacity-40">inventory_2</span>
-                    )}
+                    <span className="material-symbols-outlined text-[32px] text-outline opacity-40">inventory_2</span>
                     <span
                       className={`absolute top-sm right-sm px-sm py-xs rounded font-mono-xs text-mono-xs font-bold ${
                         avail(prod) <= 0 && !prod.allowOversell
@@ -680,7 +683,7 @@ export const PosView: React.FC<PosViewProps> = ({
                     </span>
                     <div className="flex items-end justify-between mt-auto pt-xs">
                       <span className="font-headline-sm text-headline-sm text-primary font-bold">
-                        ${prod.price.toFixed(2)}
+                        {formatMoney(prod.price)}
                       </span>
                     </div>
                   </div>
@@ -707,7 +710,7 @@ export const PosView: React.FC<PosViewProps> = ({
             <span className="material-symbols-outlined text-[20px]">shopping_cart</span>
             Ver pedido ({cart.length})
           </span>
-          <span className="font-headline-md text-headline-md">${total.toFixed(2)}</span>
+          <span className="font-headline-md text-headline-md">{formatMoney(total)}</span>
         </button>
       )}
 
@@ -796,7 +799,7 @@ export const PosView: React.FC<PosViewProps> = ({
         <div className="fixed inset-0 z-50 bg-black/40 flex p-md overflow-y-auto" onClick={() => setCashModal({ open: false, received: '' })}>
           <div className="bg-surface-container-lowest rounded-2xl shadow-xl w-full max-w-[24rem] p-lg border border-outline-variant/30 m-auto" onClick={(e) => e.stopPropagation()}>
             <h3 className="font-headline-md text-headline-md text-on-surface mb-md">Pago en Efectivo</h3>
-            <p className="font-body-md text-on-surface-variant mb-md">Total: <span className="font-bold text-primary">${total.toFixed(2)}</span></p>
+            <p className="font-body-md text-on-surface-variant mb-md">Total: <span className="font-bold text-primary">{formatMoney(total)}</span></p>
             <div className="flex flex-col gap-sm mb-md">
               <label className="font-label-md text-label-md text-on-surface-variant">Monto recibido</label>
               <input
@@ -809,7 +812,7 @@ export const PosView: React.FC<PosViewProps> = ({
                 autoFocus
               />
             </div>
-            <p className="font-body-md text-on-surface-variant mb-md">Vuelto: <span className="font-bold">${(parseFloat(cashModal.received) - total).toFixed(2)}</span></p>
+            <p className="font-body-md text-on-surface-variant mb-md">Vuelto: <span className="font-bold">{formatMoney((parseFloat(cashModal.received) - total))}</span></p>
             <div className="flex gap-sm justify-end">
               <button onClick={() => setCashModal({ open: false, received: '' })} className="px-md py-sm rounded-lg bg-surface-container-high text-on-surface hover:bg-surface-container-highest transition-colors cursor-pointer">Cancelar</button>
               <button onClick={handleCashConfirm} disabled={checkingOut} className="px-md py-sm rounded-lg bg-primary text-on-primary hover:opacity-90 transition-opacity cursor-pointer disabled:opacity-50">Confirmar</button>
@@ -823,7 +826,7 @@ export const PosView: React.FC<PosViewProps> = ({
         <div className="fixed inset-0 z-50 bg-black/40 flex p-md overflow-y-auto" onClick={() => setSplitModal({ open: false, rows: [] })}>
           <div className="bg-surface-container-lowest rounded-2xl shadow-xl w-full max-w-[28rem] p-lg border border-outline-variant/30 m-auto" onClick={(e) => e.stopPropagation()}>
             <h3 className="font-headline-md text-headline-md text-on-surface mb-md">Dividir Pago</h3>
-            <p className="font-body-md text-on-surface-variant mb-md">Total: <span className="font-bold text-primary">${total.toFixed(2)}</span></p>
+            <p className="font-body-md text-on-surface-variant mb-md">Total: <span className="font-bold text-primary">{formatMoney(total)}</span></p>
             <div className="space-y-sm mb-md max-h-60 overflow-y-auto">
               {splitModal.rows.map((row, idx) => (
                 <div key={idx} className="flex items-center gap-sm">
@@ -853,7 +856,7 @@ export const PosView: React.FC<PosViewProps> = ({
                 </div>
               ))}
             </div>
-            <p className="font-body-sm text-on-surface-variant mb-md">Suma: <span className="font-bold ${splitModal.rows.reduce((acc, r) => acc + parseFloat(r.amount || '0'), 0) === total ? 'text-tertiary' : 'text-error'}">${splitModal.rows.reduce((acc, r) => acc + parseFloat(r.amount || '0'), 0).toFixed(2)}</span></p>
+            <p className="font-body-sm text-on-surface-variant mb-md">Suma: <span className="font-bold ${splitModal.rows.reduce((acc, r) => acc + parseFloat(r.amount || '0'), 0) === total ? 'text-tertiary' : 'text-error'}">{formatMoney(splitModal.rows.reduce((acc, r) => acc + parseFloat(r.amount || '0'), 0))}</span></p>
             <div className="flex gap-sm justify-between">
               <button onClick={addSplitRow} className="px-md py-sm rounded-lg bg-surface-container-high text-on-surface hover:bg-surface-container-highest transition-colors cursor-pointer flex items-center gap-xs">
                 <span className="material-symbols-outlined text-[16px]">add</span> Agregar método

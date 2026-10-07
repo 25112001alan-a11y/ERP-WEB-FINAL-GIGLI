@@ -58,3 +58,38 @@ jobs:
         env:
           DATABASE_URL: mysql://root:nexus-ci@localhost:3306/nexus_erp_test
           RATE_LIMIT_DISABLED: "true"
+
+  eco-migrations:
+    name: ECO (migrations + MySQL integration)
+    runs-on: ubuntu-latest
+    container: node:22-bookworm
+    services:
+      mysql:
+        image: mysql:8
+        env:
+          MYSQL_ROOT_PASSWORD: eco-ci-only
+          MYSQL_DATABASE: nexus_eco_ci_disposable
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -uroot -peco-ci-only"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+    defaults:
+      run:
+        working-directory: server
+    env:
+      DATABASE_URL: mysql://root:eco-ci-only@mysql:3306/nexus_eco_ci_disposable
+      DOTENV_CONFIG_PATH: /dev/null
+      ECO_DISPOSABLE_DB: nexus_eco_ci_disposable
+      JWT_SECRET: eco-ci-only-jwt-secret
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npx prisma migrate deploy
+      - run: node --import tsx --test test/eco-migrations.integration.ts

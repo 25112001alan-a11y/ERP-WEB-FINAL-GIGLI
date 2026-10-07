@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
+import { formatMoney } from '../../lib/format';
 import { ViewPath, PublicOrder } from '../../types';
 import { ApiError, apiFetch } from '../../lib/api';
-import { ApiDocument } from '../../lib/mappers';
+import { ApiDocument, canCancelPublicOrder } from '../../lib/mappers';
 import { useAuth } from '../../lib/auth';
 
 interface PublicOrdersViewProps {
@@ -10,10 +11,10 @@ interface PublicOrdersViewProps {
   onRefresh: () => void;
 }
 
-// Next status per logistics state (mirrors PATCH /api/documents/:id/status).
+// Shipping is set by the final PEDIDO-derived REMITO, not a manual status action.
 const NEXT_STATUS: Record<string, { to: string; label: string } | null> = {
   Nuevo: { to: 'En Proceso', label: 'Marcar en proceso' },
-  'En Proceso': { to: 'Enviado', label: 'Marcar enviado' },
+  'En Proceso': null,
   Enviado: null,
   Anulado: null,
 };
@@ -265,7 +266,7 @@ export const PublicOrdersView: React.FC<PublicOrdersViewProps> = ({ orders, onNa
                     </div>
                   </td>
                   <td className="py-sm px-md text-on-surface-variant">{ord.date}</td>
-                  <td className="py-sm px-md text-right font-mono-sm font-medium">${ord.total.toFixed(2)}</td>
+                  <td className="py-sm px-md text-right font-mono-sm font-medium">{formatMoney(ord.total)}</td>
                   <td className="py-sm px-md text-center">
                     <span
                       className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${
@@ -312,7 +313,7 @@ export const PublicOrdersView: React.FC<PublicOrdersViewProps> = ({ orders, onNa
                           <span className="hidden xl:inline">{busy ? 'Guardando...' : next.label}</span>
                         </button>
                       )}
-                      {ord.logisticsStatus !== 'Enviado' && ord.logisticsStatus !== 'Anulado' && (
+                      {canCancelPublicOrder(ord) && (
                         <button onClick={() => handleAnular(ord)} disabled={busy} className="w-8 h-8 rounded flex items-center justify-center hover:bg-error-container text-on-surface-variant hover:text-error transition-colors cursor-pointer tap-target disabled:opacity-50" title="Anular pedido">
                           <span className="material-symbols-outlined text-[18px]">cancel</span>
                         </button>
@@ -353,7 +354,7 @@ export const PublicOrdersView: React.FC<PublicOrdersViewProps> = ({ orders, onNa
                 </div>
                 <div className="border-t border-outline-variant/30 pt-md">
                   <p className="font-label-md text-label-md uppercase tracking-widest text-on-surface-variant mb-sm">Cliente</p>
-                  <p className="font-body-md text-body-md font-semibold">{printDetail.client?.name ?? printOrder.client}</p>
+                  <p className="font-body-md text-body-md font-semibold">{printDetail.clientName ?? printDetail.client?.name ?? printOrder.client}</p>
                 </div>
                 <div className="border-t border-outline-variant/30 pt-md">
                   <p className="font-label-md text-label-md uppercase tracking-widest text-on-surface-variant mb-sm">Ítems</p>
@@ -370,7 +371,7 @@ export const PublicOrdersView: React.FC<PublicOrdersViewProps> = ({ orders, onNa
                         <tr key={i.id} className="border-t border-outline-variant/20">
                           <td className="py-xs pr-sm">{i.description}</td>
                           <td className="py-xs pr-sm text-right">{Number(i.quantity)}</td>
-                          <td className="py-xs text-right">${Number(i.lineTotal).toFixed(2)}</td>
+                          <td className="py-xs text-right">{formatMoney(Number(i.lineTotal))}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -378,7 +379,7 @@ export const PublicOrdersView: React.FC<PublicOrdersViewProps> = ({ orders, onNa
                 </div>
                 <div className="border-t border-outline-variant/30 pt-md flex justify-between font-headline-md text-headline-md">
                   <span>Total</span>
-                  <span>${Number(printDetail.total).toFixed(2)}</span>
+                  <span>{formatMoney(Number(printDetail.total))}</span>
                 </div>
                 {printDetail.notes && (
                   <p className="font-body-md text-body-md text-on-surface-variant">Notas: {printDetail.notes}</p>

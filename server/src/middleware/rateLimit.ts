@@ -54,6 +54,13 @@ export const loginLimiter = makeRateLimiter({
   message: 'Demasiados intentos de acceso. Intente nuevamente en unos minutos.',
 });
 
+/** Anonymous owner activation has its own per-IP budget for bcrypt work. */
+export const activationLimiter = makeRateLimiter({
+  windowMs: 15 * MINUTE,
+  limit: 5,
+  message: 'Demasiados intentos. Intente nuevamente en unos minutos.',
+});
+
 /** Register: account creation is expensive (company + role + user), so cap it hard. */
 export const registerLimiter = makeRateLimiter({
   windowMs: 60 * MINUTE,

@@ -1,9 +1,12 @@
 import React, { useState } from 'react';
+import { formatMoney } from '../../lib/format';
 import { ViewPath, Product } from '../../types';
 import { apiFetch } from '../../lib/api';
+import { ClientOption, resolveClientSelection } from '../../lib/clientSelection';
 
 interface NewManualOrderViewProps {
   products: Product[];
+  clients: ClientOption[];
   onNavigate: (view: ViewPath) => void;
 }
 
@@ -15,7 +18,7 @@ interface OrderLine {
   discountPct: number;
 }
 
-export const NewManualOrderView: React.FC<NewManualOrderViewProps> = ({ products, onNavigate }) => {
+export const NewManualOrderView: React.FC<NewManualOrderViewProps> = ({ products, clients, onNavigate }) => {
   const [clientSearch, setClientSearch] = useState('');
   const [lines, setLines] = useState<OrderLine[]>([]);
   const [notes, setNotes] = useState('');
@@ -81,7 +84,7 @@ export const NewManualOrderView: React.FC<NewManualOrderViewProps> = ({ products
         body: {
           type: 'PEDIDO',
           series: 'A',
-          clientName,
+          ...resolveClientSelection(clientName, clients),
           notes: notes.trim() || undefined,
           items: validLines.map((l) => {
             const gross = l.qty * l.price;
@@ -105,6 +108,11 @@ export const NewManualOrderView: React.FC<NewManualOrderViewProps> = ({ products
 
   return (
     <div className="flex flex-col w-full h-full">
+      <datalist id="manual-order-clients">
+        {clients.map((client) => (
+          <option key={client.id} value={client.name} />
+        ))}
+      </datalist>
       {/* Top Header */}
       <div className="px-xl py-lg flex items-center justify-between sticky top-0 bg-surface/90 backdrop-blur-md z-10 shadow-sm border-b border-outline-variant/20 flex-wrap gap-md">
         <div>
@@ -160,6 +168,7 @@ export const NewManualOrderView: React.FC<NewManualOrderViewProps> = ({ products
                     <span className="material-symbols-outlined absolute left-md top-1/2 -translate-y-1/2 text-outline">search</span>
                     <input
                       type="text"
+                      list="manual-order-clients"
                       value={clientSearch}
                       onChange={(e) => setClientSearch(e.target.value)}
                       placeholder="Nombre del cliente (se crea si no existe)"
@@ -250,8 +259,11 @@ export const NewManualOrderView: React.FC<NewManualOrderViewProps> = ({ products
                                 type="number"
                                 min="0"
                                 value={line.price}
+                                // Price comes from the product master, the same
+                                // rule the invoice form already applies.
+                                disabled
                                 onChange={(e) => updateLine(line.id, { price: Number(e.target.value) })}
-                                className="w-full bg-surface border border-outline-variant rounded p-xs text-right text-body-md focus:border-primary outline-none font-mono-sm"
+                                className="w-full bg-surface border border-outline-variant rounded p-xs text-right text-body-md focus:border-primary outline-none font-mono-sm disabled:opacity-70 disabled:cursor-not-allowed"
                               />
                             </td>
                             <td className="p-sm">
@@ -266,7 +278,7 @@ export const NewManualOrderView: React.FC<NewManualOrderViewProps> = ({ products
                             </td>
                             <td className="p-sm text-right text-on-surface-variant text-sm">{taxRateOf(line)}%</td>
                             <td className="p-sm text-right font-mono-sm font-semibold">
-                              ${(neto + tax).toLocaleString('es-CL')}
+                              {formatMoney((neto + tax))}
                             </td>
                             <td className="p-sm text-center">
                               <button
@@ -309,22 +321,22 @@ export const NewManualOrderView: React.FC<NewManualOrderViewProps> = ({ products
               <div className="flex flex-col gap-sm text-body-md text-on-surface mb-md pb-md border-b border-surface-container-high">
                 <div className="flex justify-between items-center">
                   <span className="text-on-surface-variant">Subtotal Neto</span>
-                  <span className="font-mono-sm">${subtotalNeto.toLocaleString('es-CL')}</span>
+                  <span className="font-mono-sm">{formatMoney(subtotalNeto)}</span>
                 </div>
                 <div className="flex justify-between items-center text-error">
                   <span>Descuentos</span>
-                  <span className="font-mono-sm">-${totalDiscount.toLocaleString('es-CL')}</span>
+                  <span className="font-mono-sm">-{formatMoney(totalDiscount)}</span>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-on-surface-variant">IVA total</span>
-                  <span className="font-mono-sm">${totalTax.toLocaleString('es-CL')}</span>
+                  <span className="font-mono-sm">{formatMoney(totalTax)}</span>
                 </div>
               </div>
 
               <div className="flex justify-between items-end mb-lg">
                 <span className="text-body-lg font-semibold text-on-surface">Total</span>
                 <span className="text-display-lg font-display-lg text-primary tracking-tight font-mono-sm">
-                  ${total.toLocaleString('es-CL')}
+                  {formatMoney(total)}
                 </span>
               </div>
 

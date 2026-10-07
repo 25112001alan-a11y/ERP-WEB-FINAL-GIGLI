@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { formatMoney } from '../../lib/format';
 import { ViewPath, PurchaseDocument, WarehouseOption, Product } from '../../types';
 
 interface GoodsReceiptViewProps {
@@ -7,7 +8,8 @@ interface GoodsReceiptViewProps {
   products: Product[];
   onReceive: (
     orderId: string,
-    items: { productId: number; quantity: number }[],
+    idempotencyKey: string,
+    items: { productId: number; sourceDocumentItemId: number; quantity: number }[],
     warehouseId: number,
     externalNumber?: string,
     date?: string,
@@ -17,10 +19,13 @@ interface GoodsReceiptViewProps {
 }
 
 interface ReceiptLine {
+  sourceDocumentItemId: number;
   productId: string;
   sku: string;
   name: string;
   ordered: number;
+  alreadyReceived: number;
+  pending: number;
   received: number;
 }
 
@@ -40,8 +45,13 @@ export const GoodsReceiptView: React.FC<GoodsReceiptViewProps> = ({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [saved, setSaved] = useState(false);
+  const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
 
   const selectedOrder = orders.find((o) => o.id === selectedPo);
+  // Goods land in a warehouse of the order's own branch; an order without a
+  // branch keeps offering every warehouse.
+  const receiptWarehouses = warehouses.filter((w) =>
+    selectedOrder?.branchId == null || (w.branch?.id ?? w.branchId) === selectedOrder.branchId);
 
   // Derive receipt lines whenever the selected open order changes.
   useEffect(() => {
@@ -49,22 +59,34 @@ export const GoodsReceiptView: React.FC<GoodsReceiptViewProps> = ({
       const order = orders.find((o) => o.id === selectedPo);
       if (!order) return [];
       return order.items.map((it) => {
-        const existing = prev.find((p) => p.productId === it.productId && p.ordered === it.ordered);
+        const existing = prev.find((p) => p.sourceDocumentItemId === it.sourceDocumentItemId);
         return {
+          sourceDocumentItemId: it.sourceDocumentItemId,
           productId: it.productId,
           sku: products.find((p) => p.id === it.productId)?.sku ?? '',
           name: it.name,
           ordered: it.ordered,
-          received: existing ? existing.received : it.ordered,
+          alreadyReceived: Math.max(0, it.ordered - it.pendingQuantity),
+          pending: it.pendingQuantity,
+          received: existing ? Math.min(existing.received, it.pendingQuantity) : it.pendingQuantity,
         };
       });
     });
-    if (warehouse === '') setWarehouse(String(warehouses[0]?.id ?? ''));
+    if (!receiptWarehouses.some((w) => String(w.id) === warehouse)) {
+      setWarehouse(String(receiptWarehouses[0]?.id ?? ''));
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedPo, orders]);
 
-  const lineStatus = (line: ReceiptLine) =>
-    line.received >= line.ordered ? 'Completo' : line.received > 0 ? 'Parcial' : 'Pendiente';
+  // A different OC is a different logical operation. Editing quantities or
+  // retrying after a network error must keep the same key.
+  useEffect(() => {
+    setIdempotencyKey(crypto.randomUUID());
+  }, [selectedPo]);
+
+  const lineStatus = (line: ReceiptLine) => line.pending === 0
+    ? 'Completo'
+    : line.received >= line.pending ? 'Completo al recibir' : line.received > 0 ? 'Parcial' : 'Pendiente';
 
   const handleSave = async () => {
     setError('');
@@ -78,7 +100,7 @@ export const GoodsReceiptView: React.FC<GoodsReceiptViewProps> = ({
     }
     const payload = items
       .filter((l) => l.received > 0)
-      .map((l) => ({ productId: Number(l.productId), quantity: l.received }));
+      .map((l) => ({ productId: Number(l.productId), sourceDocumentItemId: l.sourceDocumentItemId, quantity: l.received }));
     if (payload.length === 0) {
       setError('Ingrese al menos una cantidad recibida mayor a cero.');
       return;
@@ -87,12 +109,14 @@ export const GoodsReceiptView: React.FC<GoodsReceiptViewProps> = ({
     try {
       await onReceive(
         selectedOrder.id,
+        idempotencyKey,
         payload,
         Number(warehouse),
         remitoNum || undefined,
         receivedDate ? new Date(receivedDate).toISOString() : undefined,
         notes || undefined,
       );
+      setIdempotencyKey(crypto.randomUUID());
       setSaved(true);
       setTimeout(() => {
         onNavigate('compras');
@@ -170,7 +194,7 @@ export const GoodsReceiptView: React.FC<GoodsReceiptViewProps> = ({
                       <option value="">Seleccione una OC abierta...</option>
                       {orders.map((o) => (
                         <option key={o.id} value={o.id}>
-                          {o.number} - {o.supplier} (${o.total.toFixed(2)})
+                          {o.number} - {o.supplier} ({formatMoney(o.total)})
                         </option>
                       ))}
                     </select>
@@ -204,7 +228,7 @@ export const GoodsReceiptView: React.FC<GoodsReceiptViewProps> = ({
                       onChange={(e) => setWarehouse(e.target.value)}
                       className="w-full bg-surface px-md py-sm rounded-lg border border-outline-variant/50 focus:border-primary outline-none cursor-pointer"
                     >
-                      {warehouses.map((w) => (
+                      {receiptWarehouses.map((w) => (
                         <option key={w.id} value={w.id}>
                           {w.name}
                         </option>
@@ -229,7 +253,9 @@ export const GoodsReceiptView: React.FC<GoodsReceiptViewProps> = ({
                         <th className="py-sm px-md">SKU</th>
                         <th className="py-sm px-md">Producto</th>
                         <th className="py-sm px-md text-right">Cant. Solicitada</th>
-                        <th className="py-sm px-md text-right">Cant. Recibida</th>
+                        <th className="py-sm px-md text-right">Ya recibida</th>
+                        <th className="py-sm px-md text-right">Pendiente</th>
+                        <th className="py-sm px-md text-right">Recibir ahora</th>
                         <th className="py-sm px-md text-center">Estado</th>
                       </tr>
                     </thead>
@@ -237,19 +263,21 @@ export const GoodsReceiptView: React.FC<GoodsReceiptViewProps> = ({
                       {items.map((item) => {
                         const status = lineStatus(item);
                         return (
-                          <tr key={item.productId} className="hover:bg-surface-container/20">
+                          <tr key={item.sourceDocumentItemId} className="hover:bg-surface-container/20">
                             <td className="py-md px-md font-mono-sm font-bold text-primary">{item.sku}</td>
                             <td className="py-md px-md font-medium"><span className="truncate max-w-[220px]">{item.name}</span></td>
                             <td className="py-md px-md text-right font-mono-sm">{item.ordered} u.</td>
+                            <td className="py-md px-md text-right font-mono-sm">{item.alreadyReceived} u.</td>
+                            <td className="py-md px-md text-right font-mono-sm">{item.pending} u.</td>
                             <td className="py-md px-md text-right">
                               <input
                                 type="number"
                                 min="0"
-                                max={item.ordered}
+                                max={item.pending}
                                 value={item.received}
                                 onChange={(e) => {
-                                  const val = Math.max(0, Math.min(item.ordered, Number(e.target.value) || 0));
-                                  setItems((prev) => prev.map((it) => (it.productId === item.productId ? { ...it, received: val } : it)));
+                                  const val = Math.max(0, Math.min(item.pending, Number(e.target.value) || 0));
+                                  setItems((prev) => prev.map((it) => (it.sourceDocumentItemId === item.sourceDocumentItemId ? { ...it, received: val } : it)));
                                 }}
                                 className="w-24 bg-surface border border-outline-variant rounded px-sm py-xs text-right font-mono-sm focus:border-primary outline-none"
                               />
@@ -257,7 +285,7 @@ export const GoodsReceiptView: React.FC<GoodsReceiptViewProps> = ({
                             <td className="py-md px-md text-center">
                               <span
                                 className={`px-2 py-1 rounded-full text-xs font-semibold ${
-                                  status === 'Completo'
+                                  status === 'Completo' || status === 'Completo al recibir'
                                     ? 'bg-tertiary-container text-on-tertiary-container'
                                     : status === 'Parcial'
                                       ? 'bg-secondary-container/20 text-secondary'

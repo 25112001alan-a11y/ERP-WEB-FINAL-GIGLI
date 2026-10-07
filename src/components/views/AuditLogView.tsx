@@ -52,7 +52,7 @@ export const AuditLogView: React.FC<AuditLogViewProps> = ({ logs, onNavigate }) 
           </div>
 
           <div className="flex gap-xs flex-wrap">
-            {['Todos', 'Seguridad', 'Inventario', 'Ventas', 'Compras', 'Finanzas'].map((mod) => (
+            {['Todos', 'Seguridad', 'Inventario', 'Ventas', 'Compras', 'Finanzas', 'Configuración', 'Facturación'].map((mod) => (
               <button
                 key={mod}
                 onClick={() => setSelectedModule(mod)}

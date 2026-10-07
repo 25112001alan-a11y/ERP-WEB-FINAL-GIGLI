@@ -2,7 +2,9 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { DocumentType } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
+import { parseBody } from '../lib/parseBody.js';
 import { reserveNextNumber } from '../lib/numbering.js';
+import { buildHeaderSnapshot } from '../lib/headerSnapshots.js';
 
 const router = Router();
 
@@ -65,12 +67,8 @@ const publicOrderSchema = z.object({
 
 /** POST /api/public/store/:slug/orders — checkout against one tenant (no auth) */
 router.post('/store/:slug/orders', async (req, res) => {
-  const parsed = publicOrderSchema.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
-    return;
-  }
-  const data = parsed.data;
+  const data = parseBody(res, publicOrderSchema, req.body);
+  if (!data) return;
 
   const company = await storeCompany(req.params.slug);
   if (!company) {
@@ -80,6 +78,11 @@ router.post('/store/:slug/orders', async (req, res) => {
   const companyId = company.id;
 
   const result = await prisma.$transaction(async (tx) => {
+    if (data.warehouseId && !await tx.warehouse.findFirst({
+      where: { id: data.warehouseId, companyId }, select: { id: true },
+    })) {
+      throw Object.assign(new Error('Depósito no válido'), { status: 400 });
+    }
     // Resolve the actor: the first user of the tenant owns public documents.
     const owner = await tx.user.findFirst({
       where: { companyId },
@@ -109,6 +112,8 @@ router.post('/store/:slug/orders', async (req, res) => {
       totalTax += taxAmount;
       lines.push({
         productId: product.id,
+        sku: product.internalCode,
+        taxName: product.tax.name,
         description: product.name,
         quantity: item.quantity,
         unitPrice: Number(product.salePrice),
@@ -136,6 +141,10 @@ router.post('/store/:slug/orders', async (req, res) => {
 
     const number = await reserveNextNumber(tx, companyId, DocumentType.PEDIDO, 'A');
 
+    // Frozen header identity: a later rename of the tenant or the client must
+    // not rewrite this order.
+    const headerSnapshot = await buildHeaderSnapshot(tx, { companyId, clientId: client.id });
+
     const document = await tx.document.create({
       data: {
         companyId,
@@ -146,6 +155,7 @@ router.post('/store/:slug/orders', async (req, res) => {
         clientId: client.id,
         userId: owner.id,
         warehouseId: data.warehouseId ?? null,
+        ...headerSnapshot,
         status: 'Abierto',
         subtotal,
         totalTax,
@@ -167,52 +177,6 @@ router.post('/store/:slug/orders', async (req, res) => {
     status: result.document.status,
     date: result.document.date,
   });
-});
-
-/** GET /api/public/store/:slug/orders?email= — order lookup scoped to one tenant (no auth) */
-router.get('/store/:slug/orders', async (req, res) => {
-  const email = typeof req.query.email === 'string' ? req.query.email.trim() : '';
-  if (!email) {
-    res.status(400).json({ error: 'Se requiere el email del cliente' });
-    return;
-  }
-
-  const company = await storeCompany(req.params.slug);
-  if (!company) {
-    res.status(404).json({ error: 'Tienda no encontrada' });
-    return;
-  }
-
-  const client = await prisma.client.findFirst({
-    where: { companyId: company.id, email },
-    select: { id: true },
-  });
-  if (!client) {
-    res.json([]);
-    return;
-  }
-
-  const orders = await prisma.document.findMany({
-    where: { companyId: company.id, clientId: client.id, type: 'PEDIDO' },
-    orderBy: { date: 'desc' },
-    include: { items: true },
-  });
-
-  res.json(
-    orders.map((o) => ({
-      id: String(o.id),
-      number: `PEDIDO A-${String(o.number).padStart(4, '0')}`,
-      date: o.date,
-      status: o.status,
-      total: Number(o.total),
-      items: o.items.map((i) => ({
-        description: i.description,
-        quantity: Number(i.quantity),
-        unitPrice: Number(i.unitPrice),
-        lineTotal: Number(i.lineTotal),
-      })),
-    })),
-  );
 });
 
 export default router;

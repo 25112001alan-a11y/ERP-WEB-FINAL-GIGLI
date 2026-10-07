@@ -4,8 +4,9 @@ import {
 } from './types';
 import { useAuth, can, VIEW_PERMISSIONS } from './lib/auth';
 import { apiFetch } from './lib/api';
-import { deriveBranches, getStoredBranchId, setStoredBranchId, warehouseIdsForBranch } from './lib/branch';
-import { ApiProduct, ApiDocument, toFrontProduct, toFrontPurchaseOrder, toFrontPurchaseDocument, toFrontSale } from './lib/mappers';
+import type { ClientOption } from './lib/clientSelection';
+import { adjustmentWarehouses, deriveBranches, getStoredBranchId, posSaleLines, setStoredBranchId, transferError, warehouseIdsForBranch } from './lib/branch';
+import { ApiProduct, ApiDocument, toFrontProduct, toFrontPurchaseOrder, toFrontPurchaseDocument, toFrontSale, toFrontPublicOrder } from './lib/mappers';
 import { CartItem } from './types';
 
 // Layout components
@@ -59,6 +60,9 @@ export default function App() {
   // The entry point decides the invoice direction: Compras -> compra (ingreso),
   // Ventas -> venta (egreso). The form no longer asks for it.
   const [facturaDirection, setFacturaDirection] = useState<'ingreso' | 'egreso'>('ingreso');
+  // Origin document picked in Ventas, preloaded by the invoice form and the
+  // delivery note. Both entry points set it, so no stale value can reach them.
+  const [sourceDocId, setSourceDocId] = useState<string | null>(null);
 
   // Navegación central: cambia de vista y cierra el drawer mobile siempre.
   const navigate = useCallback((view: ViewPath) => {
@@ -66,15 +70,22 @@ export default function App() {
     setSidebarOpen(false);
   }, []);
 
-  const openRegistrarFactura = useCallback((direction: 'ingreso' | 'egreso') => {
+  const openRegistrarFactura = useCallback((direction: 'ingreso' | 'egreso', docId?: string) => {
     setFacturaDirection(direction);
+    setSourceDocId(docId ?? null);
     navigate('registrar-factura');
+  }, [navigate]);
+
+  const openRemitoSalida = useCallback((docId: string) => {
+    setSourceDocId(docId);
+    navigate('remito-salida');
   }, [navigate]);
 
   // Global State Collections
   const [products, setProducts] = useState<Product[]>([]);
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [clients, setClients] = useState<ClientOption[]>([]);
   const [openOrders, setOpenOrders] = useState<PurchaseDocument[]>([]);
   const [warehouses, setWarehouses] = useState<WarehouseOption[]>([]);
   const [sales, setSales] = useState<SaleTransaction[]>([]);
@@ -91,14 +102,11 @@ export default function App() {
   const [dataLoading, setDataLoading] = useState(true);
   const [dataError, setDataError] = useState<string | null>(null);
 
-  // Maps front product id -> first warehouse id (used for stock adjustments).
-  const [productWarehouseIds, setProductWarehouseIds] = useState<Record<string, number>>({});
-
   // Fase 1 — branch/sucursal selector: client-side only, persisted per company.
   // Locked users (user.branchId set) are forced to their branch: stored value
   // is ignored and overwritten. Owners keep the free selector ("Todas" = null).
   const companyId = user?.company?.id ?? null;
-  const lockedBranchId = user?.branchId ?? null;
+  const lockedBranchId = user && !user.isOwner ? user.branchId : null;
   const branches = useMemo(() => deriveBranches(warehouses), [warehouses]);
   const [activeBranchId, setActiveBranchId] = useState<number | null>(null);
   useEffect(() => {
@@ -117,15 +125,19 @@ export default function App() {
   const handleBranchChange = useCallback(
     (branchId: number | null) => {
       // Locked users cannot switch branches — ignore silently.
-      if (lockedBranchId != null) return;
+      if (user && !user.isOwner) return;
       setStoredBranchId(companyId, branchId);
       setActiveBranchId(branchId);
     },
-    [companyId, lockedBranchId],
+    [companyId, user],
   );
   const branchWarehouseIds = useMemo(
     () => warehouseIdsForBranch(warehouses, activeBranchId),
     [warehouses, activeBranchId],
+  );
+  const stockWarehouses = warehouses.filter((w) =>
+    (lockedBranchId ?? activeBranchId) == null ||
+    (w.branch?.id ?? w.branchId) === (lockedBranchId ?? activeBranchId),
   );
   const activeBranchName = branches.find((b) => b.id === activeBranchId)?.name;
 
@@ -133,13 +145,6 @@ export default function App() {
     try {
       const data = await apiFetch<ApiProduct[]>('/api/products');
       setProducts(data.map(toFrontProduct));
-      setProductWarehouseIds(
-        Object.fromEntries(
-          data
-            .filter((p) => p.stocks.length > 0)
-            .map((p) => [String(p.id), p.stocks[0].warehouseId]),
-        ),
-      );
       return true;
     } catch (err) {
       console.error('No se pudieron cargar los productos', err);
@@ -182,6 +187,17 @@ export default function App() {
     }
   }, []);
 
+  const loadClients = useCallback(async (): Promise<boolean> => {
+    try {
+      // No pagination: the master is small and the selector wants every name.
+      setClients(await apiFetch<ClientOption[]>('/api/clients'));
+      return true;
+    } catch (err) {
+      console.error('No se pudieron cargar los clientes', err);
+      return false;
+    }
+  }, []);
+
   const loadWarehouses = useCallback(async (): Promise<boolean> => {
     try {
       const whs = await apiFetch<WarehouseOption[]>('/api/stock/warehouses');
@@ -195,12 +211,13 @@ export default function App() {
 
   const loadSales = useCallback(async (): Promise<boolean> => {
     try {
-      const [ventas, remitos, facturas] = await Promise.all([
+      const [ventas, pedidos, remitos, facturas] = await Promise.all([
         apiFetch<ApiDocument[]>('/api/documents?type=VENTA'),
+        apiFetch<ApiDocument[]>('/api/documents?type=PEDIDO'),
         apiFetch<ApiDocument[]>('/api/documents?type=REMITO'),
         apiFetch<ApiDocument[]>('/api/documents?type=FACTURA'),
       ]);
-      setSalesDocs([...ventas, ...remitos, ...facturas]);
+      setSalesDocs([...ventas, ...pedidos, ...remitos, ...facturas]);
       // Sale invoices (with client) live in Ventas; supplier ones stay in Compras.
       setSales([...ventas, ...facturas.filter((f) => f.client)].map(toFrontSale));
       return true;
@@ -213,28 +230,7 @@ export default function App() {
   const loadPublicOrders = useCallback(async (): Promise<boolean> => {
     try {
       const data = await apiFetch<ApiDocument[]>('/api/documents?type=PEDIDO');
-      // Truthful mapping of the backend PEDIDO lifecycle:
-      // Abierto (nuevo) -> En Proceso -> Enviado (terminal) / Anulado.
-      const PEDIDO_STATUS: Record<string, PublicOrder['logisticsStatus']> = {
-        Abierto: 'Nuevo',
-        'En Proceso': 'En Proceso',
-        Enviado: 'Enviado',
-        Anulado: 'Anulado',
-      };
-      setPublicOrders(
-        data.map((d) => ({
-          id: `${d.type} ${d.series}-${String(d.number).padStart(4, '0')}`,
-          documentId: d.id,
-          client: d.client?.name ?? 'Sin cliente',
-          clientType: d.client?.type ?? 'Mayorista',
-          clientPhone: d.client?.phone ?? null,
-          date: new Date(d.date).toLocaleDateString('es-ES'),
-          createdAt: d.date,
-          total: Number(d.total),
-          paymentStatus: d.status === 'Pagado' ? 'Pagado' : 'Pendiente',
-          logisticsStatus: PEDIDO_STATUS[d.status] ?? 'Nuevo',
-        })),
-      );
+      setPublicOrders(data.map(toFrontPublicOrder));
       return true;
     } catch (err) {
       console.error('No se pudieron cargar los pedidos públicos', err);
@@ -369,35 +365,39 @@ export default function App() {
     // usuarios.leer, audit → auditoria.leer, documents → ventas.leer OR
     // compras.leer, dashboard → any of ventas/compras/finanzas/reportes.
     const p = user?.permissions ?? [];
+    const branchReady = user?.isOwner || user?.branchId != null;
     const results = await Promise.all([
       can(p, 'inventario.leer') ? loadProducts() : true,
-      can(p, 'compras.leer') ? loadPurchases() : true,
-      can(p, ['ventas.leer', 'compras.leer']) ? loadSales() : true,
-      can(p, ['ventas.leer', 'compras.leer']) ? loadPublicOrders() : true,
-      can(p, 'finanzas.leer') ? loadFinance() : true,
-      can(p, ['ventas.leer', 'compras.leer', 'finanzas.leer', 'reportes.leer']) ? loadDashboard() : true,
+      branchReady && can(p, 'compras.leer') ? loadPurchases() : true,
+      branchReady && can(p, 'ventas.leer') ? loadClients() : true,
+      branchReady && can(p, ['ventas.leer', 'compras.leer']) ? loadSales() : true,
+      branchReady && can(p, ['ventas.leer', 'compras.leer']) ? loadPublicOrders() : true,
+      branchReady && can(p, 'finanzas.leer') ? loadFinance() : true,
+      branchReady && can(p, ['ventas.leer', 'compras.leer', 'finanzas.leer', 'reportes.leer']) ? loadDashboard() : true,
       can(p, 'usuarios.leer') ? loadUsers() : true,
       can(p, 'auditoria.leer') ? loadAudit() : true,
       can(p, 'inventario.leer') ? loadTaxes() : true,
-      can(p, 'inventario.leer') ? loadWarehouses() : true,
+      branchReady && can(p, 'inventario.leer') ? loadWarehouses() : true,
     ]);
     const failed = results.filter((ok) => !ok).length;
-    if (failed === results.length) {
+    if (!branchReady) {
+      setDataError('Solicitá al Super Admin que te asigne una sucursal.');
+    } else if (failed === results.length) {
       setDataError('No se pudieron cargar los datos del sistema. Revisá tu conexión e intentá de nuevo.');
     } else if (failed > 0) {
       setDataError('Algunos datos no se pudieron cargar. Se muestra la información disponible.');
     }
     setDataLoading(false);
-  }, [user, loadProducts, loadPurchases, loadSales, loadPublicOrders, loadFinance, loadDashboard, loadUsers, loadAudit, loadTaxes, loadWarehouses]);
+  }, [user, loadProducts, loadPurchases, loadClients, loadSales, loadPublicOrders, loadFinance, loadDashboard, loadUsers, loadAudit, loadTaxes, loadWarehouses]);
 
   useEffect(() => {
     if (user) {
       loadAll();
     } else {
       setProducts([]);
-      setProductWarehouseIds({});
       setPurchaseOrders([]);
       setSuppliers([]);
+      setClients([]);
       setOpenOrders([]);
       setWarehouses([]);
       setSales([]);
@@ -485,28 +485,26 @@ export default function App() {
     }
   };
 
-  const handleApplyAdjustment = async (productId: string, delta: number) => {
-    const warehouseId = productWarehouseIds[productId];
-    if (!warehouseId) {
-      console.error('Sin depósito asociado al producto', productId);
-      return;
-    }
-    try {
-      await apiFetch('/api/stock/adjust', {
-        method: 'POST',
-        body: { productId: Number(productId), warehouseId, delta, reason: 'Ajuste manual desde el frontend' },
-      });
-      await loadProducts();
-    } catch (err) {
-      console.error('No se pudo ajustar el stock', err);
-      throw err;
-    }
+  const handleApplyAdjustment = async (productId: string, warehouseId: number, delta: number, reason: string) => {
+    const product = products.find((p) => p.id === productId);
+    if (!Number.isFinite(delta) || delta === 0)
+      throw new Error('Ingresá una cantidad válida mayor a cero.');
+    if (!adjustmentWarehouses(product, stockWarehouses).some((w) => w.id === warehouseId))
+      throw new Error('Seleccioná un depósito con stock registrado para el producto en esta sucursal.');
+    await apiFetch('/api/stock/adjust', {
+      method: 'POST',
+      body: { productId: Number(productId), warehouseId, delta, reason },
+    });
+    if (!await loadProducts())
+      throw new Error('El ajuste se registró, pero no se pudo actualizar el stock. Recargá la página antes de intentar otro ajuste.');
   };
 
   interface CompleteSalePayload {
     items: CartItem[];
     method: string;
     clientName: string;
+    // Set when the typed name matched a client in the master.
+    clientId?: number;
     payments?: { method: string; amount: number }[];
     // Cobro online (Fase E): crea la VENTA sin pagos (queda 'Abierto'); el
     // intento de cobro MP + el webhook la marcan 'Pagado' al aprobarse.
@@ -514,22 +512,12 @@ export default function App() {
   }
 
   const handleCompleteSale = async (payload: CompleteSalePayload): Promise<SaleTransaction> => {
-    // POS always runs on one branch: the sale must come from a warehouse of
-    // the active branch (first cart line with availability there). No
-    // cross-branch fallback — without stock in branch there is no sale.
-    const pickWarehouse = (productId: string): number | undefined => {
-      if (branchWarehouseIds != null) {
-        const prod = products.find((p) => p.id === productId);
-        return prod?.stocks.find(
-          (s) => branchWarehouseIds.has(s.warehouseId) && (s.quantity > 0 || prod.allowOversell),
-        )?.warehouseId;
-      }
-      return productWarehouseIds[productId];
-    };
-    const warehouseId = pickWarehouse(payload.items[0]?.product.id ?? '');
-    if (!warehouseId) {
-      throw new Error('No se encontró un depósito para los productos del carrito');
-    }
+    const items = posSaleLines(payload.items.map((item) => ({
+      ...item,
+      product: products.find((p) => p.id === item.product.id) ?? item.product,
+    })), activeBranchId == null ? null : branchWarehouseIds);
+    const warehouseId = items[0]?.warehouseId;
+    if (!warehouseId) throw new Error('El carrito está vacío');
 
     const doc = await apiFetch<{
       id: number;
@@ -544,6 +532,7 @@ export default function App() {
         type: 'VENTA',
         series: 'A',
         clientName: payload.clientName,
+        ...(payload.clientId != null ? { clientId: payload.clientId } : {}),
         warehouseId,
         // Venta pendiente (cobro online): sin pagos → el servidor la deja 'Abierto'.
         // Split sale: the payments array creates one Payment row per entry
@@ -553,10 +542,7 @@ export default function App() {
           : payload.payments
             ? { payments: payload.payments }
             : { paymentMethod: payload.method }),
-        items: payload.items.map((i) => ({
-          productId: Number(i.product.id),
-          quantity: i.quantity,
-        })),
+        items,
       },
     });
 
@@ -639,13 +625,12 @@ export default function App() {
   }
 
   const handleTransferStock = async (payload: TransferStockPayload) => {
-    try {
-      await apiFetch('/api/stock/transfer', { method: 'POST', body: payload });
-      await loadProducts();
-    } catch (err) {
-      console.error('No se pudo transferir el stock', err);
-      throw err;
-    }
+    const error = transferError(products.find((p) => Number(p.id) === payload.productId), stockWarehouses,
+      payload.fromWarehouseId, payload.toWarehouseId, payload.quantity);
+    if (error) throw new Error(error);
+    await apiFetch('/api/stock/transfer', { method: 'POST', body: payload });
+    if (!await loadProducts())
+      throw new Error('La transferencia se registró, pero no se pudo actualizar el stock. Recargá la página antes de intentar otra transferencia.');
   };
 
   interface CreatePurchaseOrderPayload {
@@ -677,7 +662,8 @@ export default function App() {
 
   const handleReceivePurchaseOrder = async (
     orderId: string,
-    items: { productId: number; quantity: number }[],
+    idempotencyKey: string,
+    items: { productId: number; sourceDocumentItemId: number; quantity: number }[],
     warehouseId: number,
     externalNumber?: string,
     date?: string,
@@ -686,7 +672,7 @@ export default function App() {
     try {
       await apiFetch(`/api/documents/${orderId}/receive`, {
         method: 'POST',
-        body: { items, warehouseId, externalNumber, date, notes },
+        body: { idempotencyKey, items, warehouseId, externalNumber, date, notes },
       });
       await loadAll();
     } catch (err) {
@@ -708,7 +694,7 @@ export default function App() {
     supplierId?: number;
     clientId?: number;
     clientName?: string;
-    items: { productId: number; quantity: number; unitPrice: number }[];
+    items: { productId: number; sourceDocumentItemId?: number; quantity: number; unitPrice?: number }[];
     invoice: InvoiceInput;
     externalNumber?: string;
     paymentMethod?: string;
@@ -719,6 +705,7 @@ export default function App() {
     try {
       const body: Record<string, unknown> = {
         type: 'FACTURA',
+        direction: payload.direction,
         series: 'A',
         items: payload.items,
         invoice: {
@@ -731,17 +718,17 @@ export default function App() {
         paymentMethod: payload.paymentMethod,
         notes: payload.notes,
       };
-      if (payload.direction === 'ingreso') {
+      if (payload.sourceDocumentId) {
+        body.sourceDocumentId = payload.sourceDocumentId;
+      } else if (payload.direction === 'ingreso') {
         if (!payload.supplierId) throw new Error('Seleccione el proveedor de la factura.');
         body.supplierId = payload.supplierId;
-        body.sourceDocumentId = payload.sourceDocumentId;
       } else {
         if (!payload.clientId && !payload.clientName) {
-          throw new Error('Seleccione el cliente o documento origen.');
+          throw new Error('Seleccione el cliente de la factura.');
         }
         body.clientId = payload.clientId;
         body.clientName = payload.clientName;
-        body.sourceDocumentId = payload.sourceDocumentId;
       }
       await apiFetch('/api/documents', { method: 'POST', body });
       await loadAll();
@@ -752,9 +739,10 @@ export default function App() {
   };
 
   interface RegisterRemitoSalidaPayload {
+    direction: 'egreso';
     sourceDocumentId: number;
-    clientId: number;
-    items: { productId: number; quantity: number; unitPrice: number }[];
+    warehouseId?: number;
+    items: { productId: number; sourceDocumentItemId?: number; quantity: number; unitPrice?: number }[];
     externalNumber?: string;
     notes?: string;
   }
@@ -765,9 +753,10 @@ export default function App() {
         method: 'POST',
         body: {
           type: 'REMITO',
+          direction: payload.direction,
           series: 'A',
           sourceDocumentId: payload.sourceDocumentId,
-          clientId: payload.clientId,
+          warehouseId: payload.warehouseId,
           items: payload.items,
           externalNumber: payload.externalNumber,
           notes: payload.notes,
@@ -927,12 +916,12 @@ if (isPublicOrAuth) {
               />
             )}
             {currentView === 'inventario-ajuste' && (
-              <StockAdjustmentView products={products} onNavigate={navigate} onApplyAdjustment={handleApplyAdjustment} />
+              <StockAdjustmentView products={products} warehouses={stockWarehouses} onNavigate={navigate} onApplyAdjustment={handleApplyAdjustment} />
             )}
             {currentView === 'inventario-transferencia' && (
               <StockTransferView
                 products={products}
-                warehouses={warehouses}
+                warehouses={stockWarehouses}
                 onTransfer={handleTransferStock}
                 onNavigate={navigate}
               />
@@ -956,16 +945,24 @@ if (isPublicOrAuth) {
                 onSelectBranch={handleBranchChange}
                 branchLocked={lockedBranchId != null}
                 onCompleteSale={handleCompleteSale}
+                clients={clients}
                 onNavigate={navigate}
               />
             )}
             {currentView === 'ventas' && (
-              <SalesView sales={sales} onNavigate={navigate} onOpenRegistrarFactura={() => openRegistrarFactura('egreso')} />
+              <SalesView
+                sales={sales}
+                onNavigate={navigate}
+                onOpenRegistrarFactura={(docId) => openRegistrarFactura('egreso', docId)}
+                onOpenRemitoSalida={openRemitoSalida}
+              />
             )}
             {currentView === 'pedidos-publicos' && (
               <PublicOrdersView orders={publicOrders} onNavigate={navigate} onRefresh={() => void loadPublicOrders()} />
             )}
-            {currentView === 'nuevo-pedido-manual' && <NewManualOrderView products={products} onNavigate={navigate} />}
+            {currentView === 'nuevo-pedido-manual' && (
+              <NewManualOrderView products={products} clients={clients} onNavigate={navigate} />
+            )}
             {currentView === 'compras' && (
               <PurchasesView
                 orders={purchaseOrders}
@@ -996,10 +993,12 @@ if (isPublicOrAuth) {
             {currentView === 'registrar-factura' && (
               <RegistrarFacturaView
                 suppliers={suppliers}
+                clients={clients}
                 salesDocs={salesDocs}
                 remitoDocs={remitoDocs}
                 products={products}
                 direction={facturaDirection}
+                initialSourceId={sourceDocId}
                 onCreateFactura={handleCreateFactura}
                 onNavigate={navigate}
               />
@@ -1008,6 +1007,8 @@ if (isPublicOrAuth) {
               <RemitoSalidaView
                 salesDocs={salesDocs}
                 products={products}
+                warehouses={stockWarehouses}
+                initialSourceId={sourceDocId}
                 onRegisterRemitoSalida={handleRegisterRemitoSalida}
                 onNavigate={navigate}
               />

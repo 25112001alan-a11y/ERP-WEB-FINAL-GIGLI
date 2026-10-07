@@ -1,16 +1,18 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
+import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { signToken } from '../lib/jwt.js';
 import { requireAuth, PLATFORM_ONLY_PERMISSIONS } from '../middleware/auth.js';
 import { generateUniqueSlug } from '../lib/slug.js';
+import { parseBody } from '../lib/parseBody.js';
 import { clientIp } from '../lib/audit.js';
 
 const router = Router();
 
 // Global permission catalog shared across companies.
-const BASE_PERMISSIONS = [
+export const BASE_PERMISSIONS = [
   'inventario.leer', 'inventario.escribir',
   'ventas.leer', 'ventas.escribir',
   'compras.leer', 'compras.escribir',
@@ -19,16 +21,13 @@ const BASE_PERMISSIONS = [
   'configuracion.leer', 'configuracion.escribir',
   'usuarios.leer', 'usuarios.escribir',
   'auditoria.leer',
-  'billing.leer', 'billing.manage',
+  'billing.leer',
 ];
 
-// New company owners get the full base set MINUS platform-only permissions
-// (cross-tenant endpoints like GET /api/billing/admin/overview stay gated
-// behind billing.manage, which only platform staff holds). billing.leer is
-// kept: it gates nothing cross-tenant (own-company subscription/checkout
-// views are auth-only), so owners need it for their own billing UX.
+// Company owners keep billing.leer for their own subscription UX; legacy
+// billing.manage is excluded and never authorizes platform endpoints.
 
-const registerSchema = z.object({
+export const registerSchema = z.object({
   companyName: z.string().min(2, 'companyName es requerido').max(120),
   firstName: z.string().min(2, 'firstName es requerido').max(80),
   lastName: z.string().min(2, 'lastName es requerido').max(80),
@@ -51,6 +50,58 @@ const LOCK_MINUTES = 15;
 // Compared against when the email does not exist, so the response time does not
 // reveal whether an account is registered.
 const DUMMY_HASH = bcrypt.hashSync('nexus-erp-timing-equalizer', 10);
+const activationSchema = z.object({
+  token: z.string().regex(/^[a-fA-F0-9]{64}$/),
+  password: registerSchema.shape.password,
+}).strict();
+const invalidInvitation = new Error('Invalid owner invitation');
+
+/** POST /api/auth/activate-owner — consume one invitation without issuing a JWT. */
+router.post('/activate-owner', async (req, res) => {
+  const parsed = activationSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invitación inválida' });
+    return;
+  }
+
+  const tokenHash = createHash('sha256').update(parsed.data.token.toLowerCase()).digest('hex');
+  const invitation = await prisma.ownerInvitation.findUnique({
+    where: { tokenHash },
+    select: {
+      id: true, companyId: true, userId: true, consumedAt: true, expiresAt: true,
+      user: { select: { companyId: true } },
+    },
+  });
+  if (!invitation || invitation.consumedAt || invitation.expiresAt <= new Date() ||
+      invitation.user.companyId !== invitation.companyId) {
+    res.status(400).json({ error: 'Invitación inválida' });
+    return;
+  }
+
+  const passwordHash = await bcrypt.hash(parsed.data.password, 10);
+  try {
+    await prisma.$transaction(async (tx) => {
+      const now = new Date();
+      const claimed = await tx.ownerInvitation.updateMany({
+        where: { id: invitation.id, tokenHash, consumedAt: null, expiresAt: { gt: now } },
+        data: { consumedAt: now },
+      });
+      if (claimed.count !== 1) throw invalidInvitation;
+
+      const activated = await tx.user.updateMany({
+        where: { id: invitation.userId, companyId: invitation.companyId, status: 'Pendiente' },
+        data: { passwordHash, status: 'Activo' },
+      });
+      if (activated.count !== 1) throw invalidInvitation;
+    });
+  } catch (error) {
+    if (error !== invalidInvitation) throw error;
+    res.status(400).json({ error: 'Invitación inválida' });
+    return;
+  }
+
+  res.json({ ok: true });
+});
 
 /**
  * POST /api/auth/register
@@ -59,12 +110,8 @@ const DUMMY_HASH = bcrypt.hashSync('nexus-erp-timing-equalizer', 10);
  * and the first user (company owner).
  */
 router.post('/register', async (req, res) => {
-  const parsed = registerSchema.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
-    return;
-  }
-  const data = parsed.data;
+  const data = parseBody(res, registerSchema, req.body);
+  if (!data) return;
 
   // Honeypot: pretend success so the bot cannot learn that it was detected,
   // but create nothing.
@@ -94,13 +141,8 @@ router.post('/register', async (req, res) => {
         data: BASE_PERMISSIONS.map((name) => ({ name })),
         skipDuplicates: true,
       });
-      // The owner Super Admin receives every base permission EXCEPT the
-      // platform-only ones (billing.manage gates cross-tenant endpoints).
-      const ownerPermissionNames = BASE_PERMISSIONS.filter(
-        (name) => !PLATFORM_ONLY_PERMISSIONS.includes(name),
-      );
       const permissions = await tx.permission.findMany({
-        where: { name: { in: ownerPermissionNames } },
+        where: { name: { in: BASE_PERMISSIONS } },
       });
 
       const superAdminRole = await tx.role.create({
@@ -153,12 +195,9 @@ router.post('/register', async (req, res) => {
  * Repeated failures lock the account temporarily.
  */
 router.post('/login', async (req, res) => {
-  const parsed = loginSchema.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
-    return;
-  }
-  const { email, password } = parsed.data;
+  const body = parseBody(res, loginSchema, req.body);
+  if (!body) return;
+  const { email, password } = body;
   const now = new Date();
 
   const user = await prisma.user.findUnique({ where: { email } });
@@ -264,6 +303,7 @@ router.get('/me', requireAuth, async (req, res) => {
       branchId: true,
       company: { select: { id: true, name: true, slug: true, currency: true, timezone: true } },
       roles: {
+        where: { role: { companyId: req.authUser!.companyId } },
         select: {
           role: {
             select: {
@@ -283,12 +323,11 @@ router.get('/me', requireAuth, async (req, res) => {
   }
 
   const permissions = new Set(
-    user.roles.flatMap((ur) => ur.role.permissions.map((rp) => rp.permission.name)),
+    user.roles.flatMap((ur) => ur.role.permissions.map((rp) => rp.permission.name))
+      .filter((name) => !PLATFORM_ONLY_PERMISSIONS.includes(name)),
   );
   const roleNames = user.roles.map((ur) => ur.role.name);
-  // Owner = Super Admin role OR branchId null (all-access). Regular users are
-  // locked to their assigned branch. Existing accounts keep branchId null.
-  const isOwner = roleNames.includes('Super Admin') || user.branchId == null;
+  const isOwner = req.authUser!.isOwner;
 
   // Owner/all-access users get the company branch list so they can switch;
   // locked users only see their assigned branch.

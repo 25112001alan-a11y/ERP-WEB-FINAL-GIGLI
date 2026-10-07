@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { apiFetch, apiUpload, API_BASE, getToken } from '../lib/api';
+import { formatMoney } from '../lib/format';
 
 export interface SupplierVoucherData {
   externalNumber?: string;
@@ -32,6 +33,8 @@ interface SupplierVoucherDetail {
 interface SupplierVoucherModalProps {
   documentId: number;
   documentLabel: string;
+  /** Document total, used to warn when the typed external total disagrees. */
+  documentTotal?: number;
   data: SupplierVoucherData;
   onClose: () => void;
   onSaved: (patch: {
@@ -40,8 +43,7 @@ interface SupplierVoucherModalProps {
   }) => void;
 }
 
-const INGESTION_LABELS: Record<string, string> = {
-  manual: 'Manual',
+const LEGACY_INGESTION_LABELS: Record<'lector' | 'ocr', string> = {
   lector: 'Lector',
   ocr: 'OCR',
 };
@@ -59,6 +61,7 @@ function toInputDate(isoOrDate?: string): string {
 export const SupplierVoucherModal: React.FC<SupplierVoucherModalProps> = ({
   documentId,
   documentLabel,
+  documentTotal,
   data,
   onClose,
   onSaved,
@@ -75,9 +78,17 @@ export const SupplierVoucherModal: React.FC<SupplierVoucherModalProps> = ({
   const [externalSubtotal, setExternalSubtotal] = useState(data.externalSubtotal?.toString() ?? '');
   const [externalTax, setExternalTax] = useState(data.externalTax?.toString() ?? '');
   const [externalTotal, setExternalTotal] = useState(data.externalTotal?.toString() ?? '');
-  const [ingestionMethod, setIngestionMethod] = useState<'manual' | 'lector' | 'ocr'>(data.ingestionMethod ?? 'manual');
+  const [ingestionMethod, setIngestionMethod] = useState<'manual' | 'lector' | 'ocr' | null>(data.ingestionMethod ?? null);
   const [attachmentUrl, setAttachmentUrl] = useState<string | null>(data.attachmentUrl ?? null);
   const [verifiedByName, setVerifiedByName] = useState<string | undefined>(data.verifiedByName);
+
+  // The typed external total is a different source than the document total, so
+  // a difference is reported instead of silently saved. Compared in cents.
+  const typedTotal = externalTotal === '' ? null : Number(externalTotal);
+  const totalDifference =
+    typedTotal !== null && Number.isFinite(typedTotal) && documentTotal !== undefined
+      ? Math.round(typedTotal * 100) - Math.round(documentTotal * 100)
+      : 0;
 
   // Load the persisted detail (invoiceData + externalNumber) when the modal opens
   // so fields reflect the current server state, not just the list summary.
@@ -88,13 +99,15 @@ export const SupplierVoucherModal: React.FC<SupplierVoucherModalProps> = ({
         const doc = await apiFetch<SupplierVoucherDetail>(`/api/documents/${documentId}`);
         if (cancelled) return;
         const iv = doc.invoiceData;
+        // The persisted voucher wins, but a missing field must not wipe the
+        // prefill the modal opened with: the fetch is best-effort by design.
         setExternalNumber(doc.externalNumber ?? '');
-        setSupplierCuit(iv?.supplierCuit ?? '');
-        setSupplierName(iv?.supplierName ?? '');
+        setSupplierCuit((prev) => iv?.supplierCuit ?? prev);
+        setSupplierName((prev) => iv?.supplierName ?? prev);
         setEmissionDate(toInputDate(iv?.emissionDate ?? undefined));
-        setExternalSubtotal(iv?.externalSubtotal?.toString() ?? '');
-        setExternalTax(iv?.externalTax?.toString() ?? '');
-        setExternalTotal(iv?.externalTotal?.toString() ?? '');
+        setExternalSubtotal((prev) => iv?.externalSubtotal?.toString() ?? prev);
+        setExternalTax((prev) => iv?.externalTax?.toString() ?? prev);
+        setExternalTotal((prev) => iv?.externalTotal?.toString() ?? prev);
         setIngestionMethod(iv?.ingestionMethod ?? 'manual');
         setAttachmentUrl(iv?.attachmentUrl ?? null);
         setVerifiedByName(
@@ -133,7 +146,7 @@ export const SupplierVoucherModal: React.FC<SupplierVoucherModalProps> = ({
           externalSubtotal: externalSubtotal ? Number(externalSubtotal) : undefined,
           externalTax: externalTax ? Number(externalTax) : undefined,
           externalTotal: externalTotal ? Number(externalTotal) : undefined,
-          ingestionMethod,
+          ingestionMethod: ingestionMethod === 'manual' ? 'manual' : undefined,
         },
       });
 
@@ -279,19 +292,22 @@ export const SupplierVoucherModal: React.FC<SupplierVoucherModalProps> = ({
             </label>
           </div>
 
-          {/* Ingestion method */}
-          <label className="block">
-            <span className="text-label-sm text-on-surface-variant uppercase">Método de ingreso</span>
-            <select
-              value={ingestionMethod}
-              onChange={(e) => setIngestionMethod(e.target.value as 'manual' | 'lector' | 'ocr')}
-              className="mt-1 w-full bg-surface-container-low border border-outline-variant/30 rounded-lg px-md py-sm font-body-md focus:ring-2 focus:ring-primary outline-none"
-            >
-              <option value="manual">{INGESTION_LABELS.manual}</option>
-              <option value="lector">{INGESTION_LABELS.lector}</option>
-              <option value="ocr">{INGESTION_LABELS.ocr}</option>
-            </select>
-          </label>
+          {totalDifference !== 0 && (
+            <p className="flex items-start gap-sm rounded-lg border border-error/30 bg-error/10 px-md py-sm text-sm text-error">
+              <span className="material-symbols-outlined text-[18px]">warning</span>
+              El total externo difiere del total del documento ({formatMoney(documentTotal ?? 0)}) por{' '}
+              {formatMoney(totalDifference / 100)}.
+            </p>
+          )}
+
+          <div className="rounded-lg border border-outline-variant/30 bg-surface-container-low p-md text-sm text-on-surface-variant">
+            <p><strong className="text-on-surface">Captura manual.</strong> El archivo adjunto se guarda como respaldo; no se procesa automáticamente.</p>
+            {ingestionMethod !== null && ingestionMethod !== 'manual' && (
+              <p className="mt-xs">
+                Este registro conserva el valor histórico “{LEGACY_INGESTION_LABELS[ingestionMethod]}”, pero ese valor no demuestra que se haya ejecutado un lector u OCR. Al guardar, no se modificará ese dato legado.
+              </p>
+            )}
+          </div>
 
           {/* File upload */}
           <div>

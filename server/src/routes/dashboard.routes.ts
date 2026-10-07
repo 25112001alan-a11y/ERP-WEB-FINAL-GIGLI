@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { prisma } from '../lib/prisma.js';
-import { requireAuth, requireAnyPermission, tenantWhere } from '../middleware/auth.js';
+import { requireAuth, requireAnyPermission, requireAssignedBranch, documentBranchWhere } from '../middleware/auth.js';
 
 const router = Router();
 
@@ -23,28 +23,29 @@ router.get(
     'finanzas.leer',
     'reportes.leer',
   ),
+  requireAssignedBranch,
   async (req, res) => {
     const companyId = req.authUser!.companyId;
     const start = monthStart(new Date());
 
     const [salesMonth, expensesMonth, pendingOrders, stocks, recent, ventas] = await Promise.all([
       prisma.document.aggregate({
-        where: { companyId, type: 'VENTA', date: { gte: start } },
+        where: { ...documentBranchWhere(req), type: 'VENTA', date: { gte: start } },
         _sum: { total: true },
       }),
       prisma.document.aggregate({
-        where: { companyId, type: 'COMPRA', date: { gte: start } },
+        where: { ...documentBranchWhere(req), type: 'COMPRA', date: { gte: start } },
         _sum: { total: true },
       }),
       prisma.document.count({
-        where: { companyId, type: 'OC', status: { not: 'Recibido' } },
+        where: { ...documentBranchWhere(req), type: 'OC', status: { not: 'Recibido' } },
       }),
       prisma.stock.findMany({
         where: {
           quantity: { lt: prisma.stock.fields.minStock },
           // Stock has no companyId: tenancy resolves through product/warehouse relations.
           product: { companyId },
-          warehouse: { companyId },
+          warehouse: { companyId, ...(!req.authUser!.isOwner ? { branchId: req.authUser!.branchId! } : {}) },
         },
         include: {
           product: { select: { id: true, name: true, internalCode: true } },
@@ -54,7 +55,7 @@ router.get(
         take: 8,
       }),
       prisma.document.findMany({
-        where: tenantWhere(req),
+        where: documentBranchWhere(req),
         include: {
           client: { select: { name: true } },
           supplier: { select: { name: true } },
@@ -63,7 +64,7 @@ router.get(
         take: 6,
       }),
       prisma.document.findMany({
-        where: { companyId, type: 'VENTA' },
+        where: { ...documentBranchWhere(req), type: 'VENTA' },
         include: {
           items: {
             include: {

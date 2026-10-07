@@ -91,19 +91,16 @@ test('GET /api/public/store/unknown-slug/products -> 404', async () => {
   assert.equal(status, 404);
 });
 
-test('GET /api/public/store/:slug/orders?email=unknown -> 200 empty list', async () => {
+test('GET /api/public/store/:slug/orders?email= -> 404 for an existing store', async () => {
   const login = await api('/api/auth/login', {
     method: 'POST',
     body: JSON.stringify({ email: 'ana.silva@empresa.com', password: 'password123' }),
   });
+  assert.equal(login.status, 200);
   const slug = login.body.company.slug;
 
-  const { status, body } = await api(
-    `/api/public/store/${slug}/orders?email=nadie@test.local`,
-  );
-  assert.equal(status, 200);
-  assert.ok(Array.isArray(body));
-  assert.equal(body.length, 0);
+  const { status } = await api(`/api/public/store/${slug}/orders?email=ana.silva@empresa.com`);
+  assert.equal(status, 404);
 });
 
 test('CORS: allowed origin echoes the origin header', async () => {
@@ -154,12 +151,4 @@ test('multi-tenant: a new company gets its own storefront slug and is isolated f
     }),
   });
   assert.notEqual(foreignOrder.status, 201);
-
-  // Tracking is tenant-scoped: an email that exists in the demo tenant yields
-  // no orders in the new tenant's storefront.
-  const demoOrders = await api(
-    `/api/public/store/${reg.body.company.slug}/orders?email=ana.silva@empresa.com`,
-  );
-  assert.equal(demoOrders.status, 200);
-  assert.equal(demoOrders.body.length, 0);
 });

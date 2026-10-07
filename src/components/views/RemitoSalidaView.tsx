@@ -1,14 +1,20 @@
 import React, { useEffect, useState } from 'react';
-import { ViewPath, Product } from '../../types';
+import { formatMoney } from '../../lib/format';
+import { ViewPath, Product, WarehouseOption } from '../../types';
 import type { ApiDocument } from '../../lib/mappers';
+import { deliverySourceDocuments, derivedDocumentLines } from '../../lib/documentDerivation';
 
 interface RemitoSalidaViewProps {
   salesDocs: ApiDocument[];
   products: Product[];
+  warehouses: WarehouseOption[];
+  /** Document chosen in Ventas: preloaded as origin when it is still eligible. */
+  initialSourceId?: string | null;
   onRegisterRemitoSalida: (payload: {
+    direction: 'egreso';
     sourceDocumentId: number;
-    clientId: number;
-    items: { productId: number; quantity: number; unitPrice: number }[];
+    warehouseId?: number;
+    items: { productId: number; sourceDocumentItemId?: number; quantity: number; unitPrice?: number }[];
     externalNumber?: string;
     notes?: string;
   }) => Promise<void>;
@@ -17,8 +23,10 @@ interface RemitoSalidaViewProps {
 
 interface DraftLine {
   key: string;
+  sourceDocumentItemId: number;
   productId: string;
   name: string;
+  originalQuantity: number;
   maxQuantity: number;
   quantity: number;
   unitPrice: number;
@@ -27,12 +35,17 @@ interface DraftLine {
 export const RemitoSalidaView: React.FC<RemitoSalidaViewProps> = ({
   salesDocs,
   products,
+  warehouses,
+  initialSourceId,
   onRegisterRemitoSalida,
   onNavigate,
 }) => {
-  // Only VENTAs can be dispatched; a REMITO de egreso has no stock side effect.
-  const ventas = salesDocs.filter((d) => d.type === 'VENTA' && d.client);
-  const [sourceId, setSourceId] = useState('');
+  // Only compatible client sales and orders are offered. The backend remains the final
+  // authority for pending quantities and racing requests.
+  const ventas = deliverySourceDocuments(salesDocs);
+  const [sourceId, setSourceId] = useState(() =>
+    initialSourceId && ventas.some((d) => String(d.id) === initialSourceId) ? initialSourceId : '');
+  const [warehouseId, setWarehouseId] = useState('');
   const [externalNumber, setExternalNumber] = useState('');
   const [notes, setNotes] = useState('');
   const [lines, setLines] = useState<DraftLine[]>([]);
@@ -41,38 +54,35 @@ export const RemitoSalidaView: React.FC<RemitoSalidaViewProps> = ({
   const [saved, setSaved] = useState(false);
 
   const selectedVenta = ventas.find((d) => String(d.id) === sourceId);
+  const isDeferredDispatch = selectedVenta?.type === 'PEDIDO';
+  const dispatchWarehouses = warehouses.filter((warehouse) =>
+    selectedVenta?.branchId == null || (warehouse.branch?.id ?? warehouse.branchId) === selectedVenta.branchId);
 
   useEffect(() => {
     if (!selectedVenta) {
       setLines([]);
       return;
     }
-    setLines(
-      selectedVenta.items
-        .filter((i) => i.productId != null)
-        .map((i) => ({
-          key: `${selectedVenta.id}-${i.productId}`,
-          productId: String(i.productId),
-          name: products.find((p) => p.id === String(i.productId))?.sku
-            ? `${products.find((p) => p.id === String(i.productId))!.sku} — ${i.description}`
-            : i.description,
-          maxQuantity: Number(i.quantity),
-          quantity: Number(i.quantity),
-          unitPrice: Number(i.unitPrice ?? 0),
-        })),
-    );
+    setLines(derivedDocumentLines(selectedVenta).map((line) => {
+      const sku = products.find((product) => product.id === line.productId)?.sku;
+      return { ...line, name: sku ? `${sku} — ${line.name}` : line.name };
+    }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sourceId]);
 
   const handleSubmit = async () => {
     setError('');
     if (!selectedVenta?.client) {
-      setError('Seleccione una venta con cliente para despachar.');
+      setError('Seleccione una venta o pedido con cliente para despachar.');
+      return;
+    }
+    if (isDeferredDispatch && selectedVenta.warehouseId == null && !warehouseId) {
+      setError('Seleccione un depósito para despachar el pedido.');
       return;
     }
     const payloadLines = lines
       .filter((l) => l.quantity > 0)
-      .map((l) => ({ productId: Number(l.productId), quantity: l.quantity, unitPrice: l.unitPrice }));
+      .map((l) => ({ productId: Number(l.productId), sourceDocumentItemId: l.sourceDocumentItemId, quantity: l.quantity }));
     if (payloadLines.length === 0) {
       setError('Ingrese al menos una cantidad mayor a cero.');
       return;
@@ -80,8 +90,9 @@ export const RemitoSalidaView: React.FC<RemitoSalidaViewProps> = ({
     setSaving(true);
     try {
       await onRegisterRemitoSalida({
+        direction: 'egreso',
         sourceDocumentId: selectedVenta.id,
-        clientId: selectedVenta.client.id,
+        warehouseId: isDeferredDispatch && selectedVenta.warehouseId == null ? Number(warehouseId) : undefined,
         items: payloadLines,
         externalNumber: externalNumber || undefined,
         notes: notes || undefined,
@@ -133,7 +144,9 @@ export const RemitoSalidaView: React.FC<RemitoSalidaViewProps> = ({
           </div>
           <h2 className="font-headline-lg text-headline-lg text-on-surface">Remito de Salida Registrado</h2>
           <p className="font-body-lg text-body-lg text-on-surface-variant">
-            El remito quedó vinculado a la venta; el stock ya fue descontado por la VENTA.
+            {isDeferredDispatch
+              ? 'El remito quedó vinculado al pedido y descontó del depósito la cantidad entregada.'
+              : 'El remito quedó vinculado a la venta; el stock ya fue descontado por la VENTA.'}
           </p>
         </div>
       ) : (
@@ -150,20 +163,20 @@ export const RemitoSalidaView: React.FC<RemitoSalidaViewProps> = ({
               <section className="bg-surface-container-lowest p-lg rounded-xl shadow-sm border border-outline-variant/20">
                 <h2 className="font-headline-md text-headline-md mb-md flex items-center gap-sm text-primary">
                   <span className="material-symbols-outlined">point_of_sale</span>
-                  Venta a Despachar
+                  Venta o Pedido a Despachar
                 </h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-md">
                   <div className="flex flex-col gap-xs">
-                    <label className="font-label-md text-label-md text-on-surface-variant uppercase">Venta Asociada</label>
+                    <label className="font-label-md text-label-md text-on-surface-variant uppercase">Documento Asociado</label>
                     <select
                       value={sourceId}
-                      onChange={(e) => setSourceId(e.target.value)}
+                      onChange={(e) => { setSourceId(e.target.value); setWarehouseId(''); }}
                       className="w-full bg-surface px-md py-sm rounded-lg border border-outline-variant/50 focus:border-primary outline-none cursor-pointer"
                     >
-                      <option value="">Seleccione una venta...</option>
+                      <option value="">Seleccione una venta o pedido...</option>
                       {ventas.map((v) => (
                         <option key={v.id} value={v.id}>
-                          VENTA {v.series}-{String(v.number).padStart(4, '0')} — {v.client?.name} (${Number(v.total).toFixed(2)})
+                          {v.type} {v.series}-{String(v.number).padStart(4, '0')} — {v.client?.name} ({formatMoney(Number(v.total))})
                         </option>
                       ))}
                     </select>
@@ -180,9 +193,26 @@ export const RemitoSalidaView: React.FC<RemitoSalidaViewProps> = ({
                     />
                   </div>
                 </div>
+                {isDeferredDispatch && selectedVenta.warehouseId == null && (
+                  <div className="flex flex-col gap-xs mt-md">
+                    <label className="font-label-md text-label-md text-on-surface-variant uppercase">Depósito de despacho</label>
+                    <select value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)}
+                      className="w-full bg-surface px-md py-sm rounded-lg border border-outline-variant/50 focus:border-primary outline-none cursor-pointer">
+                      <option value="">Seleccione un depósito...</option>
+                      {dispatchWarehouses.map((warehouse) => (
+                        <option key={warehouse.id} value={warehouse.id}>{warehouse.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
                 {selectedVenta && (
                   <p className="mt-md text-xs text-on-surface-variant">
-                    Cliente: <span className="font-semibold text-on-surface">{selectedVenta.client?.name}</span> — El stock ya fue descontado al crear la venta.
+                    Cliente: <span className="font-semibold text-on-surface">{selectedVenta.client?.name}</span>
+                    {selectedVenta.branchId != null && <> — Sucursal #{selectedVenta.branchId}</>}
+                    {selectedVenta.warehouseId != null && <> — Depósito #{selectedVenta.warehouseId}</>}
+                    {' '}— {isDeferredDispatch
+                      ? 'el stock se descontará al registrar este remito.'
+                      : 'derivados de la venta; el stock ya fue descontado al crearla.'}
                   </p>
                 )}
               </section>
@@ -199,7 +229,7 @@ export const RemitoSalidaView: React.FC<RemitoSalidaViewProps> = ({
                     <thead>
                       <tr className="bg-surface-container-low border-b border-outline-variant/20 font-label-md text-label-md text-on-surface-variant uppercase">
                         <th className="py-sm px-md">Producto</th>
-                        <th className="py-sm px-md text-right">Vendido</th>
+                        <th className="py-sm px-md text-right">Origen / pendiente</th>
                         <th className="py-sm px-md text-right">A Entregar</th>
                         <th className="py-sm px-md text-right">P. Unit.</th>
                       </tr>
@@ -208,7 +238,7 @@ export const RemitoSalidaView: React.FC<RemitoSalidaViewProps> = ({
                       {lines.map((line) => (
                         <tr key={line.key} className="hover:bg-surface-container/20">
                           <td className="py-md px-md font-medium"><span className="truncate max-w-[220px]">{line.name}</span></td>
-                          <td className="py-md px-md text-right font-mono-sm">{line.maxQuantity} u.</td>
+                          <td className="py-md px-md text-right font-mono-sm">{line.originalQuantity} u. / {line.maxQuantity} u.</td>
                           <td className="py-md px-md text-right">
                             <input
                               type="number"
@@ -222,13 +252,13 @@ export const RemitoSalidaView: React.FC<RemitoSalidaViewProps> = ({
                               className="w-24 bg-surface border border-outline-variant rounded px-sm py-xs text-right font-mono-sm focus:border-primary outline-none"
                             />
                           </td>
-                          <td className="py-md px-md text-right font-mono-sm">${line.unitPrice.toFixed(2)}</td>
+                          <td className="py-md px-md text-right font-mono-sm">{formatMoney(line.unitPrice)}</td>
                         </tr>
                       ))}
                       {lines.length === 0 && (
                         <tr>
                           <td colSpan={4} className="py-lg px-md text-center text-on-surface-variant">
-                            Seleccione una venta para cargar sus ítems.
+                            Seleccione una venta o pedido para cargar sus ítems.
                           </td>
                         </tr>
                       )}
@@ -254,10 +284,12 @@ export const RemitoSalidaView: React.FC<RemitoSalidaViewProps> = ({
               <section className="bg-surface-container-low p-lg rounded-xl border border-outline-variant/20 flex flex-col gap-sm">
                 <div className="flex items-center gap-sm text-tertiary-container">
                   <span className="material-symbols-outlined">verified</span>
-                  <span className="font-label-md text-label-md uppercase tracking-wider">Sin efecto de stock</span>
+                  <span className="font-label-md text-label-md uppercase tracking-wider">{isDeferredDispatch ? 'Salida de stock' : 'Sin efecto de stock'}</span>
                 </div>
                 <p className="text-xs text-on-surface-variant">
-                  La VENTA ya descontó el inventario. Este remito documenta la entrega física al cliente y queda encadenado para la futura factura.
+                  {isDeferredDispatch
+                    ? 'El PEDIDO no descontó inventario. Este remito registra la salida física de las cantidades entregadas.'
+                    : 'La VENTA ya descontó el inventario. Este remito documenta la entrega física al cliente y queda encadenado para la futura factura.'}
                 </p>
               </section>
             </div>

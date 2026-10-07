@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { formatMoney } from '../../lib/format';
 import { ViewPath, FinanceTransaction } from '../../types';
 
 interface FinanceViewProps {
@@ -43,7 +44,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({ transactions }) => {
             <span className="material-symbols-outlined text-primary">account_balance</span>
           </div>
           <p className="font-display-lg text-display-lg font-mono-sm text-primary">
-            ${netBalance.toLocaleString('es-ES', { minimumFractionDigits: 2 })}
+            {formatMoney(netBalance)}
           </p>
           <p className="text-xs text-on-surface-variant flex items-center gap-1 font-medium">
             <span className="material-symbols-outlined text-xs">receipt_long</span> Suma de pagos de comprobantes
@@ -56,7 +57,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({ transactions }) => {
             <span className="material-symbols-outlined text-tertiary-container">arrow_downward</span>
           </div>
           <p className="font-display-lg text-display-lg font-mono-sm text-tertiary-container">
-            +${totalIngresos.toLocaleString('es-ES', { minimumFractionDigits: 2 })}
+            +{formatMoney(totalIngresos)}
           </p>
           <p className="text-xs text-on-surface-variant">Pagos recibidos en ventas y facturas</p>
         </div>
@@ -67,7 +68,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({ transactions }) => {
             <span className="material-symbols-outlined text-error">arrow_upward</span>
           </div>
           <p className="font-display-lg text-display-lg font-mono-sm text-error">
-            -${totalEgresos.toLocaleString('es-ES', { minimumFractionDigits: 2 })}
+            -{formatMoney(totalEgresos)}
           </p>
           <p className="text-xs text-on-surface-variant">Pagos a proveedores (compras y facturas)</p>
         </div>
@@ -144,7 +145,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({ transactions }) => {
                       <td className="py-sm px-md font-medium">{t.concept}</td>
                       <td className="py-sm px-md text-on-surface-variant">{t.method}</td>
                       <td className={`py-sm px-md text-right font-mono-sm font-bold ${t.amount > 0 ? 'text-tertiary-container' : 'text-error'}`}>
-                        {t.amount > 0 ? `+$${t.amount.toFixed(2)}` : `-$${Math.abs(t.amount).toFixed(2)}`}
+                        {t.amount > 0 ? `+${formatMoney(t.amount)}` : `-${formatMoney(Math.abs(t.amount))}`}
                       </td>
                       <td className="py-sm px-md text-center">
                         <span

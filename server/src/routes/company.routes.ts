@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { requireAuth, requirePermission, tenantWhere } from '../middleware/auth.js';
 import { logAudit, clientIp } from '../lib/audit.js';
+import { parseBody } from '../lib/parseBody.js';
 import { slugify } from '../lib/slug.js';
 
 const router = Router();
@@ -19,6 +20,10 @@ router.get('/', requirePermission('configuracion.leer'), async (req, res) => {
       slug: true,
       legalName: true,
       taxId: true,
+      address: true,
+      province: true,
+      postalCode: true,
+      taxCondition: true,
       currency: true,
       timezone: true,
     },
@@ -31,23 +36,24 @@ const patchSchema = z.object({
   slug: z.string().min(1).max(80).optional(),
   legalName: z.string().max(200).nullable().optional(),
   taxId: z.string().max(50).nullable().optional(),
+  address: z.string().max(200).nullable().optional(),
+  province: z.string().max(100).nullable().optional(),
+  postalCode: z.string().max(20).nullable().optional(),
+  taxCondition: z.string().max(40).nullable().optional(),
   currency: z.string().length(3).optional(),
   timezone: z.string().max(50).nullable().optional(),
 });
 
 /** PATCH /api/company — updates the tenant profile (requires configuration.escribir) */
 router.patch('/', requirePermission('configuracion.escribir'), async (req, res) => {
-  const parsed = patchSchema.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
-    return;
-  }
+  const data = parseBody(res, patchSchema, req.body);
+  if (!data) return;
   const companyId = req.authUser!.companyId;
 
   // The storefront slug is normalized and must stay unique across tenants.
   let nextSlug: string | undefined;
-  if (parsed.data.slug !== undefined) {
-    nextSlug = slugify(parsed.data.slug);
+  if (data.slug !== undefined) {
+    nextSlug = slugify(data.slug);
     const taken = await prisma.company.findUnique({
       where: { slug: nextSlug },
       select: { id: true },
@@ -64,12 +70,16 @@ router.patch('/', requirePermission('configuracion.escribir'), async (req, res) 
     const company = await tx.company.update({
       where: { id: companyId },
       data: {
-        ...(parsed.data.name !== undefined ? { name: parsed.data.name } : {}),
+        ...(data.name !== undefined ? { name: data.name } : {}),
         ...(nextSlug !== undefined ? { slug: nextSlug } : {}),
-        ...(parsed.data.legalName !== undefined ? { legalName: parsed.data.legalName } : {}),
-        ...(parsed.data.taxId !== undefined ? { taxId: parsed.data.taxId } : {}),
-        ...(parsed.data.currency !== undefined ? { currency: parsed.data.currency } : {}),
-        ...(parsed.data.timezone !== undefined ? { timezone: parsed.data.timezone } : {}),
+        ...(data.legalName !== undefined ? { legalName: data.legalName } : {}),
+        ...(data.taxId !== undefined ? { taxId: data.taxId } : {}),
+        ...(data.address !== undefined ? { address: data.address } : {}),
+        ...(data.province !== undefined ? { province: data.province } : {}),
+        ...(data.postalCode !== undefined ? { postalCode: data.postalCode } : {}),
+        ...(data.taxCondition !== undefined ? { taxCondition: data.taxCondition } : {}),
+        ...(data.currency !== undefined ? { currency: data.currency } : {}),
+        ...(data.timezone !== undefined ? { timezone: data.timezone } : {}),
       },
     });
 
@@ -90,6 +100,10 @@ router.patch('/', requirePermission('configuracion.escribir'), async (req, res) 
     slug: updated.slug,
     legalName: updated.legalName,
     taxId: updated.taxId,
+    address: updated.address,
+    province: updated.province,
+    postalCode: updated.postalCode,
+    taxCondition: updated.taxCondition,
     currency: updated.currency,
     timezone: updated.timezone,
   });

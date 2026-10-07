@@ -2,7 +2,8 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { requireAuth, requirePermission, tenantWhere } from '../middleware/auth.js';
-import { parsePositiveInt } from '../lib/params.js';
+import { parsePositiveInt, parsePagination, paginateResponse } from '../lib/params.js';
+import { parseBody } from '../lib/parseBody.js';
 
 const router = Router();
 
@@ -15,12 +16,21 @@ const supplierSchema = z.object({
   email: z.string().email().optional().or(z.literal('')),
   phone: z.string().max(30).optional(),
   contact: z.string().max(120).optional(),
+  address: z.string().max(200).nullable().optional(),
+  province: z.string().max(100).nullable().optional(),
+  postalCode: z.string().max(20).nullable().optional(),
+  taxCondition: z.string().max(40).nullable().optional(),
 });
 
 const supplierUpdateSchema = supplierSchema.partial();
 
 /** GET /api/suppliers — tenant-scoped list */
 router.get('/', async (req, res) => {
+  const pagination = parsePagination(req.query);
+  if (pagination !== null && 'error' in pagination) {
+    res.status(400).json({ error: pagination.error });
+    return;
+  }
   const { search } = req.query;
   const suppliers = await prisma.supplier.findMany({
     where: {
@@ -31,7 +41,7 @@ router.get('/', async (req, res) => {
     },
     orderBy: { name: 'asc' },
   });
-  res.json(suppliers);
+  res.json(pagination ? paginateResponse(suppliers, pagination) : suppliers);
 });
 
 /** GET /api/suppliers/:id */
@@ -51,13 +61,10 @@ router.get('/:id', async (req, res) => {
 
 /** POST /api/suppliers */
 router.post('/', requirePermission('compras.escribir'), async (req, res) => {
-  const parsed = supplierSchema.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
-    return;
-  }
+  const data = parseBody(res, supplierSchema, req.body);
+  if (!data) return;
   const supplier = await prisma.supplier.create({
-    data: { ...tenantWhere(req), ...parsed.data },
+    data: { ...tenantWhere(req), ...data },
   });
   res.status(201).json(supplier);
 });
@@ -69,17 +76,14 @@ router.patch('/:id', requirePermission('compras.escribir'), async (req, res) => 
     res.status(400).json({ error: 'Parámetro inválido' });
     return;
   }
-  const parsed = supplierUpdateSchema.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
-    return;
-  }
+  const data = parseBody(res, supplierUpdateSchema, req.body);
+  if (!data) return;
   const existing = await prisma.supplier.findFirst({ where: { id, ...tenantWhere(req) } });
   if (!existing) {
     res.status(404).json({ error: 'Proveedor no encontrado' });
     return;
   }
-  const supplier = await prisma.supplier.update({ where: { id }, data: parsed.data });
+  const supplier = await prisma.supplier.update({ where: { id }, data });
   res.json(supplier);
 });
 

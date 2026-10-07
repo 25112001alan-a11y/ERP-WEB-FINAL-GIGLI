@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { ViewPath, Product, WarehouseOption } from '../../types';
+import { transferError } from '../../lib/branch';
 
 interface StockTransferViewProps {
   products: Product[];
@@ -16,23 +17,31 @@ interface StockTransferViewProps {
 
 export const StockTransferView: React.FC<StockTransferViewProps> = ({ products, warehouses, onTransfer, onNavigate }) => {
   const [sourceWarehouseId, setSourceWarehouseId] = useState<number>(warehouses[0]?.id ?? 0);
-  const [targetWarehouseId, setTargetWarehouseId] = useState<number>(warehouses[1]?.id ?? warehouses[0]?.id ?? 0);
+  const [targetWarehouseId, setTargetWarehouseId] = useState<number>(warehouses[1]?.id ?? 0);
   const [productId, setProductId] = useState<string>(products[0]?.id ?? '');
   const [quantity, setQuantity] = useState(1);
   const [notes, setNote] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const [completed, setCompleted] = useState(false);
+  const [completed, setCompleted] = useState('');
+  const [refreshFailed, setRefreshFailed] = useState(false);
 
   const selectedProduct = products.find((p) => p.id === productId);
-  const maxQty = Math.max(1, selectedProduct?.stock ?? 1);
+  // El backend descuenta del depósito de ORIGEN: el máximo transferible es el
+  // stock de ese depósito, no el total del producto.
+  const sourceStock = selectedProduct?.stocks.find((s) => s.warehouseId === sourceWarehouseId)?.quantity;
+  const validationError = transferError(selectedProduct, warehouses, sourceWarehouseId, targetWarehouseId, quantity);
 
   const handleQtyChange = (delta: number) => {
-    setQuantity((prev) => Math.min(maxQty, Math.max(1, prev + delta)));
+    setQuantity((prev) => Math.max(1, prev + delta));
   };
 
   const handleConfirm = async () => {
-    if (!selectedProduct) return;
+    if (saving || refreshFailed) return;
+    if (validationError || !selectedProduct) {
+      setError(validationError ?? 'Seleccioná un producto.');
+      return;
+    }
     setSaving(true);
     setError('');
     try {
@@ -43,11 +52,12 @@ export const StockTransferView: React.FC<StockTransferViewProps> = ({ products, 
         quantity,
         reason: notes || undefined,
       });
-      setCompleted(true);
+      setCompleted(`Se transfirieron ${quantity} unidades de ${selectedProduct.name} entre depósitos.`);
       setTimeout(() => onNavigate('inventario'), 1500);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'No se pudo transferir el stock';
       setError(msg);
+      if (msg.startsWith('La transferencia se registró')) setRefreshFailed(true);
     } finally {
       setSaving(false);
     }
@@ -70,7 +80,7 @@ export const StockTransferView: React.FC<StockTransferViewProps> = ({ products, 
           </button>
           <button
             onClick={handleConfirm}
-            disabled={saving || !selectedProduct}
+            disabled={saving || refreshFailed || !!validationError || !!completed}
             className="bg-primary hover:bg-primary-container text-on-primary font-label-md text-label-md px-lg py-sm rounded-full transition-colors flex items-center gap-sm shadow-md cursor-pointer disabled:opacity-50"
           >
             <span className="material-symbols-outlined text-[18px]">check_circle</span>
@@ -86,7 +96,7 @@ export const StockTransferView: React.FC<StockTransferViewProps> = ({ products, 
           </div>
           <h2 className="font-headline-lg text-headline-lg text-on-surface">Transferencia Registrada</h2>
           <p className="font-body-lg text-body-lg text-on-surface-variant">
-            Se transfirieron {quantity} unidades de {selectedProduct?.name} entre depósitos.
+            {completed}
           </p>
         </div>
       ) : (
@@ -138,10 +148,11 @@ export const StockTransferView: React.FC<StockTransferViewProps> = ({ products, 
             <div className="bg-surface-container-lowest shadow-sm rounded-xl p-lg flex flex-col gap-md border border-outline-variant/20">
               <h2 className="font-headline-md text-headline-md text-on-surface">Producto a Transferir</h2>
               {error && (
-                <div className="p-sm bg-error-container/20 text-on-error-container rounded-lg font-label-md text-sm flex items-center gap-xs">
+                <div role="alert" className="p-sm bg-error-container/20 text-on-error-container rounded-lg font-label-md text-sm flex items-center gap-xs">
                   <span className="material-symbols-outlined text-[18px]">error</span> {error}
                 </div>
               )}
+              {!error && validationError && <p className="text-error text-body-sm">{validationError}</p>}
               <div className="flex flex-col md:flex-row gap-md items-start md:items-end">
                 <div className="flex-1 flex flex-col gap-xs w-full">
                   <label className="font-label-md text-label-md uppercase text-on-surface-variant">Producto *</label>
@@ -152,7 +163,7 @@ export const StockTransferView: React.FC<StockTransferViewProps> = ({ products, 
                   >
                     {products.map((p) => (
                       <option key={p.id} value={p.id}>
-                        {p.name} ({p.sku || 'sin SKU'}) — stock {p.stock}
+                        {p.name} ({p.sku || 'sin SKU'})
                       </option>
                     ))}
                   </select>
@@ -168,7 +179,15 @@ export const StockTransferView: React.FC<StockTransferViewProps> = ({ products, 
                     >
                       <span className="material-symbols-outlined text-[16px]">remove</span>
                     </button>
-                    <span className="w-12 text-center font-body-md text-body-md text-on-surface font-mono-sm font-bold">{quantity}</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="any"
+                      aria-label="Cantidad a transferir"
+                      value={quantity}
+                      onChange={(e) => setQuantity(Number(e.target.value))}
+                      className="w-20 text-center font-body-md text-body-md text-on-surface font-mono-sm font-bold bg-transparent outline-none"
+                    />
                     <button
                       type="button"
                       onClick={() => handleQtyChange(1)}
@@ -183,21 +202,20 @@ export const StockTransferView: React.FC<StockTransferViewProps> = ({ products, 
               {selectedProduct && (
                 <div className="flex items-center gap-md p-md bg-surface-container-low rounded-lg border border-outline-variant/30">
                   <div className="w-10 h-10 rounded bg-surface-container-high flex items-center justify-center overflow-hidden shrink-0">
-                    {selectedProduct.imageUrl ? (
-                      <img src={selectedProduct.imageUrl} alt={selectedProduct.name} className="w-full h-full object-cover mix-blend-multiply opacity-80" />
-                    ) : (
-                      <span className="material-symbols-outlined text-outline">inventory_2</span>
-                    )}
+                    <span className="material-symbols-outlined text-outline">inventory_2</span>
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="font-body-md text-body-md text-on-surface font-semibold truncate">{selectedProduct.name}</p>
                     <p className="font-mono-sm text-mono-sm text-on-surface-variant truncate">{selectedProduct.sku} · {selectedProduct.category}</p>
                   </div>
                   <div className="text-right">
-                    <p className="font-label-md text-label-md text-on-surface-variant uppercase">Stock Total</p>
+                    <p className="font-label-md text-label-md text-on-surface-variant uppercase">Stock en origen</p>
                     <span className="inline-flex items-center px-2 py-1 rounded bg-secondary-container/20 text-secondary-container font-label-md text-label-md">
-                      {selectedProduct.stock} unid.
+                      {sourceStock ?? '—'} unid.
                     </span>
+                    {(sourceStock == null || sourceStock <= 0) && (
+                      <p className="font-body-sm text-body-sm text-error mt-xs">Sin stock en origen</p>
+                    )}
                   </div>
                 </div>
               )}

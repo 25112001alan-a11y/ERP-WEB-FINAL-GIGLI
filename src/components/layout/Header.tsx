@@ -54,9 +54,9 @@ export const Header: React.FC<HeaderProps> = ({
   const displayName = user ? `${user.firstName} ${user.lastName}`.trim() : 'Admin User';
   const companyName = user?.company?.name ?? 'SaaS Enterprise Tenant';
   // Locked user (branchId set) sees a fixed badge; only the owner switches.
-  const isLocked = user?.branchId != null;
+  const isLocked = Boolean(user && !user.isOwner);
   const lockedBranchName = isLocked
-    ? (branches.find((b) => b.id === user!.branchId)?.name ?? 'Mi sucursal')
+    ? (user!.branchId == null ? 'Sin sucursal asignada' : branches.find((b) => b.id === user!.branchId)?.name ?? 'Mi sucursal')
     : null;
 
   return (

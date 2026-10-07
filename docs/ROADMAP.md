@@ -1,6 +1,6 @@
 # Nexus ERP — Roadmap
 
-> Estado: **8/8 fases completadas + Fase A (captura de documento del proveedor) + cadena AFIP** — producto en producción (Railway API + Vercel front). Las secciones "Próximo" son ampliaciones planificadas, no deudas.
+> Estado: **8/8 fases completadas + Fase A (captura de documento del proveedor) + cadena AFIP** — funcionalidad terminada, pero **el producto no está operativo en producción**: la API de Railway está caída (ver "Historial de despliegue") y por eso no se puede iniciar sesión. El front de Vercel sirve la UI pero no proxea `/api`. Las secciones "Próximo" son ampliaciones planificadas, no deudas.
 
 ## Fases completadas
 
@@ -56,7 +56,7 @@ docs/              Documentación
 | `GET /api/audit-logs` | token | Auditoría |
 | `GET/PATCH /api/company` | token | Perfil de empresa |
 | `GET /api/public/store/:slug/products` | — | Catálogo público por empresa |
-| `POST /api/public/store/:slug/orders` · `GET /api/public/store/:slug/orders?email=` | — | Checkout público + seguimiento por empresa |
+| `POST /api/public/store/:slug/orders` | — | Checkout público; seguimiento por WhatsApp |
 
 ## Ejecución local
 
@@ -97,5 +97,5 @@ npm test               # server — node:test + tsx: smoke API, cadena OC->REMIT
 
 | Entorno | URL | Estado |
 | --- | --- | --- |
-| API (Railway) | `https://erp-web-final-gigli-production.up.railway.app` | Activa |
-| Front (Vercel) | `https://erp-web-final-gigli.vercel.app` | Activa, auto-deploy desde `main` |
+| API (Railway) | `https://erp-web-final-gigli-production.up.railway.app` | **Caída** — verificada 2026-10-06: responde `404` incluso en `/`. Requiere intervención en la cuenta de Railway (no accesible desde este entorno) |
+| Front (Vercel) | `https://erp-web-final-gigli.vercel.app` | Activa, auto-deploy desde `main`. Ojo: `vercel.json` reescribe `/api/*` al SPA, así que devuelve `index.html` y no proxea a la API. `/api/health` responde `200 text/html`, no JSON |

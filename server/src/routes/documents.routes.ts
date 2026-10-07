@@ -3,7 +3,7 @@ import { z } from 'zod';
 import multer from 'multer';
 import fs from 'node:fs';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { DocumentType } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import {
@@ -12,15 +12,20 @@ import {
   requireAnyPermission,
   tenantWhere,
   getUserPermissions,
+  requireAssignedBranch,
+  documentBranchWhere,
 } from '../middleware/auth.js';
 import { logAudit, clientIp } from '../lib/audit.js';
 import { reserveNextNumber } from '../lib/numbering.js';
 import { assertDocCreationAllowed } from '../lib/billing.js';
-import { parsePositiveInt } from '../lib/params.js';
+import { parsePositiveInt, parsePagination, paginateResponse } from '../lib/params.js';
+import { parseBody } from '../lib/parseBody.js';
+import { buildHeaderSnapshot, withHeaderSnapshot } from '../lib/headerSnapshots.js';
 
 const router = Router();
 
 router.use(requireAuth);
+router.use(requireAssignedBranch);
 
 // Supplier voucher attachments live in UPLOADS_DIR (server/uploads by default,
 // a persistent volume in production). They are NOT exposed as a static
@@ -104,9 +109,12 @@ const DOCUMENT_PERMISSION: Record<DocumentType, string> = {
 
 const itemSchema = z.object({
   productId: z.number().int().positive(),
+  sourceDocumentItemId: z.number().int().positive().optional(),
   quantity: z.number().positive(),
   unitPrice: z.number().positive().optional(),
   discount: z.number().nonnegative().optional().default(0),
+  // Multi-depósito: depósito de la línea; por defecto el de la cabecera.
+  warehouseId: z.number().int().positive().optional(),
 });
 
 const invoiceSchema = z.object({
@@ -123,6 +131,10 @@ const paymentSchema = z.object({
 
 const documentSchema = z.object({
   type: z.enum(['OC', 'COMPRA', 'VENTA', 'COTIZACION', 'REMITO', 'PEDIDO', 'FACTURA']),
+  // Operational direction is required by the derived-document UI so the
+  // permission can be checked without trusting a caller-supplied counterpart.
+  // The source document remains authoritative for the actual party.
+  direction: z.enum(['ingreso', 'egreso']).optional(),
   series: z.string().max(10).optional().default('A'),
   date: z.string().datetime().optional(),
   clientId: z.number().int().positive().optional(),
@@ -142,6 +154,12 @@ const documentSchema = z.object({
   notes: z.string().optional(),
 });
 
+type DocumentDirection = 'ingreso' | 'egreso';
+
+function isCancelledDocument(status: string): boolean {
+  return /^(anulad[oa]|cancelad[oa])$/i.test(status.trim());
+}
+
 /** GET /api/documents — tenant-scoped list with totals */
 router.get('/', requireAnyPermission('ventas.leer', 'compras.leer'), async (req, res) => {
   const { type } = req.query;
@@ -154,16 +172,21 @@ router.get('/', requireAnyPermission('ventas.leer', 'compras.leer'), async (req,
     }
     typeFilter = parsedType.data;
   }
+  const pagination = parsePagination(req.query);
+  if (pagination !== null && 'error' in pagination) {
+    res.status(400).json({ error: pagination.error });
+    return;
+  }
   const documents = await prisma.document.findMany({
     where: {
-      ...tenantWhere(req),
+      ...documentBranchWhere(req),
       ...(typeFilter ? { type: typeFilter } : {}),
     },
     include: {
       client: { select: { id: true, name: true, type: true, phone: true } },
       supplier: { select: { id: true, name: true } },
       warehouse: { select: { name: true } },
-      payments: { select: { id: true, method: true, status: true } },
+      payments: { select: { id: true, method: true, status: true, amount: true } },
       invoiceData: {
         select: {
           id: true,
@@ -177,7 +200,10 @@ router.get('/', requireAnyPermission('ventas.leer', 'compras.leer'), async (req,
       items: {
         select: {
           id: true,
+          sourceDocumentItemId: true,
           productId: true,
+          sku: true,
+          taxName: true,
           description: true,
           quantity: true,
           unitPrice: true,
@@ -187,7 +213,66 @@ router.get('/', requireAnyPermission('ventas.leer', 'compras.leer'), async (req,
     },
     orderBy: { createdAt: 'desc' },
   });
-  res.json(documents);
+  const sourceIds = documents
+    .filter((document) => [DocumentType.OC, DocumentType.VENTA, DocumentType.PEDIDO, DocumentType.REMITO].some((type) => type === document.type))
+    .map((document) => document.id);
+  const children = sourceIds.length === 0 ? [] : await prisma.document.findMany({
+    where: {
+      companyId: req.authUser!.companyId,
+      sourceDocumentId: { in: sourceIds },
+      type: { in: [DocumentType.REMITO, DocumentType.FACTURA] },
+    },
+    select: {
+      sourceDocumentId: true,
+      type: true,
+      items: { select: { sourceDocumentItemId: true, productId: true, quantity: true } },
+    },
+  });
+  const withPendingQuantities = documents.map((document) => {
+    const directChildren = children.filter((child) => child.sourceDocumentId === document.id);
+    const targetType = document.type === DocumentType.OC
+      ? DocumentType.REMITO
+      : document.type === DocumentType.REMITO
+        ? DocumentType.FACTURA
+        : document.type === DocumentType.PEDIDO
+          ? DocumentType.REMITO
+          : document.type === DocumentType.VENTA
+          ? directChildren.some((child) => child.type === DocumentType.REMITO)
+            ? DocumentType.REMITO
+            : DocumentType.FACTURA
+          : undefined;
+    const linked = new Map<number, number>();
+    const legacy = new Map<number, number>();
+    for (const child of directChildren.filter((entry) => entry.type === targetType)) {
+      for (const item of child.items) {
+        if (item.productId === null) continue;
+        if (item.sourceDocumentItemId !== null && document.items.some((source) => source.id === item.sourceDocumentItemId)) {
+          linked.set(item.sourceDocumentItemId, (linked.get(item.sourceDocumentItemId) ?? 0) + Number(item.quantity));
+        } else {
+          legacy.set(item.productId, (legacy.get(item.productId) ?? 0) + Number(item.quantity));
+        }
+      }
+    }
+    const legacyApplied = new Map<number, number>();
+    const pendingByItemId = new Map<number, number>();
+    for (const item of [...document.items].sort((left, right) => left.id - right.id)) {
+      const productId = item.productId ?? -1;
+      const remainingAfterLinked = Math.max(0, Number(item.quantity) - (linked.get(item.id) ?? 0));
+      const legacyAmount = Math.min(
+        Math.max(0, (legacy.get(productId) ?? 0) - (legacyApplied.get(productId) ?? 0)),
+        remainingAfterLinked,
+      );
+      legacyApplied.set(productId, (legacyApplied.get(productId) ?? 0) + legacyAmount);
+      pendingByItemId.set(item.id, remainingAfterLinked - legacyAmount);
+    }
+    return {
+      ...withHeaderSnapshot(document),
+      hasDispatch: document.type === DocumentType.PEDIDO
+        && directChildren.some((child) => child.type === DocumentType.REMITO),
+      items: document.items.map((item) => ({ ...item, pendingQuantity: pendingByItemId.get(item.id) ?? 0 })),
+    };
+  });
+  res.json(pagination ? paginateResponse(withPendingQuantities, pagination) : withPendingQuantities);
 });
 
 /** GET /api/documents/:id */
@@ -198,12 +283,12 @@ router.get('/:id', requireAnyPermission('ventas.leer', 'compras.leer'), async (r
     return;
   }
   const document = await prisma.document.findFirst({
-    where: { id, ...tenantWhere(req) },
+    where: { id, ...documentBranchWhere(req) },
     include: {
       client: true,
       supplier: true,
       user: { select: { id: true, firstName: true, lastName: true } },
-      branch: { select: { name: true } },
+      branch: { select: { name: true, address: true } },
       warehouse: { select: { name: true } },
       destinationWarehouse: { select: { name: true } },
       sourceDocument: { select: { id: true, type: true, number: true, series: true } },
@@ -221,22 +306,22 @@ router.get('/:id', requireAnyPermission('ventas.leer', 'compras.leer'), async (r
     res.status(404).json({ error: 'Comprobante no encontrado' });
     return;
   }
-  res.json(document);
+  res.json(withHeaderSnapshot(document));
 });
 
 /**
  * PATCH /api/documents/:id/status — PEDIDO lifecycle only:
- *   Abierto → En Proceso → Enviado (terminal), any → Anulado (terminal).
- * The receive/pay flows don't apply to PEDIDO (receive is OC-only, payments
- * attach at creation), so Enviado is the terminal fulfilled state.
+ *   Abierto → En Proceso, either → Anulado before physical dispatch.
+ * Enviado is assigned only by the final PEDIDO-derived REMITO transaction.
  */
 const pedidoStatusSchema = z.object({
-  status: z.enum(['En Proceso', 'Enviado', 'Anulado']),
+  status: z.enum(['En Proceso', 'Anulado']),
 });
 
 const PEDIDO_TRANSITIONS: Record<string, string[]> = {
   Abierto: ['En Proceso', 'Anulado'],
-  'En Proceso': ['Enviado', 'Anulado'],
+  Pagado: ['En Proceso', 'Anulado'], // Legacy paid PEDIDO used payment status as logistics status.
+  'En Proceso': ['Anulado'],
   Enviado: [],
   Anulado: [],
 };
@@ -247,16 +332,20 @@ router.patch('/:id/status', requirePermission('ventas.escribir'), async (req, re
     res.status(400).json({ error: 'Parámetro inválido' });
     return;
   }
-  const parsed = pedidoStatusSchema.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: 'Estado inválido', details: parsed.error.flatten() });
-    return;
-  }
-  const next = parsed.data.status;
+  const body = parseBody(res, pedidoStatusSchema, req.body, 'Estado inválido');
+  if (!body) return;
+  const next = body.status;
 
   const result = await prisma.$transaction(async (tx) => {
+    // Serialize manual changes with REMITO creation before reading status or children.
+    const lockedOrders = await tx.$queryRaw<{ id: number }[]>`
+      SELECT id FROM comprobantes
+      WHERE id = ${id} AND companyId = ${req.authUser!.companyId}
+      FOR UPDATE
+    `;
+    if (lockedOrders.length === 0) throw Object.assign(new Error('Comprobante no encontrado'), { status: 404 });
     const document = await tx.document.findFirst({
-      where: { id, companyId: req.authUser!.companyId },
+      where: { id, ...documentBranchWhere(req) },
       select: { id: true, type: true, status: true, series: true, number: true },
     });
     if (!document) throw Object.assign(new Error('Comprobante no encontrado'), { status: 404 });
@@ -268,6 +357,11 @@ router.patch('/:id/status', requirePermission('ventas.escribir'), async (req, re
       throw Object.assign(new Error(`Transición no permitida de ${document.status} a ${next}`), {
         status: 400,
       });
+    }
+    if (next === 'Anulado' && await tx.document.count({
+      where: { companyId: req.authUser!.companyId, sourceDocumentId: id, type: DocumentType.REMITO },
+    }) > 0) {
+      throw Object.assign(new Error('No se puede anular un PEDIDO con remitos despachados'), { status: 409 });
     }
     const updated = await tx.document.update({ where: { id }, data: { status: next } });
     await logAudit(
@@ -296,7 +390,8 @@ router.patch('/:id/status', requirePermission('ventas.escribir'), async (req, re
  *   - COMPRA          : increments warehouse stock, writes ENTRADA movements
  *   - REMITO (ingreso): increments warehouse stock, writes ENTRADA movements
  *                       (supplier delivers goods; the movement mirrors /receive)
- *   - REMITO (egreso) : no stock effect (the chained VENTA already moved it)
+ *   - REMITO (egreso) : deducts stock only when derived from a deferred PEDIDO;
+ *                       a POS VENTA already moved stock and is not deducted again
  *   - FACTURA         : no stock effect; optionally creates a Payment and
  *                       persists fiscal data (invoiceType, CAE) in InvoiceData
  * Payments: the legacy `paymentMethod` creates a single Payment row for the
@@ -318,29 +413,89 @@ router.post('/', requireAnyPermission('ventas.escribir', 'compras.escribir'), as
     throw err;
   }
 
-  const bodyParsed = documentSchema.safeParse(req.body);
-  if (!bodyParsed.success) {
-    res.status(400).json({ error: 'Datos inválidos', details: bodyParsed.error.flatten() });
-    return;
+  const data = parseBody(res, documentSchema, req.body);
+  if (!data) return;
+  const items = parseBody(
+    res,
+    z.array(itemSchema).min(1, 'Debe incluir al menos un ítem'),
+    req.body.items,
+    'Ítems inválidos',
+  );
+  if (!items) return;
+  if (data.branchId) {
+    const branch = await prisma.branch.findFirst({ where: { id: data.branchId, ...tenantWhere(req) } });
+    if (!branch) {
+      res.status(400).json({ error: 'Sucursal no válida para esta empresa' });
+      return;
+    }
+    if (!req.authUser!.isOwner && branch.id !== req.authUser!.branchId) {
+      res.status(403).json({ error: 'Sucursal fuera de la asignación' });
+      return;
+    }
   }
-  const itemsRaw = z.array(itemSchema).min(1, 'Debe incluir al menos un ítem').safeParse(req.body.items);
-  if (!itemsRaw.success) {
-    res.status(400).json({ error: 'Ítems inválidos', details: itemsRaw.error.flatten() });
-    return;
-  }
-  const data = bodyParsed.data;
   const type = data.type as DocumentType;
 
   const hasClient = Boolean(data.clientId || data.clientName);
   const hasSupplier = Boolean(data.supplierId || data.supplierName);
 
-  // Permission depends on the document's owning module (sales vs purchases).
-  // A sales FACTURA (clientId) belongs to Ventas; every other direction follows
-  // the static map.
-  const requiredPermission =
-    type === DocumentType.FACTURA && hasClient && !hasSupplier
-      ? 'ventas.escribir'
-      : DOCUMENT_PERMISSION[type];
+  const isDirectionalType = type === DocumentType.REMITO || type === DocumentType.FACTURA;
+  if (isDirectionalType && hasClient && hasSupplier) {
+    res.status(400).json({
+      error: `Los comprobantes ${type} no pueden mezclar cliente y proveedor`,
+    });
+    return;
+  }
+  const direction: DocumentDirection | null = data.direction
+    ?? (hasClient ? 'egreso' : hasSupplier ? 'ingreso' : null);
+  if (isDirectionalType && !direction) {
+    res.status(400).json({
+      error: `Los comprobantes ${type} requieren dirección de ingreso o egreso`,
+    });
+    return;
+  }
+  if (isDirectionalType && direction === 'ingreso' && hasClient) {
+    res.status(400).json({ error: `Un ${type} de ingreso no puede indicar cliente` });
+    return;
+  }
+  if (isDirectionalType && direction === 'egreso' && hasSupplier) {
+    res.status(400).json({ error: `Un ${type} de egreso no puede indicar proveedor` });
+    return;
+  }
+  if (isDirectionalType && !data.sourceDocumentId && hasClient === hasSupplier) {
+    res.status(400).json({
+      error: `Los comprobantes ${type} sin origen requieren exactamente un cliente o proveedor`,
+    });
+    return;
+  }
+  if (
+    type === DocumentType.REMITO
+    && direction === 'ingreso'
+    && data.sourceDocumentId
+  ) {
+    res.status(400).json({
+      error: 'Use POST /api/documents/:id/receive para recibir una orden de compra',
+    });
+    return;
+  }
+  if (
+    data.sourceDocumentId
+    && isDirectionalType
+    && new Set(items.map((item) => item.productId)).size !== items.length
+    && (
+      items.some((item) => item.sourceDocumentItemId === undefined)
+      || new Set(items.map((item) => item.sourceDocumentItemId)).size !== items.length
+    )
+  ) {
+    res.status(400).json({
+      error: `No se puede repetir el mismo producto en un ${type} derivado`,
+    });
+    return;
+  }
+
+  // Direction, not a caller-supplied counterpart id, owns the module.
+  const requiredPermission = isDirectionalType
+    ? direction === 'egreso' ? 'ventas.escribir' : 'compras.escribir'
+    : DOCUMENT_PERMISSION[type];
   const userPermissions = await getUserPermissions(req);
   if (!userPermissions.has(requiredPermission)) {
     res.status(403).json({ error: `Permiso requerido: ${requiredPermission}` });
@@ -349,7 +504,7 @@ router.post('/', requireAnyPermission('ventas.escribir', 'compras.escribir'), as
 
   const isStockType = type === DocumentType.VENTA || type === DocumentType.COMPRA;
   // Physical receipt from a supplier: stock ENTRADA even without an OC chain.
-  const isRemitoIngreso = type === DocumentType.REMITO && hasSupplier;
+  const isRemitoIngreso = type === DocumentType.REMITO && direction === 'ingreso';
 
   if ((isStockType || isRemitoIngreso) && !data.warehouseId) {
     res.status(400).json({ error: `Los comprobantes ${type} requieren warehouseId` });
@@ -363,37 +518,33 @@ router.post('/', requireAnyPermission('ventas.escribir', 'compras.escribir'), as
     res.status(400).json({ error: 'Los comprobantes COMPRA requieren supplierId o supplierName' });
     return;
   }
-  if (type === DocumentType.REMITO && (hasClient === hasSupplier)) {
-    res.status(400).json({
-      error: 'Los comprobantes REMITO requieren exactamente un cliente (egreso) o proveedor (ingreso)',
-    });
-    return;
-  }
-  if (type === DocumentType.FACTURA && (hasClient === hasSupplier)) {
-    res.status(400).json({
-      error: 'Los comprobantes FACTURA requieren exactamente un cliente o proveedor',
-    });
-    return;
-  }
   if (type === DocumentType.FACTURA && !data.invoice) {
     res.status(400).json({ error: 'Los comprobantes FACTURA requieren datos fiscales (invoice)' });
     return;
   }
 
-  // Valid chaining: a REMITO de ingreso evolves from an OC/COMPRA; a REMITO de
-  // egreso dispatches a VENTA/PEDIDO; a FACTURA references its business doc.
-  const ALLOWED_SOURCE_IN: DocumentType[] = [DocumentType.OC, DocumentType.COMPRA];
-  const ALLOWED_SOURCE_OUT: DocumentType[] = [DocumentType.VENTA, DocumentType.PEDIDO];
-
   const result = await prisma.$transaction(async (tx) => {
+    // Lock before any consistent read in this transaction. Under MySQL REPEATABLE
+    // READ, an earlier warehouse read would pin a stale snapshot of child remitos
+    // even after waiting for another dispatcher to release the source lock.
+    if (data.sourceDocumentId && isDirectionalType) {
+      const lockedSources = await tx.$queryRaw<{ id: number }[]>`
+        SELECT id FROM comprobantes
+        WHERE id = ${data.sourceDocumentId} AND companyId = ${req.authUser!.companyId}
+        FOR UPDATE
+      `;
+      if (lockedSources.length === 0) {
+        throw Object.assign(new Error('Documento origen no válido'), { status: 400 });
+      }
+    }
     // Tenancy + existence checks for referenced entities.
     let clientId = data.clientId;
-    if (clientId) {
+    if (!data.sourceDocumentId && clientId) {
       const client = await tx.client.findFirst({
         where: { id: clientId, ...tenantWhere(req) },
       });
       if (!client) throw Object.assign(new Error('Cliente no válido'), { status: 400 });
-    } else if (data.clientName) {
+    } else if (!data.sourceDocumentId && data.clientName) {
       // Find-or-create a client by name so the POS can sell to a free-typed customer.
       const existing = await tx.client.findFirst({
         where: { companyId: req.authUser!.companyId, name: data.clientName },
@@ -409,12 +560,12 @@ router.post('/', requireAnyPermission('ventas.escribir', 'compras.escribir'), as
     }
 
     let supplierId = data.supplierId;
-    if (supplierId) {
+    if (!data.sourceDocumentId && supplierId) {
       const supplier = await tx.supplier.findFirst({
         where: { id: supplierId, ...tenantWhere(req) },
       });
       if (!supplier) throw Object.assign(new Error('Proveedor no válido'), { status: 400 });
-    } else if (data.supplierName) {
+    } else if (!data.sourceDocumentId && data.supplierName) {
       const existing = await tx.supplier.findFirst({
         where: { companyId: req.authUser!.companyId, name: data.supplierName },
       });
@@ -427,86 +578,408 @@ router.post('/', requireAnyPermission('ventas.escribir', 'compras.escribir'), as
         supplierId = created.id;
       }
     }
+    let effectiveBranchId = req.authUser!.isOwner ? data.branchId ?? null : req.authUser!.branchId;
+    let effectiveWarehouseId = data.warehouseId ?? null;
+    let effectiveDestinationWarehouseId = data.destinationWarehouseId ?? null;
     if (data.warehouseId) {
       const warehouse = await tx.warehouse.findFirst({
         where: { id: data.warehouseId, ...tenantWhere(req) },
       });
       if (!warehouse) throw Object.assign(new Error('Depósito no válido'), { status: 400 });
+      if (!req.authUser!.isOwner && warehouse.branchId !== req.authUser!.branchId) {
+        throw Object.assign(new Error('Depósito fuera de la sucursal asignada'), { status: 403 });
+      }
+      if (data.branchId && warehouse.branchId !== data.branchId) {
+        throw Object.assign(new Error('El depósito no pertenece a la sucursal seleccionada'), {
+          status: 409,
+        });
+      }
+    }
+    if (data.destinationWarehouseId) {
+      const destination = await tx.warehouse.findFirst({
+        where: { id: data.destinationWarehouseId, ...tenantWhere(req) },
+      });
+      if (!destination) throw Object.assign(new Error('Depósito de destino no válido'), { status: 400 });
+      if (!req.authUser!.isOwner && destination.branchId !== req.authUser!.branchId) {
+        throw Object.assign(new Error('Depósito fuera de la sucursal asignada'), { status: 403 });
+      }
+      if (data.branchId && destination.branchId !== data.branchId) {
+        throw Object.assign(new Error('El depósito de destino no pertenece a la sucursal seleccionada'), {
+          status: 409,
+        });
+      }
+    }
+    // Multi-depósito: cada depósito usado por las líneas debe ser del tenant.
+    // (Se valida sobre el input crudo porque `lines` se resuelve más abajo.)
+    const lineWarehouseIds = [
+      ...new Set(
+        items.map((i) => i.warehouseId ?? data.warehouseId).filter((w) => w !== undefined),
+      ),
+    ];
+    for (const wid of lineWarehouseIds) {
+      if (wid === data.warehouseId) continue; // ya validado arriba
+      const lineWarehouse = await tx.warehouse.findFirst({
+        where: { id: wid, ...tenantWhere(req) },
+      });
+      if (!lineWarehouse) throw Object.assign(new Error('Depósito no válido'), { status: 400 });
+      if (!req.authUser!.isOwner && lineWarehouse.branchId !== req.authUser!.branchId) {
+        throw Object.assign(new Error('Depósito fuera de la sucursal asignada'), { status: 403 });
+      }
     }
 
-    // Source-document chaining validation (when provided).
+    type SourceAggregate = {
+      id: number;
+      productId: number;
+      quantity: number;
+      description: string;
+      weightedUnitPrice: number;
+      discount: number;
+      taxRate: number;
+    };
+    const sourceItemsById = new Map<number, SourceAggregate>();
+
+    // Source-document chaining validation. Derived documents lock the source
+    // before reading direct children, so two concurrent requests cannot both
+    // consume the same pending quantity.
     let sourceStatus: string | null = null;
+    let dispatchesPedido = false;
+    let completesPedidoDispatch = false;
+    let pedidoSource: { id: number; status: string; series: string; number: number } | null = null;
     if (data.sourceDocumentId) {
       const source = await tx.document.findFirst({
-        where: { id: data.sourceDocumentId, ...tenantWhere(req) },
-        select: { type: true, status: true },
+        where: { id: data.sourceDocumentId, ...documentBranchWhere(req) },
+        select: {
+          id: true,
+          type: true,
+          status: true,
+          series: true,
+          number: true,
+          clientId: true,
+          supplierId: true,
+          branchId: true,
+          warehouseId: true,
+          destinationWarehouseId: true,
+          items: {
+            select: {
+              productId: true,
+              id: true,
+              description: true,
+              quantity: true,
+              unitPrice: true,
+              taxRate: true,
+              discount: true,
+            },
+          },
+        },
       });
       if (!source) {
         throw Object.assign(new Error('Documento origen no válido'), { status: 400 });
       }
-      if (type === DocumentType.REMITO) {
-        const allowed = hasSupplier ? ALLOWED_SOURCE_IN : ALLOWED_SOURCE_OUT;
-        if (!allowed.includes(source.type)) {
-          throw Object.assign(new Error(`Origen ${source.type} no válido para un REMITO ${hasSupplier ? 'de ingreso' : 'de egreso'}`), { status: 400 });
-        }
-      }
-      if (type === DocumentType.FACTURA) {
-        const allowed = hasSupplier
-          ? [...ALLOWED_SOURCE_IN, DocumentType.REMITO]
-          : [...ALLOWED_SOURCE_OUT, DocumentType.REMITO];
-        if (!allowed.includes(source.type)) {
-          throw Object.assign(new Error(`Origen ${source.type} no válido para la FACTURA`), { status: 400 });
-        }
+      if (isCancelledDocument(source.status)) {
+        throw Object.assign(new Error('No se puede derivar de un documento anulado o cancelado'), {
+          status: 409,
+        });
       }
       sourceStatus = source.status;
+      dispatchesPedido = type === DocumentType.REMITO && direction === 'egreso' && source.type === DocumentType.PEDIDO;
+      if (dispatchesPedido) pedidoSource = { id: source.id, status: source.status, series: source.series, number: source.number };
+
+      if (isDirectionalType) {
+        const sourceHasClient = source.clientId !== null;
+        const sourceHasSupplier = source.supplierId !== null;
+        if (sourceHasClient === sourceHasSupplier) {
+          throw Object.assign(new Error('El documento origen tiene una contraparte ambigua'), {
+            status: 409,
+          });
+        }
+        if (direction === 'ingreso' && !sourceHasSupplier) {
+          throw Object.assign(new Error('El documento origen no corresponde a una operación de ingreso'), {
+            status: 400,
+          });
+        }
+        if (direction === 'egreso' && !sourceHasClient) {
+          throw Object.assign(new Error('El documento origen no corresponde a una operación de egreso'), {
+            status: 400,
+          });
+        }
+        if (type === DocumentType.REMITO && source.type !== DocumentType.VENTA && source.type !== DocumentType.PEDIDO) {
+          throw Object.assign(new Error('Un REMITO de egreso sólo puede derivarse de una VENTA o PEDIDO'), {
+            status: 400,
+          });
+        }
+        if (
+          type === DocumentType.FACTURA
+          && direction === 'ingreso'
+          && source.type !== DocumentType.REMITO
+        ) {
+          throw Object.assign(new Error('Una FACTURA de ingreso sólo puede derivarse de un REMITO de proveedor'), {
+            status: 400,
+          });
+        }
+        if (
+          type === DocumentType.FACTURA
+          && direction === 'egreso'
+          && source.type !== DocumentType.REMITO
+          && source.type !== DocumentType.VENTA
+        ) {
+          throw Object.assign(new Error('Una FACTURA de egreso sólo puede derivarse de una VENTA o REMITO de cliente'), {
+            status: 400,
+          });
+        }
+
+        if (data.clientName || data.supplierName) {
+          throw Object.assign(new Error('La contraparte del documento derivado proviene del origen'), {
+            status: 409,
+          });
+        }
+        if (data.clientId && data.clientId !== source.clientId) {
+          throw Object.assign(new Error('El cliente no coincide con el documento origen'), { status: 409 });
+        }
+        if (data.supplierId && data.supplierId !== source.supplierId) {
+          throw Object.assign(new Error('El proveedor no coincide con el documento origen'), { status: 409 });
+        }
+        clientId = source.clientId ?? undefined;
+        supplierId = source.supplierId ?? undefined;
+
+        let sourceWarehouseBranchId: number | null = null;
+        if (source.warehouseId !== null) {
+          const sourceWarehouse = await tx.warehouse.findFirst({
+            where: { id: source.warehouseId, ...tenantWhere(req) },
+            select: { branchId: true },
+          });
+          if (!sourceWarehouse) {
+            throw Object.assign(new Error('El depósito del documento origen no es válido'), { status: 409 });
+          }
+          sourceWarehouseBranchId = sourceWarehouse.branchId;
+          if (source.branchId !== null && source.branchId !== sourceWarehouse.branchId) {
+            throw Object.assign(new Error('El documento origen mezcla sucursal y depósito incompatibles'), {
+              status: 409,
+            });
+          }
+        }
+        const derivedBranchId = source.branchId ?? sourceWarehouseBranchId;
+        if (data.branchId !== undefined && data.branchId !== derivedBranchId) {
+          throw Object.assign(new Error('La sucursal no coincide con el documento origen'), { status: 409 });
+        }
+        if (data.warehouseId !== undefined && data.warehouseId !== source.warehouseId
+          && !(type === DocumentType.REMITO && source.type === DocumentType.PEDIDO && source.warehouseId === null)) {
+          throw Object.assign(new Error('El depósito no coincide con el documento origen'), { status: 409 });
+        }
+        if (
+          data.destinationWarehouseId !== undefined
+          && data.destinationWarehouseId !== source.destinationWarehouseId
+        ) {
+          throw Object.assign(new Error('El depósito de destino no coincide con el documento origen'), {
+            status: 409,
+          });
+        }
+        if (items.some((item) => item.warehouseId !== undefined && item.warehouseId !== source.warehouseId)) {
+          throw Object.assign(new Error('Una línea usa un depósito distinto al documento origen'), {
+            status: 409,
+          });
+        }
+        if (type === DocumentType.REMITO && source.type === DocumentType.PEDIDO) {
+          effectiveWarehouseId = source.warehouseId ?? data.warehouseId ?? null;
+          if (effectiveWarehouseId === null) {
+            throw Object.assign(new Error('El despacho de un PEDIDO requiere warehouseId'), { status: 400 });
+          }
+          const dispatchWarehouse = await tx.warehouse.findFirst({
+            where: { id: effectiveWarehouseId, ...tenantWhere(req) },
+            select: { branchId: true },
+          });
+          if (!dispatchWarehouse || (derivedBranchId !== null && dispatchWarehouse.branchId !== derivedBranchId)) {
+            throw Object.assign(new Error('El depósito de despacho no pertenece a la sucursal del PEDIDO'), { status: 409 });
+          }
+          effectiveBranchId = derivedBranchId ?? dispatchWarehouse.branchId;
+        } else {
+          effectiveBranchId = derivedBranchId;
+          effectiveWarehouseId = source.warehouseId;
+        }
+        effectiveDestinationWarehouseId = source.destinationWarehouseId;
+
+        const directChildren = await tx.document.findMany({
+          where: {
+            companyId: req.authUser!.companyId,
+            sourceDocumentId: source.id,
+            type: { in: [DocumentType.REMITO, DocumentType.FACTURA] },
+          },
+          select: {
+            type: true,
+            items: { select: { id: true, sourceDocumentItemId: true, productId: true, quantity: true } },
+          },
+        });
+        if (
+          source.type === DocumentType.VENTA
+          && type === DocumentType.FACTURA
+          && directChildren.some((child) => child.type === DocumentType.REMITO)
+        ) {
+          throw Object.assign(
+            new Error('La VENTA ya tiene remito; facture desde el REMITO correspondiente'),
+            { status: 409 },
+          );
+        }
+        if (
+          source.type === DocumentType.VENTA
+          && type === DocumentType.REMITO
+          && directChildren.some((child) => child.type === DocumentType.FACTURA)
+        ) {
+          throw Object.assign(
+            new Error('La VENTA ya fue facturada directamente y no admite un REMITO posterior'),
+            { status: 409 },
+          );
+        }
+
+        for (const sourceItem of source.items) {
+          if (sourceItem.productId === null) continue;
+          const quantity = Number(sourceItem.quantity);
+          sourceItemsById.set(sourceItem.id, {
+            id: sourceItem.id,
+            productId: sourceItem.productId,
+            quantity,
+            description: sourceItem.description,
+            weightedUnitPrice: Number(sourceItem.unitPrice) * quantity,
+            discount: Number(sourceItem.discount),
+            taxRate: Number(sourceItem.taxRate),
+          });
+        }
+        const consumedBySourceLine = new Map<number, number>();
+        const legacyConsumedByProduct = new Map<number, number>();
+        for (const child of directChildren) {
+          if (child.type !== type) continue;
+          for (const childItem of child.items) {
+            if (childItem.productId === null) continue;
+            if (childItem.sourceDocumentItemId && sourceItemsById.has(childItem.sourceDocumentItemId)) {
+              const sourceLine = sourceItemsById.get(childItem.sourceDocumentItemId)!;
+              if (sourceLine.productId !== childItem.productId) {
+                throw Object.assign(new Error('La línea derivada no coincide con el producto de origen'), { status: 409 });
+              }
+              consumedBySourceLine.set(childItem.sourceDocumentItemId,
+                (consumedBySourceLine.get(childItem.sourceDocumentItemId) ?? 0) + Number(childItem.quantity));
+            } else {
+              // Legacy child lines have no source-line identity. Conservatively reserve
+              // their product quantity against source lines in document order.
+              legacyConsumedByProduct.set(childItem.productId,
+                (legacyConsumedByProduct.get(childItem.productId) ?? 0) + Number(childItem.quantity));
+            }
+          }
+        }
+        const pendingBySourceLine = new Map<number, number>();
+        for (const sourceLine of sourceItemsById.values()) {
+          const legacy = legacyConsumedByProduct.get(sourceLine.productId) ?? 0;
+          const priorSourceLines = [...sourceItemsById.values()]
+            .filter((candidate) => candidate.productId === sourceLine.productId && candidate.id < sourceLine.id);
+          const legacyBefore = priorSourceLines.reduce((sum, candidate) => {
+            const linked = consumedBySourceLine.get(candidate.id) ?? 0;
+            return sum + Math.max(0, candidate.quantity - linked);
+          }, 0);
+          const legacyForLine = Math.min(Math.max(0, legacy - legacyBefore),
+            Math.max(0, sourceLine.quantity - (consumedBySourceLine.get(sourceLine.id) ?? 0)));
+          pendingBySourceLine.set(sourceLine.id,
+            Math.max(0, sourceLine.quantity - (consumedBySourceLine.get(sourceLine.id) ?? 0) - legacyForLine));
+        }
+        const requestedBySourceLine = new Map<number, number>();
+        for (const item of items) {
+          const candidates = [...sourceItemsById.values()].filter((line) => line.productId === item.productId);
+          const sourceItem = item.sourceDocumentItemId
+            ? sourceItemsById.get(item.sourceDocumentItemId)
+            : candidates.length === 1 ? candidates[0] : undefined;
+          if (!sourceItem) {
+            throw Object.assign(new Error(candidates.length > 1
+              ? `El producto ${item.productId} aparece en varias líneas de origen; indique la línea de origen`
+              : `El producto ${item.productId} no pertenece al documento origen`), {
+              status: 400,
+            });
+          }
+          if (sourceItem.productId !== item.productId) {
+            throw Object.assign(new Error('La línea de origen no corresponde al producto indicado'), { status: 400 });
+          }
+          item.sourceDocumentItemId = sourceItem.id;
+          requestedBySourceLine.set(sourceItem.id,
+            (requestedBySourceLine.get(sourceItem.id) ?? 0) + item.quantity);
+        }
+        for (const [sourceLineId, requested] of requestedBySourceLine) {
+          const pending = pendingBySourceLine.get(sourceLineId) ?? 0;
+          if (requested > pending + 0.000001) {
+            throw Object.assign(
+              new Error(`La cantidad de la línea de origen ${sourceLineId} supera el saldo pendiente (${Math.max(0, pending)})`),
+              { status: 409 },
+            );
+          }
+        }
+        if (dispatchesPedido) {
+          completesPedidoDispatch = sourceItemsById.size > 0
+            && sourceItemsById.size === source.items.length
+            && [...sourceItemsById.values()]
+            .every((sourceLine) => (pendingBySourceLine.get(sourceLine.id) ?? 0)
+              - (requestedBySourceLine.get(sourceLine.id) ?? 0) <= 0.000001);
+        }
+      }
     }
 
     // Resolve product lines: price/tax from catalog unless overridden.
+    // Multi-depósito: cada línea usa su warehouseId o el de la cabecera.
     const lines: {
       productId: number;
+      sourceDocumentItemId?: number;
       quantity: number;
       unitPrice: number;
       taxRate: number;
       discount: number;
       lineTotal: number;
       taxAmount: number;
-      product: { id: number; name: string; internalCode: string | null; allowOversell: boolean };
+      warehouseId: number | null;
+      product: { id: number; name: string; internalCode: string | null; taxName: string; allowOversell: boolean };
     }[] = [];
 
-    for (const item of itemsRaw.data) {
+    for (const item of items) {
       const product = await tx.product.findFirst({
         where: { id: item.productId, ...tenantWhere(req) },
         include: { tax: true },
       });
       if (!product) throw Object.assign(new Error(`Producto ${item.productId} no válido`), { status: 400 });
 
-      const unitPrice = item.unitPrice ?? Number(product.salePrice);
-      const taxRate = Number(product.tax.rate);
+      const inherited = item.sourceDocumentItemId
+        ? sourceItemsById.get(item.sourceDocumentItemId)
+        : undefined;
+      // A COMPRA records what we pay the supplier: cost, not sale price.
+      const unitPrice = inherited
+        ? inherited.weightedUnitPrice / inherited.quantity
+        : item.unitPrice ?? Number(type === DocumentType.COMPRA ? product.costPrice : product.salePrice);
+      const taxRate = inherited?.taxRate ?? Number(product.tax.rate);
+      const discount = inherited
+        ? (inherited.discount / inherited.quantity) * item.quantity
+        : item.discount;
       const gross = unitPrice * item.quantity;
-      const lineTotal = gross - item.discount;
+      const lineTotal = gross - discount;
       lines.push({
         productId: product.id,
+        sourceDocumentItemId: item.sourceDocumentItemId,
         quantity: item.quantity,
         unitPrice,
         taxRate,
-        discount: item.discount,
+        discount,
         lineTotal,
         taxAmount: (lineTotal * taxRate) / 100,
+        warehouseId: inherited
+          ? effectiveWarehouseId
+          : item.warehouseId ?? effectiveWarehouseId,
         product: {
           id: product.id,
-          name: product.name,
+          name: inherited?.description ?? product.name,
           internalCode: product.internalCode,
+          taxName: product.tax.name,
           allowOversell: product.allowOversell,
         },
       });
     }
 
-    // Stock availability for sales (REMITO ingreso uses upsert, no pre-check).
-    if (type === DocumentType.VENTA || type === DocumentType.COMPRA) {
+    // Stock availability for immediate sales and deferred order dispatch.
+    // Multi-depósito: se verifica contra el depósito de cada línea.
+    if (type === DocumentType.VENTA || type === DocumentType.COMPRA || dispatchesPedido) {
       for (const line of lines) {
         const stock = await tx.stock.findUnique({
           where: {
-            productId_warehouseId: { productId: line.productId, warehouseId: data.warehouseId! },
+            productId_warehouseId: { productId: line.productId, warehouseId: line.warehouseId! },
           },
         });
         if (!stock) {
@@ -515,9 +988,11 @@ router.post('/', requireAnyPermission('ventas.escribir', 'compras.escribir'), as
           });
         }
 
-        if (type === DocumentType.VENTA) {
+        if (type === DocumentType.VENTA || dispatchesPedido) {
           const current = Number(stock.quantity);
-          if (current < line.quantity && !line.product.allowOversell) {
+          // A physical PEDIDO dispatch cannot oversell even when the catalog
+          // allows an immediate VENTA to do so.
+          if (current < line.quantity && (dispatchesPedido || !line.product.allowOversell)) {
             throw Object.assign(
               new Error(`Stock insuficiente para ${line.product.name} (disponible: ${current})`),
               { status: 409 },
@@ -542,9 +1017,21 @@ router.post('/', requireAnyPermission('ventas.escribir', 'compras.escribir'), as
       }
     }
 
+    // Freeze the header identity at creation: later renames of the company,
+    // client, supplier or branch must never rewrite this document. The FACTURA
+    // voucher copies its CUIT/razón social from this same snapshot, keeping one
+    // copied fact instead of two user-typed ones nothing ever reconciles.
+    const headerSnapshot = await buildHeaderSnapshot(tx, {
+      companyId: req.authUser!.companyId,
+      clientId,
+      supplierId,
+      branchId: effectiveBranchId,
+    });
+
     let status = data.paymentMethod || data.payments ? 'Pagado' : 'Abierto';
-    if (type === DocumentType.COMPRA) status = 'Recibido';
-    if (type === DocumentType.REMITO) status = hasSupplier ? 'Recibido' : 'Entregado';
+    if (type === DocumentType.PEDIDO) status = 'Abierto';
+    if (type === DocumentType.COMPRA && status !== 'Pagado') status = 'Recibido';
+    if (type === DocumentType.REMITO) status = direction === 'ingreso' ? 'Recibido' : 'Entregado';
     if (type === DocumentType.FACTURA && !data.paymentMethod) status = 'Pendiente';
 
     // A FACTURA never issues a second payment when its source is already paid.
@@ -561,11 +1048,12 @@ router.post('/', requireAnyPermission('ventas.escribir', 'compras.escribir'), as
         clientId,
         supplierId,
         userId: req.authUser!.userId,
-        branchId: data.branchId,
-        warehouseId: data.warehouseId,
-        destinationWarehouseId: data.destinationWarehouseId,
+        branchId: effectiveBranchId,
+        warehouseId: effectiveWarehouseId,
+        destinationWarehouseId: effectiveDestinationWarehouseId,
         sourceDocumentId: data.sourceDocumentId,
         externalNumber: data.externalNumber,
+        ...headerSnapshot,
         status,
         subtotal,
         totalTax,
@@ -574,6 +1062,9 @@ router.post('/', requireAnyPermission('ventas.escribir', 'compras.escribir'), as
         items: {
           create: lines.map((l) => ({
             productId: l.productId,
+            sourceDocumentItemId: l.sourceDocumentItemId,
+            sku: l.product.internalCode,
+            taxName: l.product.taxName,
             description: l.product.name,
             quantity: l.quantity,
             unitPrice: l.unitPrice,
@@ -592,6 +1083,8 @@ router.post('/', requireAnyPermission('ventas.escribir', 'compras.escribir'), as
                     ? new Date(data.invoice.caeDueDate)
                     : null,
                   puntoVenta: data.invoice.puntoVenta,
+                  supplierCuit: headerSnapshot.supplierTaxId,
+                  supplierName: headerSnapshot.supplierName,
                 },
               },
             }
@@ -627,21 +1120,21 @@ router.post('/', requireAnyPermission('ventas.escribir', 'compras.escribir'), as
     });
 
     // Stock side effects with movements.
-    if (isStockType || isRemitoIngreso) {
+    if (isStockType || isRemitoIngreso || dispatchesPedido) {
       for (const line of lines) {
-        if (type === DocumentType.REMITO) {
+        if (isRemitoIngreso) {
           // Physical receipt: first arrival of a product upserts the row.
           await tx.stock.upsert({
             where: {
-              productId_warehouseId: { productId: line.productId, warehouseId: data.warehouseId! },
+              productId_warehouseId: { productId: line.productId, warehouseId: line.warehouseId! },
             },
-            create: { productId: line.productId, warehouseId: data.warehouseId!, quantity: line.quantity, minStock: 0 },
+            create: { productId: line.productId, warehouseId: line.warehouseId!, quantity: line.quantity, minStock: 0 },
             update: { quantity: { increment: line.quantity } },
           });
           await tx.stockMovement.create({
             data: {
               productId: line.productId,
-              warehouseToId: data.warehouseId,
+              warehouseToId: line.warehouseId,
               quantity: line.quantity,
               type: 'ENTRADA',
               reason: `REMITO ${data.series}-${String(document.number).padStart(4, '0')}`,
@@ -651,14 +1144,14 @@ router.post('/', requireAnyPermission('ventas.escribir', 'compras.escribir'), as
           });
           continue;
         }
-        if (type === DocumentType.VENTA) {
+        if (type === DocumentType.VENTA || dispatchesPedido) {
           // Atomic guarded decrement: a single conditional UPDATE, so two
           // concurrent sales can never both pass a read-then-write check and
           // oversell the same units (lost update + negative stock).
           const updated = await tx.stock.updateMany({
             where: {
               productId: line.productId,
-              warehouseId: data.warehouseId!,
+              warehouseId: line.warehouseId!,
               quantity: { gte: line.quantity },
             },
             data: { quantity: { decrement: line.quantity } },
@@ -668,7 +1161,7 @@ router.post('/', requireAnyPermission('ventas.escribir', 'compras.escribir'), as
               where: {
                 productId_warehouseId: {
                   productId: line.productId,
-                  warehouseId: data.warehouseId!,
+                  warehouseId: line.warehouseId!,
                 },
               },
               select: { quantity: true },
@@ -687,11 +1180,11 @@ router.post('/', requireAnyPermission('ventas.escribir', 'compras.escribir'), as
           // COMPRA: first entry of a product creates the stock row.
           await tx.stock.upsert({
             where: {
-              productId_warehouseId: { productId: line.productId, warehouseId: data.warehouseId! },
+              productId_warehouseId: { productId: line.productId, warehouseId: line.warehouseId! },
             },
             create: {
               productId: line.productId,
-              warehouseId: data.warehouseId!,
+              warehouseId: line.warehouseId!,
               quantity: line.quantity,
               minStock: 0,
             },
@@ -702,16 +1195,27 @@ router.post('/', requireAnyPermission('ventas.escribir', 'compras.escribir'), as
         await tx.stockMovement.create({
           data: {
             productId: line.productId,
-            warehouseFromId: type === DocumentType.VENTA ? data.warehouseId : null,
-            warehouseToId: type === DocumentType.COMPRA ? data.warehouseId : null,
+            warehouseFromId: type === DocumentType.VENTA || dispatchesPedido ? line.warehouseId : null,
+            warehouseToId: type === DocumentType.COMPRA ? line.warehouseId : null,
             quantity: line.quantity,
-            type: type === DocumentType.VENTA ? 'SALIDA' : 'ENTRADA',
+            type: type === DocumentType.VENTA || dispatchesPedido ? 'SALIDA' : 'ENTRADA',
             reason: `${type} ${data.series}-${String(document.number).padStart(4, '0')}`,
             userId: req.authUser!.userId,
             documentId: document.id,
           },
         });
       }
+    }
+
+    if (completesPedidoDispatch && pedidoSource && pedidoSource.status !== 'Enviado') {
+      await tx.document.update({ where: { id: pedidoSource.id }, data: { status: 'Enviado' } });
+      await logAudit(tx, req.authUser!.companyId, req.authUser!.userId, {
+        action: 'Cambio de estado de Pedido',
+        module: 'Ventas',
+        entity: 'Document',
+        entityId: pedidoSource.id,
+        details: `PEDIDO ${pedidoSource.series}-${String(pedidoSource.number).padStart(4, '0')}: ${pedidoSource.status} → Enviado por despacho completo`,
+      }, clientIp(req));
     }
 
     // Audit trail inside the same transaction as the document creation.
@@ -722,7 +1226,9 @@ router.post('/', requireAnyPermission('ventas.escribir', 'compras.escribir'), as
           ? 'Registro de Factura'
           : 'Creación de Comprobante';
     const auditModule =
-      type === DocumentType.FACTURA && hasClient ? 'Ventas' : DOCUMENT_PERMISSION[type] === 'compras.escribir' ? 'Compras' : 'Ventas';
+      isDirectionalType
+        ? direction === 'egreso' ? 'Ventas' : 'Compras'
+        : DOCUMENT_PERMISSION[type] === 'compras.escribir' ? 'Compras' : 'Ventas';
     await logAudit(
       tx,
       req.authUser!.companyId,
@@ -744,10 +1250,12 @@ router.post('/', requireAnyPermission('ventas.escribir', 'compras.escribir'), as
 });
 
 const receiveSchema = z.object({
+  idempotencyKey: z.uuid(),
   items: z
     .array(
       z.object({
         productId: z.number().int().positive(),
+        sourceDocumentItemId: z.number().int().positive().optional(),
         quantity: z.number().positive(),
       }),
     )
@@ -758,6 +1266,22 @@ const receiveSchema = z.object({
   date: z.string().datetime().optional(),
   notes: z.string().optional(),
 });
+
+type ReceiptCommand = z.infer<typeof receiveSchema>;
+
+function receiptCommandFingerprint(orderId: number, data: ReceiptCommand): string {
+  const canonicalCommand = {
+    orderId,
+    warehouseId: data.warehouseId,
+    items: [...data.items]
+      .sort((left, right) => left.productId - right.productId)
+      .map((item) => ({ productId: item.productId, sourceDocumentItemId: item.sourceDocumentItemId ?? null, quantity: item.quantity })),
+    externalNumber: data.externalNumber?.trim() || null,
+    date: data.date ? new Date(data.date).toISOString() : null,
+    notes: data.notes?.trim() || null,
+  };
+  return createHash('sha256').update(JSON.stringify(canonicalCommand)).digest('hex');
+}
 
 /**
  * POST /api/documents/:id/receive
@@ -774,21 +1298,94 @@ router.post('/:id/receive', requirePermission('compras.escribir'), async (req, r
     res.status(400).json({ error: 'Parámetro inválido' });
     return;
   }
-  const parsed = receiveSchema.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
+  const data = parseBody(res, receiveSchema, req.body);
+  if (!data) return;
+  if (
+    new Set(data.items.map((item) => item.productId)).size !== data.items.length
+    && (
+      data.items.some((item) => item.sourceDocumentItemId === undefined)
+      || new Set(data.items.map((item) => item.sourceDocumentItemId)).size !== data.items.length
+    )
+  ) {
+    res.status(400).json({ error: 'No se puede repetir el mismo producto en una recepción' });
     return;
   }
-  const data = parsed.data;
   const companyId = req.authUser!.companyId;
+  const receiptFingerprint = receiptCommandFingerprint(id, data);
+
+  // Most retries never need to open the business transaction. The unique
+  // tenant-scoped key is still checked again after locking the OC below so two
+  // concurrent first attempts remain safe.
+  const priorReceipt = await prisma.document.findFirst({
+    where: { ...documentBranchWhere(req), idempotencyKey: data.idempotencyKey },
+    include: { items: true, sourceDocument: { select: { status: true } } },
+  });
+  if (priorReceipt) {
+    if (priorReceipt.type !== DocumentType.REMITO || priorReceipt.sourceDocumentId !== id) {
+      throw Object.assign(new Error('La clave de reintento ya fue usada en otra operación'), {
+        status: 409,
+      });
+    }
+    if (priorReceipt.receiptFingerprint !== receiptFingerprint) {
+      throw Object.assign(
+        new Error('La clave de reintento corresponde a una recepción con datos diferentes'),
+        { status: 409 },
+      );
+    }
+    res.status(200).json({
+      ok: true,
+      document: priorReceipt,
+      ocStatus: priorReceipt.sourceDocument?.status ?? 'Parcial',
+      replayed: true,
+    });
+    return;
+  }
 
   const result = await prisma.$transaction(async (tx) => {
+    // Serialize every receipt of this OC before reading its status, children or
+    // pending quantities. MySQL/InnoDB keeps this row lock until commit.
+    const lockedOrders = await tx.$queryRaw<{ id: number }[]>`
+      SELECT id FROM comprobantes
+      WHERE id = ${id} AND companyId = ${companyId} AND type = ${DocumentType.OC}
+      FOR UPDATE
+    `;
+    if (lockedOrders.length === 0) {
+      throw Object.assign(new Error('Orden de compra no encontrada'), { status: 404 });
+    }
+
     const oc = await tx.document.findFirst({
-      where: { id, companyId, type: DocumentType.OC },
+      where: { id, ...documentBranchWhere(req), type: DocumentType.OC },
       include: { items: true },
     });
     if (!oc) {
       throw Object.assign(new Error('Orden de compra no encontrada'), { status: 404 });
+    }
+
+    // A racing replay waited on the OC lock. Return the winner rather than
+    // creating another document, stock movement or audit entry. This check is
+    // intentionally after the branch-scoped OC lookup to avoid cross-branch
+    // disclosure of opaque command keys.
+    const racedReceipt = await tx.document.findFirst({
+      where: { ...documentBranchWhere(req), idempotencyKey: data.idempotencyKey },
+      include: { items: true, sourceDocument: { select: { status: true } } },
+    });
+    if (racedReceipt) {
+      if (racedReceipt.type !== DocumentType.REMITO || racedReceipt.sourceDocumentId !== id) {
+        throw Object.assign(new Error('La clave de reintento ya fue usada en otra operación'), {
+          status: 409,
+        });
+      }
+      if (racedReceipt.receiptFingerprint !== receiptFingerprint) {
+        throw Object.assign(
+          new Error('La clave de reintento corresponde a una recepción con datos diferentes'),
+          { status: 409 },
+        );
+      }
+      return {
+        document: racedReceipt,
+        ocStatus: racedReceipt.sourceDocument?.status ?? 'Parcial',
+        replayed: true,
+      };
     }
     if (oc.status === 'Recibido') {
       throw Object.assign(new Error('La orden ya fue recibida completamente'), { status: 409 });
@@ -798,43 +1395,91 @@ router.post('/:id/receive', requirePermission('compras.escribir'), async (req, r
     if (!warehouse) {
       throw Object.assign(new Error('Depósito no válido'), { status: 400 });
     }
+    if (!req.authUser!.isOwner && warehouse.branchId !== req.authUser!.branchId) {
+      throw Object.assign(new Error('Depósito fuera de la sucursal asignada'), { status: 403 });
+    }
+    if (oc.branchId !== null && warehouse.branchId !== oc.branchId) {
+      throw Object.assign(new Error('El depósito no pertenece a la sucursal de la orden'), {
+        status: 409,
+      });
+    }
+    if (oc.warehouseId !== null && data.warehouseId !== oc.warehouseId) {
+      throw Object.assign(new Error('La recepción debe ingresar al depósito de la orden'), {
+        status: 409,
+      });
+    }
 
-    // Already-received quantities per product, from chained REMITO documents.
+    // Already-received quantities by OC line. Legacy unlinked receipts reserve
+    // same-product quantities against OC lines in order, without undercounting.
     const children = await tx.document.findMany({
       where: { companyId, sourceDocumentId: oc.id, type: DocumentType.REMITO },
       include: { items: true },
     });
-    const receivedByProduct = new Map<number, number>();
+    const receivedBySourceLine = new Map<number, number>();
+    const legacyReceivedByProduct = new Map<number, number>();
+    const ocItemsById = new Map(oc.items.map((line) => [line.id, line]));
     for (const child of children) {
       for (const line of child.items) {
-        if (line.productId) {
-          receivedByProduct.set(
-            line.productId,
-            (receivedByProduct.get(line.productId) ?? 0) + Number(line.quantity),
-          );
+        if (!line.productId) continue;
+        const sourceLine = line.sourceDocumentItemId
+          ? ocItemsById.get(line.sourceDocumentItemId)
+          : undefined;
+        if (sourceLine?.productId === line.productId) {
+          receivedBySourceLine.set(line.sourceDocumentItemId!,
+            (receivedBySourceLine.get(line.sourceDocumentItemId!) ?? 0) + Number(line.quantity));
+        } else {
+          legacyReceivedByProduct.set(line.productId,
+            (legacyReceivedByProduct.get(line.productId) ?? 0) + Number(line.quantity));
         }
       }
+    }
+    const pendingBySourceLine = new Map<number, number>();
+    for (const sourceLine of oc.items) {
+      const priorSameProduct = oc.items.filter((candidate) =>
+        candidate.productId === sourceLine.productId && candidate.id < sourceLine.id);
+      const legacyBefore = priorSameProduct.reduce((total, candidate) => total + Math.max(
+        0,
+        Number(candidate.quantity) - (receivedBySourceLine.get(candidate.id) ?? 0),
+      ), 0);
+      const legacy = legacyReceivedByProduct.get(sourceLine.productId ?? -1) ?? 0;
+      const availableBeforeLegacy = Math.max(
+        0,
+        Number(sourceLine.quantity) - (receivedBySourceLine.get(sourceLine.id) ?? 0),
+      );
+      const legacyForLine = Math.min(Math.max(0, legacy - legacyBefore), availableBeforeLegacy);
+      pendingBySourceLine.set(sourceLine.id, Math.max(0, availableBeforeLegacy - legacyForLine));
     }
 
     const lines: {
       productId: number;
+      sourceDocumentItemId: number;
       quantity: number;
       unitPrice: number;
       taxRate: number;
+      discount: number;
       lineTotal: number;
       taxAmount: number;
       productName: string;
+      sku: string | null;
+      taxName: string;
     }[] = [];
 
     for (const item of data.items) {
-      const ocLine = oc.items.find((l) => l.productId === item.productId);
+      const matchingOcLines = oc.items.filter((line) => line.productId === item.productId);
+      const ocLine = item.sourceDocumentItemId
+        ? matchingOcLines.find((line) => line.id === item.sourceDocumentItemId)
+        : matchingOcLines.length === 1 ? matchingOcLines[0] : undefined;
       if (!ocLine) {
-        throw Object.assign(new Error(`El producto ${item.productId} no está en la orden`), {
+        throw Object.assign(new Error(matchingOcLines.length > 1
+          ? `El producto ${item.productId} aparece en varias líneas de la orden; indique la línea de origen`
+          : `El producto ${item.productId} no está en la orden`), {
           status: 400,
         });
       }
-      const previously = receivedByProduct.get(item.productId) ?? 0;
-      const pending = Number(ocLine.quantity) - previously;
+      if (item.sourceDocumentItemId && item.sourceDocumentItemId !== ocLine.id) {
+        throw Object.assign(new Error('La línea de origen no corresponde al producto indicado'), { status: 400 });
+      }
+      const pending = pendingBySourceLine.get(ocLine.id) ?? 0;
       if (pending < item.quantity) {
         throw Object.assign(
           new Error(
@@ -852,21 +1497,41 @@ router.post('/:id/receive', requirePermission('compras.escribir'), async (req, r
 
       const unitPrice = Number(ocLine.unitPrice) || Number(product.costPrice);
       const taxRate = Number(ocLine.taxRate) || Number(product.tax.rate);
-      const lineTotal = unitPrice * item.quantity;
+      // The ordered discount is split proportionally across receipts so partial
+      // receipts add up to the full line discount, same as the generic path.
+      const discount = (Number(ocLine.discount) / Number(ocLine.quantity)) * item.quantity;
+      const gross = unitPrice * item.quantity;
+      const lineTotal = gross - discount;
       lines.push({
         productId: item.productId,
+        sourceDocumentItemId: ocLine.id,
         quantity: item.quantity,
         unitPrice,
         taxRate,
+        discount,
         lineTotal,
         taxAmount: (lineTotal * taxRate) / 100,
-        productName: product.name,
+        // Frozen at order time: a later catalog rename must not rewrite history.
+        productName: ocLine.description,
+        sku: product.internalCode,
+        taxName: product.tax.name,
       });
     }
 
     const subtotal = lines.reduce((acc, l) => acc + l.lineTotal, 0);
     const totalTax = lines.reduce((acc, l) => acc + l.taxAmount, 0);
     const total = subtotal + totalTax;
+
+    const receiveBranchId = req.authUser!.isOwner
+      ? (oc.branchId ?? warehouse.branchId)
+      : req.authUser!.branchId!;
+    // Same frozen header rule as POST /api/documents: the received remito keeps
+    // its own company/supplier/branch identity from creation time.
+    const headerSnapshot = await buildHeaderSnapshot(tx, {
+      companyId,
+      supplierId: oc.supplierId,
+      branchId: receiveBranchId,
+    });
 
     const remito = await tx.document.create({
       data: {
@@ -877,9 +1542,13 @@ router.post('/:id/receive', requirePermission('compras.escribir'), async (req, r
         date: data.date ? new Date(data.date) : new Date(),
         supplierId: oc.supplierId,
         userId: req.authUser!.userId,
+        branchId: receiveBranchId,
         warehouseId: data.warehouseId,
         sourceDocumentId: oc.id,
+        idempotencyKey: data.idempotencyKey,
+        receiptFingerprint,
         externalNumber: data.externalNumber,
+        ...headerSnapshot,
         status: 'Recibido',
         subtotal,
         totalTax,
@@ -888,11 +1557,14 @@ router.post('/:id/receive', requirePermission('compras.escribir'), async (req, r
         items: {
           create: lines.map((l) => ({
             productId: l.productId,
+            sourceDocumentItemId: l.sourceDocumentItemId,
+            sku: l.sku,
+            taxName: l.taxName,
             description: l.productName,
             quantity: l.quantity,
             unitPrice: l.unitPrice,
             taxRate: l.taxRate,
-            discount: 0,
+            discount: l.discount,
             lineTotal: l.lineTotal,
           })),
         },
@@ -923,13 +1595,12 @@ router.post('/:id/receive', requirePermission('compras.escribir'), async (req, r
     }
 
     // Mark the OC complete only when every ordered line is fully received.
-    const receivedNow = new Map<number, number>();
-    for (const line of lines) receivedNow.set(line.productId, line.quantity);
     const allComplete = oc.items.every((l) => {
       if (!l.productId) return true;
-      const totalReceived =
-        (receivedByProduct.get(l.productId) ?? 0) + (receivedNow.get(l.productId) ?? 0);
-      return totalReceived >= Number(l.quantity);
+      const receivedNow = lines
+        .filter((line) => line.sourceDocumentItemId === l.id)
+        .reduce((total, line) => total + line.quantity, 0);
+      return (pendingBySourceLine.get(l.id) ?? 0) - receivedNow <= 0.000001;
     });
     const ocStatus = allComplete ? 'Recibido' : 'Parcial';
     await tx.document.update({ where: { id: oc.id }, data: { status: ocStatus } });
@@ -949,10 +1620,21 @@ router.post('/:id/receive', requirePermission('compras.escribir'), async (req, r
       clientIp(req),
     );
 
-    return { document: remito, ocStatus };
+    return { document: remito, ocStatus, replayed: false };
+  }).catch((error: unknown) => {
+    const prismaError = error as { code?: string; meta?: { target?: unknown } };
+    const target = Array.isArray(prismaError.meta?.target)
+      ? prismaError.meta.target.join(',')
+      : String(prismaError.meta?.target ?? '');
+    if (prismaError.code === 'P2002' && target.includes('idempotencyKey')) {
+      throw Object.assign(new Error('La clave de reintento ya fue usada en otra operación'), {
+        status: 409,
+      });
+    }
+    throw error;
   });
 
-  res.status(201).json({ ok: true, ...result });
+  res.status(result.replayed ? 200 : 201).json({ ok: true, ...result });
 });
 
 const externalVoucherSchema = z.object({
@@ -982,16 +1664,12 @@ router.patch(
       res.status(400).json({ error: 'Parámetro inválido' });
       return;
     }
-    const parsed = externalVoucherSchema.safeParse(req.body);
-    if (!parsed.success) {
-      res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
-      return;
-    }
-    const data = parsed.data;
+    const data = parseBody(res, externalVoucherSchema, req.body);
+    if (!data) return;
 
     const result = await prisma.$transaction(async (tx) => {
       const document = await tx.document.findFirst({
-        where: { id, companyId: req.authUser!.companyId },
+        where: { id, ...documentBranchWhere(req) },
         select: { id: true, type: true },
       });
       if (!document) throw Object.assign(new Error('Comprobante no encontrado'), { status: 404 });
@@ -1096,6 +1774,11 @@ router.post(
     const filename = `${Date.now()}-${randomUUID()}${EXT_BY_MIME[sniffed]}`;
     const filePath = path.join(uploadsDir, filename);
 
+    const target = await prisma.document.findFirst({ where: { id, ...documentBranchWhere(req) }, select: { id: true } });
+    if (!target) {
+      res.status(404).json({ error: 'Comprobante no encontrado' });
+      return;
+    }
     // Write first, then reference: if the disk write fails the row is never
     // created. If the transaction fails afterwards, remove the orphan file.
     await fs.promises.writeFile(filePath, req.file.buffer);
@@ -1104,7 +1787,7 @@ router.post(
     try {
       result = await prisma.$transaction(async (tx) => {
       const document = await tx.document.findFirst({
-        where: { id, companyId: req.authUser!.companyId },
+        where: { id, ...documentBranchWhere(req) },
         select: { id: true, type: true },
       });
       if (!document) throw Object.assign(new Error('Comprobante no encontrado'), { status: 404 });
@@ -1162,7 +1845,7 @@ router.get(
       return;
     }
     const invoice = await prisma.invoiceData.findFirst({
-      where: { documentId: id, document: { companyId: req.authUser!.companyId } },
+      where: { documentId: id, document: { is: documentBranchWhere(req) } },
       select: { attachmentUrl: true },
     });
     if (!invoice?.attachmentUrl) {

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { formatMoney } from '../../lib/format';
 import { ViewPath, Supplier, Product, WarehouseOption } from '../../types';
 
 interface NewPurchaseOrderViewProps {
@@ -64,7 +65,12 @@ export const NewPurchaseOrderView: React.FC<NewPurchaseOrderViewProps> = ({
   };
 
   const subtotal = lines.reduce((acc, l) => acc + l.qty * l.unitCost, 0);
-  const tax = subtotal * 0.16;
+  // Impuesto por línea según la tasa del producto (mismo criterio que el backend):
+  // líneas sin producto aún no suman impuesto.
+  const tax = lines.reduce((acc, l) => {
+    const rate = l.productId != null ? (products.find((p) => p.id === String(l.productId))?.taxRate ?? 0) : 0;
+    return acc + l.qty * l.unitCost * (rate / 100);
+  }, 0);
   const total = subtotal + tax;
 
   const handleSave = async () => {
@@ -245,16 +251,19 @@ export const NewPurchaseOrderView: React.FC<NewPurchaseOrderViewProps> = ({
                                 <input
                                   type="number"
                                   value={line.unitCost}
+                                  // Cost comes from the product master; the order
+                                  // records it, the user does not negotiate it.
+                                  disabled
                                   onChange={(e) => {
                                     const val = Number(e.target.value);
                                     setLines((prev) => prev.map((l) => (l.id === line.id ? { ...l, unitCost: val } : l)));
                                   }}
-                                  className="w-full bg-surface border border-outline-variant/30 rounded pl-lg pr-sm py-xs focus:border-primary outline-none"
+                                  className="w-full bg-surface border border-outline-variant/30 rounded pl-lg pr-sm py-xs focus:border-primary outline-none disabled:opacity-70 disabled:cursor-not-allowed"
                                 />
                               </div>
                             </td>
                             <td className="py-md px-md text-right font-mono-sm text-mono-sm text-on-surface">
-                              ${lineTotal.toFixed(2)}
+                              {formatMoney(lineTotal)}
                             </td>
                             <td className="py-md px-md text-center">
                               <button
@@ -323,16 +332,16 @@ export const NewPurchaseOrderView: React.FC<NewPurchaseOrderViewProps> = ({
                 <div className="space-y-md font-body-md">
                   <div className="flex justify-between items-center border-b border-on-primary/10 pb-sm">
                     <span className="text-on-primary/70">Subtotal</span>
-                    <span className="font-mono-sm">${subtotal.toFixed(2)}</span>
+                    <span className="font-mono-sm">{formatMoney(subtotal)}</span>
                   </div>
                   <div className="flex justify-between items-center border-b border-on-primary/10 pb-sm">
-                    <span className="text-on-primary/70">Impuestos (estimado)</span>
-                    <span className="font-mono-sm">${tax.toFixed(2)}</span>
+                    <span className="text-on-primary/70">Impuestos (según IVA de cada producto)</span>
+                    <span className="font-mono-sm">{formatMoney(tax)}</span>
                   </div>
                   <div className="flex justify-between items-end pt-sm">
                     <span className="font-headline-md text-headline-md uppercase tracking-wider">Total PO</span>
                     <span className="font-display-lg text-display-lg font-bold tracking-tight text-secondary-fixed-dim">
-                      ${total.toFixed(2)}
+                      {formatMoney(total)}
                     </span>
                   </div>
                 </div>
