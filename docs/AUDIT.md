@@ -63,14 +63,14 @@ Todas las rutas que el frontend llama existen en el server; las incoherencias so
 | Proveedores con campos vacíos forzados | ✅ Resuelto |
 | Status de financiero mentiroso ("Completado" universal) | ✅ Resuelto |
 | POS envía todo el carrito a UN warehouse (falla checkout multi-warehouse) | ✅ Verificado (2026-10-07) — publicado: `posSaleLines` (`src/lib/branch.ts:107`, testeado en `branch.test.ts`) asigna `warehouseId` por línea dentro de la sucursal activa y bloquea líneas que requieran sumar stock entre depósitos, con explicación (`adjustmentWarehouses`/`minByDeposit`); `App.tsx:543` usa el warehouse de la primera línea como warehouse del documento. Ver sección "imageUrl, CRUD sin UI y multi-warehouse (2026-10-07)" |
-| Ajuste de stock: el motivo cargado en la vista no se envía (backend recibe "Ajuste manual desde el frontend") | ⏳ Pendiente (pasar `reason` en el payload) |
+| Ajuste de stock: el motivo cargado en la vista no se envía (backend recibe "Ajuste manual desde el frontend") | ✅ Verificado (2026-10-07) — resuelto: `StockAdjustmentView.tsx:63-66` arma `reasonLabel: note` y `App.tsx:525` lo manda en el body; el string "Ajuste manual desde el frontend" solo existe en esta fila (0 refs en código). Ver sección "Motivo de ajuste e impuestos de sistema (2026-10-07)" |
 | Transferencias: la vista muestra stock total como máximo pero el backend exige stock en el origen | ⏳ Pendiente (mostrar stock por depósito en origen) |
 | `PurchasesView` resumen de OC con IVA hardcodeado 16% (el total guardado difiere) | ⏳ Pendiente |
 | Pedidos públicos nunca avanzan de estado ("Imprimir/Procesar" son `alert()` stubs) | ⏳ Pendiente (funcionalidad de flujo de pedidos) |
 | Finanzas: FACTURA emitida a cliente cuenta como egreso (solo VENTA es ingreso) | ⏳ Pendiente (lógica de negocio) |
 | `imageUrl` en tipos/UI sin columna en DB | ✅ Verificado (2026-10-07) — residual: 0 referencias en `src/` (tsx+ts) y 0 en `server/` (solo mime-sniffing de adjuntos, no relacionado). Ver sección "imageUrl, CRUD sin UI y multi-warehouse (2026-10-07)" |
 | Chips de filtro de auditoría no cubren módulos que el backend sí loguea (Configuración, billing) | ⏳ Pendiente (cosmético) |
-| Impuestos del sistema (companyId null) se ven editables en Settings pero el PATCH responde 403 | ⏳ Pendiente (ocultar/deshabilitar toggle) |
+| Impuestos del sistema (companyId null) se ven editables en Settings pero el PATCH responde 403 | ✅ Verificado (2026-10-07) — resuelto: `SettingsView.tsx:518` muestra badge "Sistema" sin toggle para `companyId == null`; el toggle (y su PATCH) solo existe para impuestos del tenant. El 403 del backend queda como contrato defensivo. Ver sección "Motivo de ajuste e impuestos de sistema (2026-10-07)" |
 | `README.md` desactualizado (refiere a AI Studio/GEMINI, ignora `server/`; `clean` usa `rm -rf` inválido en Windows) | ⏳ Pendiente |
 
 ---
@@ -1007,3 +1007,19 @@ El estado de 2026-09 decía «corregido en el diff local, sin publicar». Hoy es
 
 - Verificación por grep en `server/prisma/schema.prisma`, `src/` (tsx+ts) y `server/src/routes`; commits de hoy solo en `docs/AUDIT.md`.
 - Gates del día intactos: `tsc --noEmit` 0, vitest **48/48**, serial server **87/85/1/1**.
+
+## Motivo de ajuste e impuestos de sistema (2026-10-07)
+
+### Fila 66 — motivo de ajuste (verificado)
+
+El motivo que se carga en la vista viaja completo hasta la API: `StockAdjustmentView.tsx:63-66` compone `fullReason = "${reasonLabel}: ${note}"` y `handleApplyAdjustment` (`App.tsx:525`) lo envía como `reason` del body; el backend lo exige (`z.string().min(1).max(500)` en `stock.routes.ts:19`). El string «Ajuste manual desde el frontend» que nombró la fila solo existe en este `AUDIT.md` — 0 referencias en código.
+
+### Fila 73 — impuestos de sistema (verificado)
+
+`SettingsView.tsx:518` ya distingue por `companyId`: los impuestos del sistema (`companyId == null`) renderizan un badge «Sistema» sin botón, y solo los del tenant muestran el toggle que llama a `onToggleTax` (que hace el PATCH). El 403 del backend frente a `companyId == null` queda como contrato defensivo del API, no es alcanzable desde la UI.
+
+### Evidencia
+
+- Fila 66: `StockAdjustmentView.tsx:63-66` → `App.tsx:517-529` → `stock.routes.ts:19`.
+- Fila 73: `SettingsView.tsx:510-534` → `App.tsx:638-641`.
+- Cierre por verificación, sin cambios de código.
