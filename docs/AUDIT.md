@@ -39,7 +39,7 @@ El código está **bien encuadrado**: señales de nivel senior en seguridad y co
 | `formatMoney`: 4 locales distintos + ~40 `toFixed` sueltos (el mismo monto se ve distinto según vista) | ✅ Verificado (2026-10-07) — formato unificado en `src/lib/format.ts` (`Intl.NumberFormat` es-AR, currency-aware, fallback RangeError), usado en ~25 vistas; 0 `toFixed` de dinero visible; MRR en USD y tienda con su moneda real. Ver sección "Formato monetario (2026-10-07)" |
 | `parseBody` (zod-safeParse→400 repetido 15+ veces), CRUD factory clients/suppliers, line-math, doc-number padding, `getUserPermissions` reutilizable | ✅ Verificado (2026-10-07) — `parseBody` y `getUserPermissions` ya existen y se usan en todos los caminos; factory y line-math se **rechazan** por YAGNI/churn (ver sección "parseBody y simplificaciones (2026-10-07)") |
 | -7 dependencias sin imports en el frontend (`lucide-react`, `motion`, `@google/genai`, `express`, `dotenv`, `autoprefixer`, `esbuild`) y rename de `"react-example"` | ✅ Verificado (2026-10-07) — ya removidas en `1ddaa68`; `express`/`dotenv` viven en `server/package.json` donde se usan; 0 imports en `src/`; nombre del paquete es `nexus-erp`; `esbuild` solo transitivo de Vite. Ver sección "Dependencias sin imports (2026-10-07)" |
-| `loadAll` pide 3 endpoints (users/roles/audit) a todo usuario autenticado → banner de error para no-admins; navegación sin gating de permisos | ⏳ Pendiente — UX (el backend ya falla cerrado, no es riesgo de seguridad) |
+| `loadAll` pide 3 endpoints (users/roles/audit) a todo usuario autenticado → banner de error para no-admins; navegación sin gating de permisos | ✅ Verificado (2026-10-07) — resuelto en `3d19ce2`: `loadAll` gatea cada fetch con `can(p, ...)` (el fetch salteado no es error), sidebar filtra cada ítem por `VIEW_PERMISSIONS` y una vista sin permiso muestra panel amigable en vez de tablas vacías. Ver sección "loadAll y gating de navegación (2026-10-07)" |
 | Endpoints vivos sin UI: `/api/clients`, edit/delete de products/suppliers | ⏳ Pendiente — producto (¿traer las vistas o quitarlas de la API?) |
 | `imageUrl` renderizado sin columna en el schema | ⏳ Pendiente — o se agrega el campo o se quita de la UI |
 | Test de webhook MP con fixture grabado (body + firma reales) | ⚠️ Recomendado antes de depender de producción — hoy la suite ejerce el path con firmas sintéticas |
@@ -923,4 +923,20 @@ La fila agrupaba cinco propuestas. Verificación item por item:
 
 ### Evidencia
 
-Sin cambios de código en esta unidad. Gates del día intactos: server serial **87/85/1/1** (fail único preexistente `branch-boundaries.test.ts:141`) y frontend vitest **48/48**.
+Sin cambios de código en esta unidad. Gates del día intactos: server serial **87/85/1/1** (fail único preexistente `branch-boundaries.test.ts:141`) y frontend vitest **48/48**.---
+
+## loadAll y gating de navegación (2026-10-07)
+
+La fila describía dos problemas que ya están resueltos desde `3d19ce2` («feat(front): gating por permisos en carga, sidebar y vistas»). Verificación sin cambios de código:
+
+### Verificación
+
+| Afirmación del AUDIT | Estado real |
+|---|---|
+| «`loadAll` pide 3 endpoints (users/roles/audit) a todo usuario autenticado → banner de error para no-admins» | `App.tsx:383-419` gatea **cada** fetch con `can(p, ...)` (usuarios → `usuarios.leer`, auditoría → `auditoria.leer`, productos/stock/taxes → `inventario.leer`, etc.). El fetch salteado resuelve `true`: no cuenta como error, así que un usuario restringido **nunca** ve el banner por datos que no puede ver. El banner solo aparece si algo pedido falla de verdad (o falta `branchId` al dueño) |
+| «navegación sin gating de permisos» | `Sidebar.tsx:129` y `:150` filtran los ítems de navegación y del grupo Sistema con `can(permissions, VIEW_PERMISSIONS[path])`; `VIEW_PERMISSIONS` vive en `src/lib/auth.tsx:221` |
+| Defensa en profundidad | `App.tsx:809` y `:919-930`: si el usuario llega a una vista sin permiso (URL directa, estado viejo), se muestra el panel «No tenés permiso para ver esta sección» con botón a Dashboard — nunca tablas vacías + banner de error |
+
+### Evidencia
+
+Gate del día intacto: frontend vitest **48/48** (este trabajo es frontend; corrió tras los commits de hoy).
