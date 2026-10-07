@@ -88,7 +88,7 @@ Potencial medido: **~850-950 líneas menos y −7 dependencias** sin cambiar com
 | `safeParse`→400 repetido 15+ veces → `parseBody()` | ⏳ Pendiente |
 | Line-math de items en 5 vistas y 3 handlers; doc-number `padStart(4,'0')` en 10+ sitios; side-effects de stock en 3 handlers | ⏳ Pendiente (helpers compartidos) |
 | Flatten de permisos en 3 lugares (ya existe `getUserPermissions`) | ⏳ Pendiente |
-| Header con 19 botones hardcodeados vs `navItems` del Sidebar (una sola fuente) | ⏳ Pendiente |
+| Header con 19 botones hardcodeados vs `navItems` del Sidebar (una sola fuente) | ✅ Resuelto (2026-10-07) — `src/lib/navigation.ts` es la única fuente (`NAV_SECTIONS`/`ADMIN_SECTIONS`/`QUICK_NAV_ITEMS`); el quick-nav del Header consume el registro y gatea por `VIEW_PERMISSIONS`. Ver sección "Navegación única (2026-10-07)" |
 | Carrito mobile + summary duplicados en POS y PublicClientStore | ⏳ Pendiente |
 | Dependencias sin imports (`lucide-react`, `motion`, `@google/genai`, `express`, `dotenv`, `autoprefixer`, `esbuild`) | ✅ Verificado (2026-10-07) — misma conclusión que la fila anterior; `vite` ya está en `devDependencies` y el lock root no tiene entradas top-level de ninguna de las 7 |
 
@@ -940,3 +940,23 @@ La fila describía dos problemas que ya están resueltos desde `3d19ce2` («feat
 ### Evidencia
 
 Gate del día intacto: frontend vitest **48/48** (este trabajo es frontend; corrió tras los commits de hoy).
+
+## Navegación única (2026-10-07)
+
+### Qué se hizo
+
+`src/lib/navigation.ts` es ahora la **única fuente de verdad** de la navegación del admin shell:
+
+- `NAV_SECTIONS` (9 secciones del Sidebar) y `ADMIN_SECTIONS` (Administración) — el Sidebar los importa en lugar de sus listas inline.
+- `QUICK_NAV_ITEMS` (19 pantallas del quick-nav del Header, incluidas las sub-pantallas: ajuste/transferencia/nuevo producto, pedido manual, nueva orden de compra, registrar remito, nuevo usuario, log de auditoría, auth-login).
+
+Agregar una pantalla = editar el registro; nunca más dos listas a mano (174 líneas de botones inline eliminadas del Header: 137 borradas, 25 insertadas).
+
+### Cierre de hueco de la fila 42
+
+El quick-nav del Header **no estaba gateado** (mostraba las 19 pantallas a cualquier sesión; recién el panel «No tenés permiso» lo frenaba). Ahora filtra con la misma regla que el Sidebar: `can(permissions, VIEW_PERMISSIONS[path])`. El único ítem `external` (Portal de Clientes, abre `window.open` con el slug) conserva su comportamiento y queda visible para todos porque `VIEW_PERMISSIONS['portal-clientes']` es `null`.
+
+### Evidencia
+
+- Commit `be2f9a6` "refactor(ui): registro unico de navegacion para sidebar y quick-nav del header".
+- Gates: `tsc --noEmit` 0, vitest **48/48**, `git diff --check` limpio (solo warnings LF/CRLF preexistentes).
