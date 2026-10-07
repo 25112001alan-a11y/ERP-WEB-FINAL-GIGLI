@@ -99,6 +99,9 @@ export interface Supplier {
   province?: string | null;
   postalCode?: string | null;
   taxCondition?: string | null;
+  iibb?: string | null;
+  paymentAlias?: string | null;
+  paymentTerms?: string | null;
 }
 
 export interface SaleTransaction extends DocumentHeaderSnapshot {

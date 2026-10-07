@@ -28,7 +28,7 @@ Regla heredada de `DOCUMENT_FLOW_PENDING.md`: **los borradores se autocompletan;
 | U2 | Derivar de maestros lo que ya existe | No | **Completada** |
 | U3 | Cliente como entidad en el frontend | No | **Completada** |
 | U4 | Instantánea de cabecera en `Document` | **Sí** | **Completada** |
-| U5 | Maestros fiscales (condición IVA, domicilio, provincia, PV) | **Sí** | **En curso** — slice 1 y slice 2 aplicados (migraciones `20261006221000` + `20261007090000`) |
+| U5 | Maestros fiscales (condición IVA, domicilio, provincia, PV) | **Sí** | **En curso** — slices 1, 2 y 3 aplicados (migraciones `20261006221000` + `20261007090000` + `20261007120000`) |
 | U6 | Moneda y tipo de cambio desde `Company` | No | Documentada, no ejecutada |
 
 ---
@@ -44,7 +44,7 @@ Regla heredada de `DOCUMENT_FLOW_PENDING.md`: **los borradores se autocompletan;
 | Fecha de emisión, Nº de comprobante | Externo | Correcto manual | No son datos nuestros |
 | Almacén de recepción | La OC | **Manual, sin filtro de sucursal** | `GoodsReceiptView.tsx:71` toma `warehouses[0]`; `mappers.ts` ya expone `warehouseId` de la OC |
 | Costo unitario | `Product.costPrice` | Autocompletado pero **editable** | `NewPurchaseOrderView.tsx:61` lo precarga, `:251-259` lo deja editar |
-| Condición IVA, domicilio, provincia, IIBB, condiciones de pago | Maestro | **No existe** | `Supplier` no los tiene — ver sección 5 |
+| Condición IVA, domicilio, provincia, IIBB, condiciones de pago | Maestro | **Sí desde U5** | slice 1 (domicilio, provincia, condición IVA) + slice 3 (IIBB, condiciones de pago, alias de pago) — ver §7quinquies y §7septies |
 
 ## 3. Ventas — qué se pide a mano hoy
 
@@ -82,10 +82,10 @@ Desde U5 slice 1 (proveedor) y slice 2 (cliente) ambos maestros tienen domicilio
 `DOCUMENT_FLOW_PENDING.md` fases F2.1 y F2.2 cubren esto. El punto que hay que entender: **la automatización fiscal pedida está bloqueada aguas arriba por datos maestros que nunca se cargaron.**
 
 - `Branch` tiene `name` y `address`. Nada más.
-- `Supplier` no tiene dirección, condición IVA, IIBB, alias de pago ni condiciones de pago.
+- ~~`Supplier` no tiene dirección, condición IVA, IIBB, alias de pago ni condiciones de pago.~~ — **resuelto.** Dirección, provincia, código postal y condición IVA (U5 slice 1, §7quinquies); IIBB, alias de pago y condiciones de pago (U5 slice 3, §7septies).
 - `Client` no tiene `condicionIVA` ni domicilio fiscal; su `type` es un texto libre de 20 caracteres que ningún documento consulta.
 - `Company` tiene `legalName`, `taxId`, `currency`, `timezone`.
-- **Cero ocurrencias en todo el repositorio:** `condicion IVA`, `domicilio fiscal`, `IIBB`, `provincia`, `vencimiento de pago`, `imputación`, `retenciones`.
+- **Cero ocurrencias en todo el repositorio:** `condicion IVA`, `domicilio fiscal`, `IIBB`, `provincia`, `vencimiento de pago`, `imputación`, `retenciones`. (Auditoría al 2026-10-06; desde U5 slices 1–3 ya existen provincia, IIBB y condiciones de pago en los maestros.)
 
 Consecuencia práctica: un documento hoy puede autopoblarse con empresa, sucursal, contraparte, domicilio, teléfono, email, SKU, descripción, precio, costo e impuesto. **No** puede autopoblarse con nada fiscal.
 
@@ -188,7 +188,9 @@ Condición IVA, domicilio fiscal, provincia, código postal, punto de venta como
 
 **Slice 2 aplicado (2026-10-07) — cliente y alta rápida.** Columnas `province`, `postalCode`, `taxCondition` en `Client`; `Document` suma 3 instantáneas de cliente (`clientProvince`, `clientPostalCode`, `clientTaxCondition`); el botón "Nuevo Cliente" de POS revive con modal de alta. Ver §7sexies.
 
-**Pendiente (slices siguientes):** punto de venta como entidad (hoy `puntoVenta` ya existe en `InvoiceData`; es normalización, no creación), depósito por defecto por sucursal, condiciones de pago y aliases.
+**Slice 3 aplicado (2026-10-07) — pago de proveedor.** Columnas `iibb`, `paymentAlias`, `paymentTerms` en `Supplier` y sus campos en el modal "Nuevo proveedor". Ver §7septies.
+
+**Pendiente (slices siguientes):** punto de venta como entidad (hoy `puntoVenta` ya existe en `InvoiceData`; es normalización, no creación) y depósito por defecto por sucursal.
 
 ### U6 — Moneda (sin migración, Verificar contra la base)
 
@@ -346,6 +348,32 @@ Vivo (API local :3001): `POST /api/clients` crea id 298 con provincia/código po
 - El alta vive dentro de POS (modal inline, mismo patrón que cash/split): no se agrega una pantalla CRUD de clientes ni se reutiliza `Modal.tsx`; el scope era revivir el botón muerto, no construir un mantenedor.
 - Tras crear, el nombre queda prefilled en el carrito (`setClientName`) y `onClientCreated` recarga el maestro para que el selector matchee por id en la próxima venta.
 - No tocar `branch-boundaries.test.ts:141` (400 !== 404) — sigue como único fallo preexistente.
+
+---
+
+## 7septies. U5 slice 3 — Pago de proveedor (aplicado 2026-10-07)
+
+Columnas `iibb`, `paymentAlias` y `paymentTerms` en `Supplier`, con sus campos en el modal "Nuevo proveedor". Datos operativos de pago (no fiscal de cabecera): **no** se congelan en `Document` — la instantánea sigue siendo identidad + domicilio + condición IVA.
+
+| Archivo | Cambio |
+|---|---|
+| `server/prisma/schema.prisma` | `Supplier` +3 columnas: `iibb` (VARCHAR 80), `paymentAlias` (VARCHAR 50), `paymentTerms` (VARCHAR 80). Nullable, camelCase sin `@map` |
+| `server/prisma/migrations/20261007120000_supplier_payment/` | **Nueva**, aplicada (`proveedores`). El bootstrap del server la auto-aplicó al reiniciar (`migrate deploy` en arranque), confirmado en `_prisma_migrations` |
+| `server/src/routes/suppliers.routes.ts` | `supplierSchema` +3 campos opcionales nullable; `supplierUpdateSchema = partial()` los hereda |
+| `src/types.ts` | `Supplier` +3 campos |
+| `src/components/views/PurchasesView.tsx` | Modal "Nuevo proveedor": estado + POST + reset + 3 inputs (IIBB, Alias de Pago, Condiciones de Pago) |
+
+### Evidencia
+
+Batería (orquestador): frontend `vitest` **42/42**, `tsc` 0, `build` 0, `tsc` server 0; server **68 tests / 66 pass / 1 fail / 1 skip** en serie (`--test-concurrency=1`; único fallo = preexistente `branch-boundaries.test.ts:141`).
+
+Vivo (API local :3001): `POST /api/suppliers` crea id 73 con `iibb=Exento`, `paymentAlias=proveedor.test.mp`, `paymentTerms=Contado / 30 dias`; `GET /api/suppliers/73` los hidrata; `PATCH /api/suppliers/14` persiste `iibb=Convenio Multilateral` y `paymentTerms=Contado / 30 / 60 / 90 dias`.
+
+### Decisiones
+
+- Los tres campos son **texto libre** (mismo criterio que `taxCondition`), con longitudes acotadas. No hay enum de plazos ni validación de formato de alias/CVU por ahora.
+- No se agregan a la instantánea de `Document`: condiciones de pago y alias son datos de operación con el proveedor, no identidad fiscal congelada en la cabecera. Si mañana se quieren en el comprobante, es un slice aparte.
+- Fixture live: id 73 "Proveedor Pago Test" queda en la base de dev junto a 14 y 63.
 
 ---
 

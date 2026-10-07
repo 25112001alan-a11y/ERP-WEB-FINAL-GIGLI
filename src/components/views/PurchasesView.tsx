@@ -20,7 +20,7 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ orders, suppliers,
   const [voucherOverrides, setVoucherOverrides] = useState<Record<number, Partial<PurchaseOrder>>>({});
   const [editingDoc, setEditingDoc] = useState<{ documentId: number; label: string; total: number; data: SupplierVoucherData } | null>(null);
   const [showNewSupplier, setShowNewSupplier] = useState(false);
-  const [newSupplier, setNewSupplier] = useState({ name: '', taxId: '', email: '', phone: '', address: '', province: '', postalCode: '', taxCondition: '' });
+  const [newSupplier, setNewSupplier] = useState({ name: '', taxId: '', email: '', phone: '', address: '', province: '', postalCode: '', taxCondition: '', iibb: '', paymentAlias: '', paymentTerms: '' });
   const [supplierSaving, setSupplierSaving] = useState(false);
   const [supplierError, setSupplierError] = useState('');
 
@@ -93,10 +93,13 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ orders, suppliers,
           province: newSupplier.province.trim() || undefined,
           postalCode: newSupplier.postalCode.trim() || undefined,
           taxCondition: newSupplier.taxCondition.trim() || undefined,
+          iibb: newSupplier.iibb.trim() || undefined,
+          paymentAlias: newSupplier.paymentAlias.trim() || undefined,
+          paymentTerms: newSupplier.paymentTerms.trim() || undefined,
         },
       });
       setShowNewSupplier(false);
-      setNewSupplier({ name: '', taxId: '', email: '', phone: '', address: '', province: '', postalCode: '', taxCondition: '' });
+      setNewSupplier({ name: '', taxId: '', email: '', phone: '', address: '', province: '', postalCode: '', taxCondition: '', iibb: '', paymentAlias: '', paymentTerms: '' });
       onSupplierCreated();
     } catch (err) {
       setSupplierError(err instanceof Error ? err.message : 'No se pudo crear el proveedor.');
@@ -535,6 +538,36 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ orders, suppliers,
                   value={newSupplier.taxCondition}
                   onChange={(e) => setNewSupplier({ ...newSupplier, taxCondition: e.target.value })}
                   placeholder="Opcional"
+                  className="w-full bg-surface border border-outline-variant/50 rounded-lg px-md py-sm focus:border-primary outline-none"
+                />
+              </div>
+              <div className="flex flex-col gap-xs sm:col-span-2">
+                <label className="font-label-md text-label-md text-on-surface-variant uppercase">IIBB</label>
+                <input
+                  type="text"
+                  value={newSupplier.iibb}
+                  onChange={(e) => setNewSupplier({ ...newSupplier, iibb: e.target.value })}
+                  placeholder="Exento, Convenio Multilateral, n° ..."
+                  className="w-full bg-surface border border-outline-variant/50 rounded-lg px-md py-sm focus:border-primary outline-none"
+                />
+              </div>
+              <div className="flex flex-col gap-xs">
+                <label className="font-label-md text-label-md text-on-surface-variant uppercase">Alias de Pago</label>
+                <input
+                  type="text"
+                  value={newSupplier.paymentAlias}
+                  onChange={(e) => setNewSupplier({ ...newSupplier, paymentAlias: e.target.value })}
+                  placeholder="CVU / alias"
+                  className="w-full bg-surface border border-outline-variant/50 rounded-lg px-md py-sm focus:border-primary outline-none"
+                />
+              </div>
+              <div className="flex flex-col gap-xs">
+                <label className="font-label-md text-label-md text-on-surface-variant uppercase">Condiciones de Pago</label>
+                <input
+                  type="text"
+                  value={newSupplier.paymentTerms}
+                  onChange={(e) => setNewSupplier({ ...newSupplier, paymentTerms: e.target.value })}
+                  placeholder="Contado, 30/60/90 días"
                   className="w-full bg-surface border border-outline-variant/50 rounded-lg px-md py-sm focus:border-primary outline-none"
                 />
               </div>

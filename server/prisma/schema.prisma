@@ -319,6 +319,9 @@ model Supplier {
   province      String? @db.VarChar(100)
   postalCode    String? @db.VarChar(20)
   taxCondition  String? @db.VarChar(40)
+  iibb          String? @db.VarChar(80)
+  paymentAlias  String? @db.VarChar(50)
+  paymentTerms  String? @db.VarChar(80)
   company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
   documents Document[] @relation("DocumentSupplier")

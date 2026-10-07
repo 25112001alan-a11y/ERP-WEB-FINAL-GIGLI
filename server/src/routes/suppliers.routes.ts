@@ -20,6 +20,9 @@ const supplierSchema = z.object({
   province: z.string().max(100).nullable().optional(),
   postalCode: z.string().max(20).nullable().optional(),
   taxCondition: z.string().max(40).nullable().optional(),
+  iibb: z.string().max(80).nullable().optional(),
+  paymentAlias: z.string().max(50).nullable().optional(),
+  paymentTerms: z.string().max(80).nullable().optional(),
 });
 
 const supplierUpdateSchema = supplierSchema.partial();
