@@ -151,6 +151,11 @@ const documentSchema = z.object({
   // the legacy single paymentMethod and creates one Payment row per entry.
   payments: z.array(paymentSchema).min(1).max(10).optional(),
   invoice: invoiceSchema.optional(),
+  // Document currency is a real creation field, not a display hint. Before U6
+  // these two were silently stripped by Zod and the column defaults won
+  // (ARS/1) even for companies whose maestro says otherwise.
+  currency: z.string().length(3).optional(),
+  exchangeRate: z.coerce.number().positive().max(1e9).optional(),
   notes: z.string().optional(),
 });
 
@@ -522,6 +527,18 @@ router.post('/', requireAnyPermission('ventas.escribir', 'compras.escribir'), as
     res.status(400).json({ error: 'Los comprobantes FACTURA requieren datos fiscales (invoice)' });
     return;
   }
+
+  // Document currency comes from the caller when explicitly requested,
+  // otherwise from the company maestro (the column default used to win
+  // silently, minting ARS documents for USD companies). exchangeRate stays 1
+  // unless the caller provides one — there is no FX source in the system yet.
+  const effectiveCurrency = data.currency
+    ?? (await prisma.company.findUnique({
+        where: { id: req.authUser!.companyId },
+        select: { currency: true },
+      }))?.currency
+    ?? 'ARS';
+  const effectiveExchangeRate = data.exchangeRate ?? 1;
 
   const result = await prisma.$transaction(async (tx) => {
     // Lock before any consistent read in this transaction. Under MySQL REPEATABLE
@@ -1079,6 +1096,8 @@ router.post('/', requireAnyPermission('ventas.escribir', 'compras.escribir'), as
         destinationWarehouseId: effectiveDestinationWarehouseId,
         sourceDocumentId: data.sourceDocumentId,
         externalNumber: data.externalNumber,
+        currency: effectiveCurrency,
+        exchangeRate: effectiveExchangeRate,
         ...headerSnapshot,
         status,
         subtotal,

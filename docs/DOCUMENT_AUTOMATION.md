@@ -29,7 +29,7 @@ Regla heredada de `DOCUMENT_FLOW_PENDING.md`: **los borradores se autocompletan;
 | U3 | Cliente como entidad en el frontend | No | **Completada** |
 | U4 | Instantánea de cabecera en `Document` | **Sí** | **Completada** |
 | U5 | Maestros fiscales (condición IVA, domicilio, provincia, PV) | **Sí** | **Completada** — slices 1–5 (migraciones `20261006221000` + `20261007090000` + `20261007120000` + `20261007130000` + `20261007140000`) |
-| U6 | Moneda y tipo de cambio desde `Company` | No | Documentada, no ejecutada |
+| U6 | Moneda y tipo de cambio desde `Company` | No | **Completada** (2026-10-07) — create lee `Company.currency`; Zod ya no descarta `currency`/`exchangeRate`; columna `exchangeRate` verificada contra la base (siempre 1) — ver §7decies |
 
 ---
 
@@ -63,7 +63,7 @@ Regla heredada de `DOCUMENT_FLOW_PENDING.md`: **los borradores se autocompletan;
 | Dato | Existe en el maestro | Llega al documento |
 |---|---|---|
 | Razón social y CUIT de la empresa | `Company.legalName`, `Company.taxId` | **Sí, desde U4** — instantánea al crear |
-| Moneda de la empresa | `Company.currency` | **No** — el documento siempre toma el default de la columna (U6) |
+| Moneda de la empresa | `Company.currency` | **Sí, desde U6** — el create resuelve `currency` del maestro cuando el cliente no la envía (§7decies) |
 | Nombre y dirección de sucursal | `Branch.name`, `Branch.address` | **Sí, desde U4** — instantánea al crear |
 | Identidad del proveedor / cliente en documentos históricos | Foreign key | **Sí, desde U4** — instantánea al crear; la relación viva queda sólo como fallback para el histórico previo |
 
@@ -196,9 +196,12 @@ Condición IVA, domicilio fiscal, provincia, código postal, punto de venta como
 
 ### U6 — Moneda (sin migración, Verificar contra la base)
 
-- `Document.currency` nunca lee `Company.currency`: siempre gana el default de la columna. Corregir el default de `schema.prisma` no sirve si el valor no viene del maestro.
-- `currency` y `exchangeRate` **no están en el schema Zod** de `documentSchema`, así que si un cliente los envía, Zod los descarta en silencio y el documento cae al default. Igual pasa con `status` e `idempotencyKey`.
-- Confirmar en la base persistente si existe un tipo de cambio real. Si no existe, `exchangeRate` es una columna muerta y conviene decidirlo explícitamente en vez de dejarla creada silenciosamente.
+**Completada (2026-10-07)** — ver §7decies. Resumen:
+
+- `Document.currency` ahora se resuelve del maestro: si el cliente no envía `currency`, el create lee `Company.currency` (antes siempre ganaba el default de columna y una empresa USD emitía comprobantes ARS).
+- `currency` y `exchangeRate` entraron al schema Zod de `documentSchema` (antes Zod los descartaba en silencio y el comprobante caía a ARS/1 sin aviso).
+- **Verificado contra la base**: de 95 comprobantes, 80 ARS + 15 USD (todos del seed, ninguno creado por la API) y `exchangeRate` = 1 en el 100%. La columna estaba muerta: sigue viva y ahora sincera (1 salvo que el caller mande uno — no hay fuente de tipo de cambio en el sistema todavía).
+- `status` e `idempotencyKey` quedan **deliberadamente fuera** de `documentSchema`: el status lo deriva el servidor (un cliente no debe poder crear un 'Pagado'/'Anulado' a voluntad) y la idempotencia es exclusiva del flujo de recepción (`receiptSchema`, `z.uuid()`).
 
 ---
 
@@ -440,6 +443,29 @@ Vivo (API local :3001, ana): `GET /api/sale-points` 1 PV (backfill); `POST` PV 2
 - **Edición = borrar y recrear** en la UI (PATCH existe en la API y se prueba, pero la tab sólo ofrece alta/borrado; renombrar = borrar y crear).
 - **POS sin cambios**: `puntoVenta` no participa de `posSaleLines`; el PV es identidad fiscal del comprobante FACTURA, no del punto de venta operativo.
 - El gate de lectura es ancho a propósito: la misma lista alimenta Configuración (`configuracion.leer`) y el formulario de factura (`compras`/`ventas`), y un operador de compras no tiene permisos de configuración.
+
+---
+
+## 7decies. U6 — Moneda y tipo de cambio desde `Company` (aplicado 2026-10-07)
+
+| Archivo | Cambio |
+|---|---|
+| `server/src/routes/documents.routes.ts` | `documentSchema` gana `currency` (`z.string().length(3)`) y `exchangeRate` (`z.coerce.number().positive().max(1e9)`); el POST resuelve `effectiveCurrency = data.currency ?? Company.currency ?? 'ARS'` antes de la transacción; el create persiste `currency`/`exchangeRate` |
+
+### Qué se verificó contra la base (persistente, MySQL `nexus_erp`)
+
+- **95 comprobantes**: 80 ARS + 15 USD. Los 15 USD salieron todos del seed (`seed.ts`/`seed-ar-demo.ts` fijan `currency: 'USD'` explícitamente); **ninguno fue creado por la API** — el endpoint siempre dejaba ganar el default de columna (`'ARS'`). Bug confirmado: la empresa demo (`Nexus Enterprise Corp`, `currency: 'USD'`) emitía comprobantes ARS.
+- **`exchangeRate` = 1 en el 100%** de la tabla: no existe ningún tipo de cambio real en el sistema. La columna estaba muerta — hoy queda viva y sincera: 1 salvo que el caller la envíe. Cuando exista una fuente de cotización real (fase de moneda completa), el create debería resolverla igual que la moneda.
+
+### Decisiones
+
+- **El maestro gana por defecto**: si el cliente envía `currency`, se respeta; si no, se lee `Company.currency` (el default de columna ya no decide nada). Un cliente API puede emitir en USD con `exchangeRate: 350` y hoy se persiste (antes: ARS/1 silencioso).
+- **`status` queda fuera del schema a propósito**: el servidor deriva el estado del comprobante; admitirlo del cliente permitiría crear un `Pagado`/`Anulado` falso. **`idempotencyKey` también**: la idempotencia existe sólo en el flujo de recepción (`receiptSchema` exige `z.uuid()`); agregarla al POST genérico es la deuda ya anotada en la sección 8 (doble clic duplica documento) — pendiente de unidad propia.
+- La UI **no cambió**: ningún form actual envía moneda en el create (la moneda operativa se edita en Configuración y el POS formatea con `Company.currency`). Esto fue corrección de servidor para consumidores de API y para cuando la UI necesite emitir en USD.
+
+### Evidencia
+
+Server `tsc` 0; unit tests del create **4/4** en el archivo extendido `server/test/documents-invoice-sale-point.unit.test.ts` (los 2 de PV + 2 nuevos: sin `currency` → maestro `USD`; con `currency: 'USD'` + `exchangeRate: 350` → el create los recibe). Batería completa en el commit. Verificación viva de creación de comprobante **no realizada a propósito**: el billing guarda las FACTURA y una COMPRA de prueba dejaría un comprobante basura consumiendo folio en la base de desarrollo — la prueba unitaria cubre exactamente la frontera del create.
 
 ---
 
