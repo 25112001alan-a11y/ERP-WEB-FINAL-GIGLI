@@ -103,7 +103,7 @@ Recepción física o devolución al proveedor
   - [x] Backend: documentos derivados rechazan contradicciones de sucursal/depósito y heredan esos datos del origen.
   - [x] Frontend: envía dirección explícita y no permite editar ni reenviar contraparte, sucursal o depósito derivados.
 - [x] **F0.5 — Honestidad de interfaz (alcance UI completado; capacidades no implementadas).**
-  - [x] Menú de Compras: retirar Ver, Editar y Anular mientras no tengan implementación válida; conservar Duplicar.
+  - [x] Menú de Compras: retirar Ver, Editar y Anular mientras no tengan implementación válida; conservar Duplicar. (La anulación de OC llegó después, 2026-10-07: `PATCH /:id/status` acepta OC y el menú vuelve a ofrecer Anular — ver §7duodecies de `DOCUMENT_AUTOMATION.md`.)
   - [x] Detalle de Ventas: retirar Imprimir; no se implementó impresión. (La impresión fiscal simulada llegó después, 2026-10-07: botón Imprimir en filas `FACTURA` de Compras con modal y QR AFIP local — ver §7undecies de `DOCUMENT_AUTOMATION.md`.)
   - [x] Captura de comprobantes: sólo manual; los valores históricos OCR/Lector se muestran como legado, no prueban procesamiento y no se sobrescriben al guardar.
   - [x] Facturación: identificar la operación como simulada y sin validez fiscal en los accesos y el formulario.

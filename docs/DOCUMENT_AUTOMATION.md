@@ -500,6 +500,30 @@ Frontend `tsc` 0; vitest **48/48** (44 previos + 4 `qrPayload.test.ts`); `npm ru
 
 ---
 
+## 7duodecies. Deuda §8 — Anulación de OC (resuelto 2026-10-07)
+
+`PATCH /api/documents/:id/status` era exclusivo de PEDIDO (`ventas.escribir` fijo). Ahora enruta por tipo y permite **OC: Abierto → Anulado**.
+
+| Archivo | Cambio |
+|---|---|
+| `server/src/routes/documents.routes.ts` | Ruta con `requireAnyPermission('ventas.escribir', 'compras.escribir')`; dentro, permiso por dominio del documento (`DOCUMENT_PERMISSION[type]`, 403 si falta); `OC_TRANSITIONS = { Abierto: ['Anulado'] }`; guard de derivados: un PEDIDO con REMITO o una OC con **cualquier** documento derivado se rechazan con 409; audit con módulo Compras/Ventas según tipo |
+| `server/test/oc-status.test.ts` | E2E (patrón de `pedido-status.test.ts`): Abierto→Anulado 200; Anulado terminal 400; 'En Proceso' rechazado 400; OC con REMITO derivado (insertado directo, sin efectos de stock) → 409. Cleanup de documentos creados |
+| `src/types.ts`, `src/lib/mappers.ts` | `PurchaseOrder.status` expone el estado crudo (hasta acá el mapper derivaba y perdía `Anulado` → la fila mostraba "Pendiente", mentira de UI) |
+| `src/lib/mappers.test.ts` | +1 assertion: `status: 'Anulado'` pasa intacto |
+| `src/components/views/PurchasesView.tsx` | Chip "Anulado" en el estado de recepción; item **Anular** en el menú (solo OC no anuladas) con confirm y reload, estilo `PublicOrdersView` |
+
+### Reglas
+
+- **Anulado es terminal** y aparece solo para OC sin derivados: recibir (REMITO) o facturar bloquea la anulación con 409. El guard de PEDIDO se conserva idéntico (solo REMITO); el de OC mira cualquier hijo porque una OC puede derivar recepciones hoy y facturas mañana.
+- **Permiso por dominio**: una ruta compartida no otorga `compras.escribir` a un usuario solo de ventas: el handler exige el permiso del tipo del documento tras cargarlo.
+- La UI muestra el estado real (`Anulado` en rojo) y no ofrece anular dos veces.
+
+### Evidencia
+
+Server `tsc` 0; batería serial **75/73/1/1** (+1 test `oc-status.test.ts`, el único fail sigue siendo el preexistente `branch-boundaries.test.ts:141`, de `/receive`, ajeno a este cambio). Frontend `tsc` 0, vitest 48/48, build 0. El test e2e corre contra DB real y borra lo que crea.
+
+---
+
 ## 8. Deuda observada, fuera de alcance
 
 Registrada para no perderla. No corregir sin una unidad propia.
@@ -514,6 +538,6 @@ Registrada para no perderla. No corregir sin una unidad propia.
 | `unitPrice`, `taxRate` y `discount` enviados sobre un documento derivado se **ignoran en silencio**; la UI coopera, pero un cliente API incorrecto recibe 200 con datos equivocados | `documents.routes.ts:941-947` |
 | `PATCH /:id/external` fabrica `invoiceType: 'X'` si la factura no tiene `InvoiceData`, e ignora la contradicción con el maestro de proveedor | `documents.routes.ts:1654`, `:1754` |
 | `externalNumber` es mutable después de la confirmación, contra la decisión 5 de `DOCUMENT_FLOW_PENDING.md` | `documents.routes.ts:1643-1647` |
-| `OC` no tiene endpoint de anulación; `PATCH /:id/status` es sólo de `PEDIDO`. El estado `Anulado` figura en la UI sin camino de escritura | `documents.routes.ts:349` |
+| `OC` no tiene endpoint de anulación; `PATCH /:id/status` es sólo de `PEDIDO`. El estado `Anulado` figura en la UI sin camino de escritura | Resuelto (2026-10-07) — `PATCH /:id/status` ahora acepta OC (Abierto→Anulado) con guard de derivados y permiso `compras.escribir`; ver §7duodecies |
 | `Payment.cashBoxId` existe y `CashBox` existe por sucursal, pero ningún camino de creación lo escribe | `schema.prisma:469` |
 | `POST /api/public/store/:slug/orders` fija `discount: 0` en toda línea y `client.type: 'Mayorista'`, en contraste con el default `'Persona'` | `public.routes.ts:118`, `:132` |
