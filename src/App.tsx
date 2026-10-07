@@ -946,6 +946,7 @@ if (isPublicOrAuth) {
                 branchLocked={lockedBranchId != null}
                 onCompleteSale={handleCompleteSale}
                 clients={clients}
+                onClientCreated={() => void loadClients()}
                 onNavigate={navigate}
               />
             )}

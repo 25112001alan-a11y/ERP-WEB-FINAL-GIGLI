@@ -15,6 +15,9 @@ export type HeaderSnapshot = {
   clientName: string | null;
   clientTaxId: string | null;
   clientAddress: string | null;
+  clientProvince: string | null;
+  clientPostalCode: string | null;
+  clientTaxCondition: string | null;
   supplierName: string | null;
   supplierTaxId: string | null;
   supplierAddress: string | null;
@@ -46,7 +49,7 @@ export async function buildHeaderSnapshot(
   const client = ids.clientId
     ? await tx.client.findFirst({
         where: { id: ids.clientId, companyId: ids.companyId },
-        select: { name: true, taxId: true, address: true },
+        select: { name: true, taxId: true, address: true, province: true, postalCode: true, taxCondition: true },
       })
     : null;
   const supplier = ids.supplierId
@@ -71,6 +74,9 @@ export async function buildHeaderSnapshot(
     clientName: client?.name ?? null,
     clientTaxId: client?.taxId ?? null,
     clientAddress: client?.address ?? null,
+    clientProvince: client?.province ?? null,
+    clientPostalCode: client?.postalCode ?? null,
+    clientTaxCondition: client?.taxCondition ?? null,
     supplierName: supplier?.name ?? null,
     supplierTaxId: supplier?.taxId ?? null,
     supplierAddress: supplier?.address ?? null,
@@ -93,6 +99,9 @@ export type HeaderSnapshotSource = {
   clientName?: string | null;
   clientTaxId?: string | null;
   clientAddress?: string | null;
+  clientProvince?: string | null;
+  clientPostalCode?: string | null;
+  clientTaxCondition?: string | null;
   supplierName?: string | null;
   supplierTaxId?: string | null;
   supplierAddress?: string | null;
@@ -101,7 +110,14 @@ export type HeaderSnapshotSource = {
   supplierTaxCondition?: string | null;
   branchName?: string | null;
   branchAddress?: string | null;
-  client?: { name?: string | null; taxId?: string | null; address?: string | null } | null;
+  client?: {
+    name?: string | null;
+    taxId?: string | null;
+    address?: string | null;
+    province?: string | null;
+    postalCode?: string | null;
+    taxCondition?: string | null;
+  } | null;
   supplier?: {
     name?: string | null;
     taxId?: string | null;
@@ -130,6 +146,9 @@ export function withHeaderSnapshot<T extends HeaderSnapshotSource>(document: T):
     clientName: document.clientName ?? document.client?.name ?? null,
     clientTaxId: document.clientTaxId ?? document.client?.taxId ?? null,
     clientAddress: document.clientAddress ?? document.client?.address ?? null,
+    clientProvince: document.clientProvince ?? document.client?.province ?? null,
+    clientPostalCode: document.clientPostalCode ?? document.client?.postalCode ?? null,
+    clientTaxCondition: document.clientTaxCondition ?? document.client?.taxCondition ?? null,
     supplierName: document.supplierName ?? document.supplier?.name ?? null,
     supplierTaxId: document.supplierTaxId ?? document.supplier?.taxId ?? null,
     supplierAddress: document.supplierAddress ?? document.supplier?.address ?? null,

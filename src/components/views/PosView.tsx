@@ -29,6 +29,7 @@ interface PosViewProps {
   branchLocked?: boolean;
   clients?: ClientOption[];
   onCompleteSale: (payload: CompleteSalePayload) => Promise<SaleTransaction>;
+  onClientCreated?: () => void;
   onNavigate: (view: ViewPath) => void;
 }
 
@@ -43,6 +44,7 @@ export const PosView: React.FC<PosViewProps> = ({
   branchLocked = false,
   clients = [],
   onCompleteSale,
+  onClientCreated,
   onNavigate,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -57,6 +59,32 @@ export const PosView: React.FC<PosViewProps> = ({
   // Modal states for checkout
   const [cashModal, setCashModal] = useState<{ open: boolean; received: string }>({ open: false, received: '' });
   const [splitModal, setSplitModal] = useState<{ open: boolean; rows: { method: string; amount: string }[] }>({ open: false, rows: [{ method: 'Efectivo', amount: '' }, { method: 'Tarjeta', amount: '' }] });
+  // Nuevo Cliente: alta rápida desde el carrito (POST /api/clients + recarga).
+  const [clientModal, setClientModal] = useState<{
+    open: boolean;
+    saving: boolean;
+    error: string | null;
+    name: string;
+    taxId: string;
+    email: string;
+    phone: string;
+    address: string;
+    province: string;
+    postalCode: string;
+    taxCondition: string;
+  }>({
+    open: false,
+    saving: false,
+    error: null,
+    name: '',
+    taxId: '',
+    email: '',
+    phone: '',
+    address: '',
+    province: '',
+    postalCode: '',
+    taxCondition: '',
+  });
   // Cobro online Mercado Pago: link a pagar + polling hasta aprobado/rechazado.
   const [mpModal, setMpModal] = useState<{ open: boolean; initPoint: string; code: string; paymentId: number | null; status: string }>(
     { open: false, initPoint: '', code: '', paymentId: null, status: 'pending' },
@@ -404,6 +432,52 @@ export const PosView: React.FC<PosViewProps> = ({
     }));
   };
 
+  const openClientModal = () =>
+    setClientModal((prev) => ({ ...prev, open: true, error: null }));
+
+  const closeClientModal = () =>
+    setClientModal({
+      open: false, saving: false, error: null, name: '', taxId: '', email: '', phone: '',
+      address: '', province: '', postalCode: '', taxCondition: '',
+    });
+
+  const updateClientField = (field: 'name' | 'taxId' | 'email' | 'phone' | 'address' | 'province' | 'postalCode' | 'taxCondition') =>
+    (e: React.ChangeEvent<HTMLInputElement>) =>
+      setClientModal((prev) => ({ ...prev, [field]: e.target.value }));
+
+  const handleCreateClient = async () => {
+    const name = clientModal.name.trim();
+    if (!name) {
+      setClientModal((prev) => ({ ...prev, error: 'El nombre es obligatorio.' }));
+      return;
+    }
+    setClientModal((prev) => ({ ...prev, saving: true, error: null }));
+    try {
+      const created = await apiFetch<{ name: string }>('/api/clients', {
+        method: 'POST',
+        body: JSON.stringify({
+          name,
+          taxId: clientModal.taxId.trim() || undefined,
+          email: clientModal.email.trim() || '',
+          phone: clientModal.phone.trim() || undefined,
+          address: clientModal.address.trim() || undefined,
+          province: clientModal.province.trim() || undefined,
+          postalCode: clientModal.postalCode.trim() || undefined,
+          taxCondition: clientModal.taxCondition.trim() || undefined,
+        }),
+      });
+      setClientName(created.name);
+      closeClientModal();
+      onClientCreated?.();
+    } catch (err) {
+      setClientModal((prev) => ({
+        ...prev,
+        saving: false,
+        error: err instanceof Error ? err.message : 'No se pudo crear el cliente.',
+      }));
+    }
+  };
+
   // Cuerpo del carrito — compartido entre desktop (panel fijo) y mobile (overlay).
   const cartBody = (
     <>
@@ -411,7 +485,7 @@ export const PosView: React.FC<PosViewProps> = ({
       <div className="p-md bg-surface-container-lowest border-b border-surface-container-high shadow-sm z-10 flex flex-col gap-sm">
         <div className="flex items-center justify-between">
           <span className="font-label-md text-label-md text-outline uppercase tracking-wider">Cliente Actual</span>
-          <button className="text-secondary font-label-md text-label-md hover:underline cursor-pointer">
+          <button onClick={openClientModal} className="text-secondary font-label-md text-label-md hover:underline cursor-pointer">
             Nuevo Cliente
           </button>
         </div>
@@ -865,6 +939,83 @@ export const PosView: React.FC<PosViewProps> = ({
                 <button onClick={() => setSplitModal({ open: false, rows: [] })} className="px-md py-sm rounded-lg bg-surface-container-high text-on-surface hover:bg-surface-container-highest transition-colors cursor-pointer">Cancelar</button>
                 <button onClick={handleSplitConfirm} disabled={checkingOut} className="px-md py-sm rounded-lg bg-primary text-on-primary hover:opacity-90 transition-opacity cursor-pointer disabled:opacity-50">Confirmar</button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+    {/* Nuevo Cliente Modal */}
+      {clientModal.open && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex p-md overflow-y-auto" onClick={closeClientModal}>
+          <div className="bg-surface-container-lowest rounded-2xl shadow-xl w-full max-w-[26rem] max-h-[calc(100vh-2rem)] overflow-y-auto p-lg border border-outline-variant/30 m-auto" onClick={(e) => e.stopPropagation()}>
+            <h3 className="font-headline-md text-headline-md text-on-surface mb-md">Nuevo Cliente</h3>
+            {clientModal.error && (
+              <div className="bg-error-container text-on-error-container rounded-xl px-md py-sm font-body-md text-body-md mb-md">
+                {clientModal.error}
+              </div>
+            )}
+            <div className="flex flex-col gap-sm mb-md">
+              <label className="font-label-md text-label-md text-on-surface-variant">Nombre *</label>
+              <input
+                type="text"
+                value={clientModal.name}
+                onChange={updateClientField('name')}
+                className="w-full bg-surface border border-outline-variant/50 rounded-lg px-md py-sm font-body-lg text-body-lg focus:ring-2 focus:ring-primary outline-none"
+                autoFocus
+              />
+              <label className="font-label-md text-label-md text-on-surface-variant">CUIT/NIF</label>
+              <input
+                type="text"
+                value={clientModal.taxId}
+                onChange={updateClientField('taxId')}
+                className="w-full bg-surface border border-outline-variant/50 rounded-lg px-md py-sm font-body-lg text-body-lg focus:ring-2 focus:ring-primary outline-none"
+              />
+              <label className="font-label-md text-label-md text-on-surface-variant">Email</label>
+              <input
+                type="email"
+                value={clientModal.email}
+                onChange={updateClientField('email')}
+                className="w-full bg-surface border border-outline-variant/50 rounded-lg px-md py-sm font-body-lg text-body-lg focus:ring-2 focus:ring-primary outline-none"
+              />
+              <label className="font-label-md text-label-md text-on-surface-variant">Teléfono</label>
+              <input
+                type="text"
+                value={clientModal.phone}
+                onChange={updateClientField('phone')}
+                className="w-full bg-surface border border-outline-variant/50 rounded-lg px-md py-sm font-body-lg text-body-lg focus:ring-2 focus:ring-primary outline-none"
+              />
+              <label className="font-label-md text-label-md text-on-surface-variant">Domicilio Fiscal</label>
+              <input
+                type="text"
+                value={clientModal.address}
+                onChange={updateClientField('address')}
+                className="w-full bg-surface border border-outline-variant/50 rounded-lg px-md py-sm font-body-lg text-body-lg focus:ring-2 focus:ring-primary outline-none"
+              />
+              <label className="font-label-md text-label-md text-on-surface-variant">Provincia</label>
+              <input
+                type="text"
+                value={clientModal.province}
+                onChange={updateClientField('province')}
+                className="w-full bg-surface border border-outline-variant/50 rounded-lg px-md py-sm font-body-lg text-body-lg focus:ring-2 focus:ring-primary outline-none"
+              />
+              <label className="font-label-md text-label-md text-on-surface-variant">Código Postal</label>
+              <input
+                type="text"
+                value={clientModal.postalCode}
+                onChange={updateClientField('postalCode')}
+                className="w-full bg-surface border border-outline-variant/50 rounded-lg px-md py-sm font-body-lg text-body-lg focus:ring-2 focus:ring-primary outline-none"
+              />
+              <label className="font-label-md text-label-md text-on-surface-variant">Condición frente al IVA</label>
+              <input
+                type="text"
+                value={clientModal.taxCondition}
+                onChange={updateClientField('taxCondition')}
+                placeholder="Responsable Inscripto, Monotributo..."
+                className="w-full bg-surface border border-outline-variant/50 rounded-lg px-md py-sm font-body-lg text-body-lg focus:ring-2 focus:ring-primary outline-none"
+              />
+            </div>
+            <div className="flex gap-sm justify-end">
+              <button onClick={closeClientModal} disabled={clientModal.saving} className="px-md py-sm rounded-lg bg-surface-container-high text-on-surface hover:bg-surface-container-highest transition-colors cursor-pointer disabled:opacity-50">Cancelar</button>
+              <button onClick={handleCreateClient} disabled={clientModal.saving} className="px-md py-sm rounded-lg bg-primary text-on-primary hover:opacity-90 transition-opacity cursor-pointer disabled:opacity-50">Crear Cliente</button>
             </div>
           </div>
         </div>

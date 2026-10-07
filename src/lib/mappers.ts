@@ -35,6 +35,9 @@ export interface ApiDocument {
     phone?: string | null;
     taxId?: string | null;
     address?: string | null;
+    province?: string | null;
+    postalCode?: string | null;
+    taxCondition?: string | null;
   } | null;
   /** Only detail responses include the branch relation. */
   branch?: { name: string; address?: string | null } | null;
@@ -48,6 +51,9 @@ export interface ApiDocument {
   clientName?: string | null;
   clientTaxId?: string | null;
   clientAddress?: string | null;
+  clientProvince?: string | null;
+  clientPostalCode?: string | null;
+  clientTaxCondition?: string | null;
   supplierName?: string | null;
   supplierTaxId?: string | null;
   supplierAddress?: string | null;
@@ -105,6 +111,9 @@ function headerSnapshotOf(d: ApiDocument): DocumentHeaderSnapshot {
     clientName: d.clientName ?? d.client?.name ?? null,
     clientTaxId: d.clientTaxId ?? d.client?.taxId ?? null,
     clientAddress: d.clientAddress ?? d.client?.address ?? null,
+    clientProvince: d.clientProvince ?? d.client?.province ?? null,
+    clientPostalCode: d.clientPostalCode ?? d.client?.postalCode ?? null,
+    clientTaxCondition: d.clientTaxCondition ?? d.client?.taxCondition ?? null,
     supplierName: d.supplierName ?? d.supplier?.name ?? null,
     supplierTaxId: d.supplierTaxId ?? d.supplier?.taxId ?? null,
     supplierAddress: d.supplierAddress ?? d.supplier?.address ?? null,

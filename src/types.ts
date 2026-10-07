@@ -59,6 +59,9 @@ export interface DocumentHeaderSnapshot {
   clientName?: string | null;
   clientTaxId?: string | null;
   clientAddress?: string | null;
+  clientProvince?: string | null;
+  clientPostalCode?: string | null;
+  clientTaxCondition?: string | null;
   supplierName?: string | null;
   supplierTaxId?: string | null;
   supplierAddress?: string | null;

@@ -4,6 +4,9 @@
 export interface ClientOption {
   id: number;
   name: string;
+  province?: string | null;
+  postalCode?: string | null;
+  taxCondition?: string | null;
 }
 
 export interface ClientSelection {

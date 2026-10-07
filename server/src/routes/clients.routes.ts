@@ -17,6 +17,9 @@ const clientSchema = z.object({
   email: z.string().email().optional().or(z.literal('')),
   phone: z.string().max(30).optional(),
   address: z.string().max(200).optional(),
+  province: z.string().max(100).optional(),
+  postalCode: z.string().max(20).optional(),
+  taxCondition: z.string().max(40).optional(),
 });
 
 const clientUpdateSchema = clientSchema.partial();

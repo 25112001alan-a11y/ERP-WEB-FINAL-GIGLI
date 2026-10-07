@@ -27,7 +27,14 @@ type HeaderBody = {
   supplierTaxCondition?: string | null;
   branchName?: string | null;
   branchAddress?: string | null;
-  client?: { name?: string | null; taxId?: string | null; address?: string | null } | null;
+  client?: {
+    name?: string | null;
+    taxId?: string | null;
+    address?: string | null;
+    province?: string | null;
+    postalCode?: string | null;
+    taxCondition?: string | null;
+  } | null;
   branch?: { name?: string | null; address?: string | null } | null;
 };
 
@@ -43,7 +50,7 @@ test('buildHeaderSnapshot freezes every header field from its master row', async
         taxCondition: 'Responsable Inscripto',
       })),
     },
-    client: { findFirst: mock.fn(async () => ({ name: 'Cliente Congelado', taxId: '20-40000000-2', address: 'Av. Clientes 100' })) },
+    client: { findFirst: mock.fn(async () => ({ name: 'Cliente Congelado', taxId: '20-40000000-2', address: 'Av. Clientes 100', province: 'Buenos Aires', postalCode: '1002', taxCondition: 'Responsable Inscripto' })) },
     supplier: {
       findFirst: mock.fn(async () => ({
         name: 'Proveedor Congelado',
@@ -70,6 +77,9 @@ test('buildHeaderSnapshot freezes every header field from its master row', async
     clientName: 'Cliente Congelado',
     clientTaxId: '20-40000000-2',
     clientAddress: 'Av. Clientes 100',
+    clientProvince: 'Buenos Aires',
+    clientPostalCode: '1002',
+    clientTaxCondition: 'Responsable Inscripto',
     supplierName: 'Proveedor Congelado',
     supplierTaxId: '30-50000000-3',
     supplierAddress: 'Av. Proveedor 300',
@@ -142,6 +152,9 @@ test('POST /api/documents freezes company, counterpart and branch identity plus 
         name: 'Cliente Snapshot',
         taxId: '20-111222333-4',
         address: 'Av. Siempreviva 742',
+        province: 'Mendoza',
+        postalCode: '5500',
+        taxCondition: 'Responsable Inscripto',
       })),
     },
     supplier: {
@@ -240,6 +253,9 @@ test('POST /api/documents freezes company, counterpart and branch identity plus 
     assert.equal(created!.clientName, 'Cliente Snapshot');
     assert.equal(created!.clientTaxId, '20-111222333-4');
     assert.equal(created!.clientAddress, 'Av. Siempreviva 742');
+    assert.equal(created!.clientProvince, 'Mendoza');
+    assert.equal(created!.clientPostalCode, '5500');
+    assert.equal(created!.clientTaxCondition, 'Responsable Inscripto');
     assert.equal(created!.supplierName, 'Proveedor Snapshot');
     assert.equal(created!.supplierTaxId, '30-444555666-9');
     assert.equal(created!.supplierAddress, 'Av. Proveedor 400');
@@ -434,6 +450,9 @@ test('GET /api/documents/:id prefers frozen header columns and falls back to liv
     clientName: 'Cliente Congelado',
     clientTaxId: '20-111222333-4',
     clientAddress: 'Av. Siempreviva 742',
+    clientProvince: 'Mendoza',
+    clientPostalCode: '5500',
+    clientTaxCondition: 'Responsable Inscripto',
     supplierName: 'Proveedor Congelado',
     supplierTaxId: '30-444555666-9',
     supplierAddress: null,
@@ -443,7 +462,7 @@ test('GET /api/documents/:id prefers frozen header columns and falls back to liv
     branchName: 'Sucursal Congelada',
     branchAddress: null,
     // Live relations renamed after this document was issued.
-    client: { name: 'Cliente Renombrado Vivo', taxId: '20-00000000-0', address: 'Viva 999' },
+    client: { name: 'Cliente Renombrado Vivo', taxId: '20-00000000-0', address: 'Viva 999', province: 'Córdoba', postalCode: '5000', taxCondition: 'Monotributo' },
     supplier: null,
     branch: { name: 'Sucursal Renombrada Vivo', address: 'Viva 11' },
     user: { id: 1, firstName: 'Ana', lastName: 'Gomez' },
@@ -494,6 +513,9 @@ test('GET /api/documents/:id prefers frozen header columns and falls back to liv
     assert.equal(frozen.clientName, 'Cliente Congelado');
     assert.equal(frozen.clientTaxId, '20-111222333-4');
     assert.equal(frozen.clientAddress, 'Av. Siempreviva 742');
+    assert.equal(frozen.clientProvince, 'Mendoza');
+    assert.equal(frozen.clientPostalCode, '5500');
+    assert.equal(frozen.clientTaxCondition, 'Responsable Inscripto');
     assert.equal(frozen.companyName, 'Empresa Snapshot SA');
     assert.equal(frozen.companyTaxCondition, 'Responsable Inscripto');
     assert.equal(frozen.supplierName, 'Proveedor Congelado');
@@ -510,6 +532,7 @@ test('GET /api/documents/:id prefers frozen header columns and falls back to liv
     for (const key of [
       'companyName', 'companyTaxId', 'companyAddress', 'companyProvince', 'companyPostalCode',
       'companyTaxCondition', 'clientName', 'clientTaxId', 'clientAddress',
+      'clientProvince', 'clientPostalCode', 'clientTaxCondition',
       'supplierName', 'supplierTaxId', 'supplierAddress', 'supplierProvince',
       'supplierPostalCode', 'supplierTaxCondition', 'branchName', 'branchAddress',
     ] as const) {
@@ -519,6 +542,9 @@ test('GET /api/documents/:id prefers frozen header columns and falls back to liv
     assert.equal(legacy.clientName, 'Cliente Renombrado Vivo');
     assert.equal(legacy.clientTaxId, '20-00000000-0');
     assert.equal(legacy.clientAddress, 'Viva 999');
+    assert.equal(legacy.clientProvince, 'Córdoba');
+    assert.equal(legacy.clientPostalCode, '5000');
+    assert.equal(legacy.clientTaxCondition, 'Monotributo');
     assert.equal(legacy.branchName, 'Sucursal Renombrada Vivo');
     assert.equal(legacy.branchAddress, 'Viva 11');
     // Company has no live relation in the payload, so it stays NULL.

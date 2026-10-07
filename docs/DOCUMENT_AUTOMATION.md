@@ -28,7 +28,7 @@ Regla heredada de `DOCUMENT_FLOW_PENDING.md`: **los borradores se autocompletan;
 | U2 | Derivar de maestros lo que ya existe | No | **Completada** |
 | U3 | Cliente como entidad en el frontend | No | **Completada** |
 | U4 | Instantánea de cabecera en `Document` | **Sí** | **Completada** |
-| U5 | Maestros fiscales (condición IVA, domicilio, provincia, PV) | **Sí** | **En curso** — slice 1 aplicado (empresa + proveedor, migración `20261006221000`) |
+| U5 | Maestros fiscales (condición IVA, domicilio, provincia, PV) | **Sí** | **En curso** — slice 1 y slice 2 aplicados (migraciones `20261006221000` + `20261007090000`) |
 | U6 | Moneda y tipo de cambio desde `Company` | No | Documentada, no ejecutada |
 
 ---
@@ -51,7 +51,7 @@ Regla heredada de `DOCUMENT_FLOW_PENDING.md`: **los borradores se autocompletan;
 | Dato | Origen correcto | Estado | Nota |
 |---|---|---|---|
 | Cliente | Maestro `Client` | **Texto libre en 3 lugares** | `PosView.tsx:416-421`, `NewManualOrderView.tsx:162-168`, `RegistrarFacturaView.tsx:379-386`; envían `clientName` y el servidor crea por nombre (`documents.routes.ts:544-557`) |
-| CUIT, domicilio, teléfono, email del cliente | Maestro `Client` | **No cargable** | El frontend nunca llama a `/api/clients`; `ApiDocument.client` sólo expone `{id, name, type, phone}` |
+| CUIT, domicilio, teléfono, email del cliente | Maestro `Client` | **Sí desde U5 slice 2** | `PosView` abre alta rápida (`POST /api/clients`, campos fiscales incluidos); `ApiDocument.client` expone `{id, name, type, phone, taxId, address, province, postalCode, taxCondition}` |
 | Precio unitario | `Product.salePrice` | Autocompletado pero **editable** | `NewManualOrderView.tsx:224-230` precarga, `:250-256` deja editar. El patrón correcto ya existe: `RegistrarFacturaView.tsx:458` lo deshabilita |
 | Descuento | Modelo | Correcto, pero no obvio | `NewManualOrderView.tsx:16` guarda un **porcentaje** (`discountPct`, `max="100"`); el cálculo es `gross * discountPct / 100` (`:49`, `:54`, `:60`, `:217`) y sólo la salida al API en `:93` convierte a monto absoluto. **El rótulo "% Desc." es correcto** |
 | Documento de origen | `REMITO` o `VENTA` | Automatizado, pero **el default es manual** | `RegistrarFacturaView.tsx:337-341` ofrece "Sin origen" como primera opción; ése es el motivo principal de que el camino manual se use |
@@ -69,11 +69,11 @@ Regla heredada de `DOCUMENT_FLOW_PENDING.md`: **los borradores se autocompletan;
 
 ### Instantáneas (resuelto en U4)
 
-`Document` ya **no** lee la cabecera en vivo. Congela `companyName`, `companyTaxId`, `clientName`, `clientTaxId`, `clientAddress`, `supplierName`, `supplierTaxId`, `supplierAddress`, `branchName`, `branchAddress`, y desde U5 slice 1 también `companyAddress`, `companyProvince`, `companyPostalCode`, `companyTaxCondition`, `supplierProvince`, `supplierPostalCode`, `supplierTaxCondition`; y `DocumentItem` congela `sku` y `taxName`. Ver §7quater y §7quinquies.
+`Document` ya **no** lee la cabecera en vivo. Congela `companyName`, `companyTaxId`, `clientName`, `clientTaxId`, `clientAddress`, `clientProvince`, `clientPostalCode`, `clientTaxCondition`, `supplierName`, `supplierTaxId`, `supplierAddress`, `branchName`, `branchAddress`, y desde U5 slice 1 también `companyAddress`, `companyProvince`, `companyPostalCode`, `companyTaxCondition`, `supplierProvince`, `supplierPostalCode`, `supplierTaxCondition`; y `DocumentItem` congela `sku` y `taxName`. Ver §7quater, §7quinquies y §7sexies.
 
 Todas las columnas son nullable: las filas anteriores a U4 no tienen instantánea, así que los lectores aplican **instantánea primero, relación viva como fallback** (`withHeaderSnapshot`). El histórico sigue mostrándose exactamente igual que antes.
 
-Queda pendiente lo que depende de maestros que todavía no existen: `Client` no tiene columnas de provincia, código postal ni condición frente al IVA (U5 slice 2, atada al flujo "Nuevo Cliente" diferido — §7bis). El lado proveedor ya no es NULL: desde U5 slice 1 `Supplier.address/province/postalCode/taxCondition` existen y los documentos legacy se hidratan de la relación viva (§7quinquies).
+Desde U5 slice 1 (proveedor) y slice 2 (cliente) ambos maestros tienen domicilio, provincia, código postal y condición frente al IVA; los documentos legacy se hidratan de la relación viva y los nuevos congelan los 13 campos de la cabecera (§7quinquies, §7sexies).
 
 ---
 
@@ -168,7 +168,7 @@ Los dos archivos fuera de la lista eran inevitables: `PurchaseDocument` no tení
 
 - `loadClients` en `App.tsx`, espejo de `loadPurchases` (`:144-177`), contra `/api/clients`.
 - Reemplazar los 3 `clientName` de texto libre por selector con búsqueda; enviar `clientId`.
-- ~~Revivir el botón "Nuevo Cliente" de `PosView.tsx:410-412`, que no tiene `onClick`.~~ — **diferido.** `POST /api/clients` ya existe y `src/components/Modal.tsx` es un modal genérico reutilizable, pero el frontend no tiene ningún flujo de alta de cliente: levantar el botón exige formulario + validación + recarga del maestro + selección, es decir construir el flujo completo. Ver 7bis.
+- ~~Revivir el botón "Nuevo Cliente" de `PosView.tsx`~~ — **implementado en U5 slice 2 (2026-10-07).** Modal inline de alta rápida: formulario (nombre, CUIT/NIF, email, teléfono, domicilio fiscal, provincia, código postal, condición frente al IVA), `POST /api/clients`, prefill del nombre en el carrito y recarga del maestro. Ver §7bis y §7sexies.
 - Cambiar el default "Sin origen" de `RegistrarFacturaView.tsx:337-341`.
 - Propagar el documento seleccionado desde `SalesView` hacia factura y remito.
 
@@ -186,7 +186,9 @@ Condición IVA, domicilio fiscal, provincia, código postal, punto de venta como
 
 **Slice 1 aplicado (2026-10-06) — empresa y proveedor.** Columnas `address`, `province`, `postalCode`, `taxCondition` en `Company` y `Supplier`; `Document` suma 7 columnas de instantánea (`companyAddress`, `companyProvince`, `companyPostalCode`, `companyTaxCondition`, `supplierProvince`, `supplierPostalCode`, `supplierTaxCondition`). Ver §7quinquies.
 
-**Pendiente (slice 2 y siguientes):** `Client` sin columnas fiscales — atado al flujo "Nuevo Cliente" diferido (§7bis, §7quinquies). Además: punto de venta como entidad (hoy `puntoVenta` ya existe en `InvoiceData`; es normalización, no creación), depósito por defecto por sucursal, condiciones de pago y aliases.
+**Slice 2 aplicado (2026-10-07) — cliente y alta rápida.** Columnas `province`, `postalCode`, `taxCondition` en `Client`; `Document` suma 3 instantáneas de cliente (`clientProvince`, `clientPostalCode`, `clientTaxCondition`); el botón "Nuevo Cliente" de POS revive con modal de alta. Ver §7sexies.
+
+**Pendiente (slices siguientes):** punto de venta como entidad (hoy `puntoVenta` ya existe en `InvoiceData`; es normalización, no creación), depósito por defecto por sucursal, condiciones de pago y aliases.
 
 ### U6 — Moneda (sin migración, Verificar contra la base)
 
@@ -198,7 +200,7 @@ Condición IVA, domicilio fiscal, provincia, código postal, punto de venta como
 
 ## 7bis. U3 — Cliente como entidad (completada 2026-10-06)
 
-Cuatro de cinco bullets implementados; el tercero (botón "Nuevo Cliente") queda diferido, ver abajo.
+Cinco de cinco bullets implementados. El tercero (botón "Nuevo Cliente") se completó en U5 slice 2 (2026-10-07) — ver abajo y §7sexies.
 
 | Archivo | Cambio |
 |---|---|
@@ -217,7 +219,7 @@ Cuatro de cinco bullets implementados; el tercero (botón "Nuevo Cliente") queda
 
 ### Riesgos y decisiones abiertas
 
-- **"Nuevo Cliente" diferido** (arriba, en §7). No hay flujo de alta de cliente en el frontend en ningún lado; `Modal.tsx` sólo aporta el cascarón.
+- **"Nuevo Cliente" implementado (U5 slice 2, 2026-10-07).** Formulario inline en `PosView` (8 campos, nombre obligatorio), `POST /api/clients`, `onClientCreated` → recarga del maestro, nombre prefilled en el carrito. El alta queda acotada a POS; las demás vistas siguen con selector + find-or-create.
 - El selector es `<input list>` + `<datalist>` nativo: autocompletado del navegador, sin navegación por teclado tipo combobox. Sin dependencias nuevas — una lib de select se agrega sólo si el nativo se queda corto.
 - Si `GET /api/clients` falla o no hay `ventas.leer`, `clients` queda `[]` → todo cae al camino `clientName`, idéntico al de antes. Cero regresión.
 - Homónimos: matchea el primero (`find`), igual que el `findFirst` del servidor. Dos clientes con el mismo nombre se resuelven al mismo id.
@@ -311,7 +313,39 @@ Vivo (API local :3001): `GET /api/company` devuelve los 4 campos; `PATCH /api/co
 
 - `taxCondition` es **texto libre** en la UI, no un `<select>` con enum fijo (decisión de slice aparte).
 - `platform.routes.ts` `editCompanySchema` queda estricto a propósito (sólo name/legalName/timezone) — no se toca.
-- Lado cliente (slice 2) queda atado al flujo "Nuevo Cliente" diferido (§7bis), porque `Client` no tiene pantalla de alta.
+- Lado cliente resuelto en slice 2 (2026-10-07) con la alta rápida de POS (§7sexies).
+
+---
+
+## 7sexies. U5 slice 2 — Cliente fiscal + alta rápida "Nuevo Cliente" (aplicado 2026-10-07)
+
+Columnas `province`, `postalCode`, `taxCondition` en `Client`; el documento congela 3 campos nuevos de cliente (`clientProvince`, `clientPostalCode`, `clientTaxCondition`) con instantánea-primero, relación viva como fallback. El botón muerto de POS vuelve a la vida con un modal de alta que persiste contra `/api/clients`.
+
+| Archivo | Cambio |
+|---|---|
+| `server/prisma/schema.prisma` | `Client` +3 columnas fiscales, `Document` +3 instantáneas de cliente. Todas nullable, camelCase sin `@map` |
+| `server/prisma/migrations/20261007090000_client_fiscal_identity/` | **Nueva**, aplicada (`clientes`, `comprobantes`). Sin backfill: el histórico queda NULL y se hidrata por fallback |
+| `server/src/lib/headerSnapshots.ts` | Select/mapeo/tipos con los 3 campos de cliente; `HeaderSnapshotSource` y `withHeaderSnapshot` ganan el fallback a la relación viva |
+| `server/src/routes/clients.routes.ts` | `clientSchema` +3 campos opcionales (máx 100/20/40); `clientUpdateSchema = partial()` los hereda |
+| `server/test/documents-header-snapshot.unit.test.ts` | Mocks con las columnas nuevas; aserciones frozen-wins y legacy-fallback para los 3 campos de cliente |
+| `src/types.ts` | `DocumentHeaderSnapshot` +3 campos de cliente |
+| `src/lib/clientSelection.ts` | `ClientOption` +3 campos fiscales opcionales |
+| `src/lib/mappers.ts` | `ApiDocument.client` +3 campos, snapshot +3, `headerSnapshotOf` +3 con fallback vivo |
+| `src/components/views/PosView.tsx` | Prop `onClientCreated?`, estado `clientModal`, `openClientModal`/`closeClientModal`/`handleCreateClient`, botón "Nuevo Cliente" con `onClick`, modal inline (8 campos: Nombre obligatorio, CUIT/NIF, Email, Teléfono, Domicilio Fiscal, Provincia, Código Postal, Condición frente al IVA) |
+| `src/App.tsx` | `<PosView onClientCreated={() => void loadClients()}>` |
+
+### Evidencia
+
+Batería (orquestador): frontend `vitest` **42/42**, `tsc` 0, `build` 0; server **68 tests / 66 pass / 1 fail / 1 skip** en serie (`--test-concurrency=1`; único fallo = preexistente `branch-boundaries.test.ts:141`), `tsc` server 0.
+
+Vivo (API local :3001): `POST /api/clients` crea id 298 con provincia/código postal/condición IVA; `GET /api/clients` los hidrata; `PATCH /api/clients/298` persiste (`postalCode` → 5001). El id 299 (creado para la prueba de acentos) se eliminó; el 298 queda como fixture "Cliente Fiscal Test" con el nombre normalizado. La prueba de acentos (payload UTF-8 real por archivo, `HEX(province)` = `43C3B372646F6261`) confirma que el stack guarda acentos correctamente; el primer intento con acento se corrompió en la codepage de la consola de Windows **antes** de entrar al API, no en el servidor.
+
+### Decisiones
+
+- `taxCondition` sigue siendo **texto libre** en la UI de cliente, igual que proveedor (sin enum fijo).
+- El alta vive dentro de POS (modal inline, mismo patrón que cash/split): no se agrega una pantalla CRUD de clientes ni se reutiliza `Modal.tsx`; el scope era revivir el botón muerto, no construir un mantenedor.
+- Tras crear, el nombre queda prefilled en el carrito (`setClientName`) y `onClientCreated` recarga el maestro para que el selector matchee por id en la próxima venta.
+- No tocar `branch-boundaries.test.ts:141` (400 !== 404) — sigue como único fallo preexistente.
 
 ---
 
