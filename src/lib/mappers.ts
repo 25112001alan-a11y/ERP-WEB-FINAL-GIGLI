@@ -256,6 +256,23 @@ export function toFrontPurchaseDocument(d: ApiDocument): PurchaseDocument {
   };
 }
 
+export function hasCountingAncestor(
+  doc: { sourceDocumentId?: number | null },
+  countingType: 'VENTA' | 'COMPRA',
+  byId: Map<number, { type: string; sourceDocumentId?: number | null }>,
+): boolean {
+  const seen = new Set<number>();
+  let cur = doc.sourceDocumentId ?? null;
+  while (cur !== null && !seen.has(cur)) {
+    seen.add(cur);
+    const ancestor = byId.get(cur);
+    if (!ancestor) return false;
+    if (ancestor.type === countingType) return true;
+    cur = ancestor.sourceDocumentId ?? null;
+  }
+  return false;
+}
+
 export function toFrontSale(d: ApiDocument): SaleTransaction {
   const payment = d.payments?.[0];
   const snapshot = headerSnapshotOf(d);

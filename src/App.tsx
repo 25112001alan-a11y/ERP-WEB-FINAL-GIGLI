@@ -6,7 +6,7 @@ import { useAuth, can, VIEW_PERMISSIONS } from './lib/auth';
 import { apiFetch } from './lib/api';
 import type { ClientOption } from './lib/clientSelection';
 import { adjustmentWarehouses, deriveBranches, getStoredBranchId, posSaleLines, setStoredBranchId, transferError, warehouseIdsForBranch } from './lib/branch';
-import { ApiProduct, ApiDocument, toFrontProduct, toFrontPurchaseOrder, toFrontPurchaseDocument, toFrontSale, toFrontPublicOrder } from './lib/mappers';
+import { ApiProduct, ApiDocument, toFrontProduct, toFrontPurchaseOrder, toFrontPurchaseDocument, toFrontSale, toFrontPublicOrder, hasCountingAncestor } from './lib/mappers';
 import { CartItem } from './types';
 
 // Layout components
@@ -105,6 +105,8 @@ export default function App() {
   const [warehouses, setWarehouses] = useState<WarehouseOption[]>([]);
   const [salePoints, setSalePoints] = useState<SalePointOption[]>([]);
   const [sales, setSales] = useState<SaleTransaction[]>([]);
+  // Proyección F1.3: los hechos económicos reconocidos una sola vez para reportes.
+  const [reportSales, setReportSales] = useState<SaleTransaction[]>([]);
   // Raw documents used as source/copy bases for facturas and remitos de salida.
   const [salesDocs, setSalesDocs] = useState<ApiDocument[]>([]);
   const [remitoDocs, setRemitoDocs] = useState<ApiDocument[]>([]);
@@ -250,6 +252,15 @@ export default function App() {
         setSalesDocs([...ventas, ...pedidos, ...remitos, ...facturas]);
         // Sale invoices (with client) live in Ventas; supplier ones stay in Compras.
         setSales([...ventas, ...facturas.filter((f) => f.client)].map(toFrontSale));
+        // F1.3: para reportes, cada hecho económico se reconoce una sola vez.
+        // La factura de cliente se cuenta solo si su linaje no tiene una VENTA
+        // ancestro (una VENTA facturada no duplica; la venta diferida sí vale).
+        const docsById = new Map(
+          [...ventas, ...pedidos, ...remitos, ...facturas].map((doc) => [doc.id, { type: doc.type, sourceDocumentId: doc.sourceDocumentId }]),
+        );
+        setReportSales(
+          [...ventas, ...facturas.filter((f) => f.client && !hasCountingAncestor(f, 'VENTA', docsById))].map(toFrontSale),
+        );
       }),
     [],
   );
@@ -418,6 +429,7 @@ branchReady && can(p, 'inventario.leer') ? loadWarehouses() : true,
       setWarehouses([]);
       setSalePoints([]);
       setSales([]);
+      setReportSales([]);
       setFinanceTxs([]);
       setDashboard(null);
       setPublicOrders([]);
@@ -1035,7 +1047,7 @@ if (isPublicOrAuth) {
             )}
             {currentView === 'finanzas' && <FinanceView transactions={financeTxs} onNavigate={navigate} />}
             {currentView === 'reportes' && (
-              <ReportsView products={products} sales={sales} onNavigate={navigate} />
+              <ReportsView products={products} reportSales={reportSales} onNavigate={navigate} />
             )}
             {currentView === 'configuracion' && (
               <SettingsView

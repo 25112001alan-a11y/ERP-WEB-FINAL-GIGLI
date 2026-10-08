@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { toFrontProduct, toFrontPurchaseOrder, toFrontPurchaseDocument, toFrontSale } from './mappers';
+import { toFrontProduct, toFrontPurchaseOrder, toFrontPurchaseDocument, toFrontSale, hasCountingAncestor } from './mappers';
 import type { ApiProduct, ApiDocument } from './mappers';
 
 const sampleProduct: ApiProduct = {
@@ -120,6 +120,29 @@ describe('toFrontPurchaseDocument', () => {
   it('falls back to the client name as supplier for egreso documents', () => {
     const d = toFrontPurchaseDocument(sampleDocument);
     expect(d.supplier).toBe('Lucas Fernandez');
+  });
+});
+
+describe('hasCountingAncestor', () => {
+  const byId = new Map([
+    [1, { type: 'VENTA', sourceDocumentId: null }],
+    [2, { type: 'REMITO', sourceDocumentId: 1 }],
+    [3, { type: 'PEDIDO', sourceDocumentId: null }],
+    [4, { type: 'REMITO', sourceDocumentId: 3 }],
+  ]);
+
+  it('reconoce una factura derivada de una VENTA directa', () => {
+    expect(hasCountingAncestor({ sourceDocumentId: 1 }, 'VENTA', byId)).toBe(true);
+    expect(hasCountingAncestor({ sourceDocumentId: 2 }, 'VENTA', byId)).toBe(true);
+  });
+
+  it('no marca la venta diferida (PEDIDO → REMITO → FACTURA)', () => {
+    expect(hasCountingAncestor({ sourceDocumentId: 4 }, 'VENTA', byId)).toBe(false);
+    expect(hasCountingAncestor({ sourceDocumentId: null }, 'VENTA', byId)).toBe(false);
+  });
+
+  it('detiene el recorrido si el ancestro no está cargado', () => {
+    expect(hasCountingAncestor({ sourceDocumentId: 999 }, 'VENTA', byId)).toBe(false);
   });
 });
 

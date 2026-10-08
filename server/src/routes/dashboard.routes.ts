@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { prisma } from '../lib/prisma.js';
+import { tipoHechoEconomico } from '../lib/proyeccion.js';
 import { requireAuth, requireAnyPermission, requireAssignedBranch, documentBranchWhere } from '../middleware/auth.js';
 
 const router = Router();
@@ -28,15 +29,26 @@ router.get(
     const companyId = req.authUser!.companyId;
     const start = monthStart(new Date());
 
-    const [salesMonth, expensesMonth, pendingOrders, stocks, recent, ventas] = await Promise.all([
-      prisma.document.aggregate({
-        where: { ...documentBranchWhere(req), type: 'VENTA', date: { gte: start } },
-        _sum: { total: true },
-      }),
-      prisma.document.aggregate({
-        where: { ...documentBranchWhere(req), type: 'COMPRA', date: { gte: start } },
-        _sum: { total: true },
-      }),
+    // F1.3: cada hecho económico se reconoce una sola vez. VENTA = ingreso,
+    // COMPRA = egreso; la FACTURA se cuenta solo si su linaje no llega a un
+    // hecho contable del mismo lado (una VENTA facturada no duplica; la venta
+    // diferida PEDIDO → REMITO → FACTURA sí se reconoce). OC/PEDIDO/REMITO
+    // nunca son hechos económicos.
+    const docs = await prisma.document.findMany({
+      where: documentBranchWhere(req),
+      select: { id: true, type: true, date: true, total: true, clientId: true, supplierId: true, sourceDocumentId: true },
+    });
+    const ancestroDe = new Map(docs.map((doc) => [doc.id, { type: doc.type, sourceDocumentId: doc.sourceDocumentId }]));
+    let totalSalesMonth = 0;
+    let totalExpensesMonth = 0;
+    for (const doc of docs) {
+      if (doc.date < start) continue;
+      const hecho = tipoHechoEconomico(doc, ancestroDe);
+      if (hecho === 'ingreso') totalSalesMonth += Number(doc.total ?? 0);
+      else if (hecho === 'egreso') totalExpensesMonth += Number(doc.total ?? 0);
+    }
+
+    const [pendingOrders, stocks, recent, ventas] = await Promise.all([
       prisma.document.count({
         where: { ...documentBranchWhere(req), type: 'OC', status: { not: 'Recibido' } },
       }),
@@ -90,9 +102,6 @@ router.get(
       }
     }
     const topProducts = [...byProduct.values()].sort((a, b) => b.units - a.units).slice(0, 5);
-
-    const totalSalesMonth = Number(salesMonth._sum.total ?? 0);
-    const totalExpensesMonth = Number(expensesMonth._sum.total ?? 0);
 
     res.json({
       month: monthLabel(new Date()),

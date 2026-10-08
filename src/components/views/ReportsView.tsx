@@ -4,7 +4,8 @@ import { ViewPath, Product, SaleTransaction } from '../../types';
 
 interface ReportsViewProps {
   products: Product[];
-  sales: SaleTransaction[];
+  /** Hechos económicos reconocidos una sola vez (F1.3). */
+  reportSales: SaleTransaction[];
   onNavigate: (view: ViewPath) => void;
 }
 
@@ -13,16 +14,17 @@ type Period = '7d' | '30d' | '90d' | 'year';
 const PERIOD_DAYS: Record<Period, number> = { '7d': 7, '30d': 30, '90d': 90, year: 365 };
 const DAY_MS = 86_400_000;
 
-export const ReportsView: React.FC<ReportsViewProps> = ({ products, sales }) => {
+export const ReportsView: React.FC<ReportsViewProps> = ({ products, reportSales }) => {
   const [period, setPeriod] = useState<Period>('30d');
 
-  // Ventas filtradas por el período elegido, comparadas contra el período anterior de igual longitud.
+  // Ventas reconocidas una sola vez (F1.3): filtrar por período y comparar contra
+  // el período anterior de igual longitud.
   const now = Date.now();
   const days = PERIOD_DAYS[period];
   const windowStart = now - days * DAY_MS;
   const prevStart = now - 2 * days * DAY_MS;
 
-  const salesWithTs = sales
+  const salesWithTs = reportSales
     .map((s) => ({ amount: s.amount, ts: new Date(s.createdAt ?? s.date).getTime() }))
     .filter((s) => !Number.isNaN(s.ts));
 
