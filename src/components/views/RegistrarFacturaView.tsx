@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { formatMoney } from '../../lib/format';
+import { useSubmitFlow } from '../../lib/useSubmitFlow';
+import { SuccessPanel } from '../ui/SuccessPanel';
 import { ViewPath, Supplier, Product, SalePointOption } from '../../types';
 import type { ApiDocument } from '../../lib/mappers';
 import { resolveClientSelection, type ClientOption } from '../../lib/clientSelection';
@@ -97,9 +99,10 @@ export const RegistrarFacturaView: React.FC<RegistrarFacturaViewProps> = ({
   const [notes, setNotes] = useState('');
   const [lines, setLines] = useState<DraftLine[]>([]);
   const [draftProductId, setDraftProductId] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
-  const [saved, setSaved] = useState(false);
+  const { saved, saving, error, submit, setError } = useSubmitFlow({
+    redirectTo: () => onNavigate(direction === 'ingreso' ? 'compras' : 'ventas'),
+    fallbackMessage: 'No se pudo registrar la factura.',
+  });
 
   const sourceSelection = resolveSourceSelection(sourceId, sourceDocs);
   const selectedSource = sourceSelection.source;
@@ -198,16 +201,7 @@ export const RegistrarFacturaView: React.FC<RegistrarFacturaViewProps> = ({
         return;
       }
     }
-    setSaving(true);
-    try {
-      await onCreateFactura(payload);
-      setSaved(true);
-      setTimeout(() => onNavigate(direction === 'ingreso' ? 'compras' : 'ventas'), 1500);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo registrar la factura.');
-    } finally {
-      setSaving(false);
-    }
+    await submit(() => onCreateFactura(payload));
   };
 
   return (
@@ -252,15 +246,7 @@ export const RegistrarFacturaView: React.FC<RegistrarFacturaViewProps> = ({
       </header>
 
       {saved ? (
-        <div className="p-xl text-center py-20 bg-surface-container-lowest rounded-xl shadow-md border border-outline-variant/30 flex flex-col items-center gap-md">
-          <div className="w-16 h-16 rounded-full bg-tertiary-container text-on-tertiary-container flex items-center justify-center">
-            <span className="material-symbols-outlined text-[36px]">receipt_long</span>
-          </div>
-          <h2 className="font-headline-lg text-headline-lg text-on-surface">Factura Registrada</h2>
-          <p className="font-body-lg text-body-lg text-on-surface-variant">
-            La factura quedó vinculada al documento de origen con sus datos fiscales.
-          </p>
-        </div>
+        <SuccessPanel icon="receipt_long" title="Factura Registrada" description="La factura quedó vinculada al documento de origen con sus datos fiscales." />
       ) : (
         <>
           {error && (

@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { useSubmitFlow } from '../../lib/useSubmitFlow';
+import { SuccessPanel } from '../ui/SuccessPanel';
 import { ViewPath, RoleOption, BranchOption } from '../../types';
 
 interface NewUserViewProps {
@@ -14,26 +16,15 @@ export const NewUserView: React.FC<NewUserViewProps> = ({ roles, branches = [], 
   const [roleId, setRoleId] = useState<number>(roles[0]?.id ?? 0);
   const [branchId, setBranchId] = useState<string>('');
   const [password, setPassword] = useState('');
-  const [saved, setSaved] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
+  const { saved, saving, error, submit } = useSubmitFlow({
+    redirectTo: () => onNavigate('configuracion'),
+    fallbackMessage: 'No se pudo crear el usuario',
+  });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name || !email || !roleId || !password) return;
-    setSaving(true);
-    setError('');
-    try {
-      await onAddUser({ name, email, password, roleId, branchId: branchId === '' ? null : Number(branchId) });
-      setSaved(true);
-      setTimeout(() => {
-        onNavigate('configuracion');
-      }, 1500);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo crear el usuario');
-    } finally {
-      setSaving(false);
-    }
+    await submit(() => onAddUser({ name, email, password, roleId, branchId: branchId === '' ? null : Number(branchId) }));
   };
 
   return (
@@ -52,13 +43,7 @@ export const NewUserView: React.FC<NewUserViewProps> = ({ roles, branches = [], 
       </header>
 
       {saved ? (
-        <div className="p-xl text-center py-20 bg-surface-container-lowest rounded-xl shadow-md border border-outline-variant/30 flex flex-col items-center gap-md max-w-[576px] mx-auto">
-          <div className="w-16 h-16 rounded-full bg-tertiary-container text-on-tertiary-container flex items-center justify-center">
-            <span className="material-symbols-outlined text-[36px]">person_add</span>
-          </div>
-          <h2 className="font-headline-lg text-headline-lg text-on-surface">Usuario Creado Exitosamente</h2>
-          <p className="font-body-lg text-body-lg text-on-surface-variant">El usuario ya puede iniciar sesión con las credenciales configuradas.</p>
-        </div>
+        <SuccessPanel className="max-w-[576px] mx-auto" icon="person_add" title="Usuario Creado Exitosamente" description="El usuario ya puede iniciar sesión con las credenciales configuradas." />
       ) : (
         <form onSubmit={handleSubmit} className="bg-surface-container-lowest p-xl rounded-xl shadow-sm border border-outline-variant/20 max-w-[672px] mx-auto w-full space-y-md">
           <h2 className="font-headline-md text-headline-md text-primary flex items-center gap-xs">

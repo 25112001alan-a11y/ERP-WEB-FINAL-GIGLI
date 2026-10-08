@@ -4,6 +4,8 @@ import { defaultWarehouseForBranch } from '../../lib/branch';
 import { ViewPath, Product, WarehouseOption } from '../../types';
 import type { ApiDocument } from '../../lib/mappers';
 import { deliverySourceDocuments, derivedDocumentLines } from '../../lib/documentDerivation';
+import { useSubmitFlow } from '../../lib/useSubmitFlow';
+import { SuccessPanel } from '../ui/SuccessPanel';
 
 interface RemitoSalidaViewProps {
   salesDocs: ApiDocument[];
@@ -50,9 +52,10 @@ export const RemitoSalidaView: React.FC<RemitoSalidaViewProps> = ({
   const [externalNumber, setExternalNumber] = useState('');
   const [notes, setNotes] = useState('');
   const [lines, setLines] = useState<DraftLine[]>([]);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
-  const [saved, setSaved] = useState(false);
+  const { saved, saving, error, submit, setError } = useSubmitFlow({
+    redirectTo: () => onNavigate('ventas'),
+    fallbackMessage: 'No se pudo registrar el remito de salida.',
+  });
 
   const selectedVenta = ventas.find((d) => String(d.id) === sourceId);
   const isDeferredDispatch = selectedVenta?.type === 'PEDIDO';
@@ -94,23 +97,16 @@ export const RemitoSalidaView: React.FC<RemitoSalidaViewProps> = ({
       setError('Ingrese al menos una cantidad mayor a cero.');
       return;
     }
-    setSaving(true);
-    try {
-      await onRegisterRemitoSalida({
+    await submit(() =>
+      onRegisterRemitoSalida({
         direction: 'egreso',
         sourceDocumentId: selectedVenta.id,
         warehouseId: isDeferredDispatch && selectedVenta.warehouseId == null ? Number(warehouseId) : undefined,
         items: payloadLines,
         externalNumber: externalNumber || undefined,
         notes: notes || undefined,
-      });
-      setSaved(true);
-      setTimeout(() => onNavigate('ventas'), 1500);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo registrar el remito de salida.');
-    } finally {
-      setSaving(false);
-    }
+      }),
+    );
   };
 
   return (
@@ -145,17 +141,13 @@ export const RemitoSalidaView: React.FC<RemitoSalidaViewProps> = ({
       </header>
 
       {saved ? (
-        <div className="p-xl text-center py-20 bg-surface-container-lowest rounded-xl shadow-md border border-outline-variant/30 flex flex-col items-center gap-md">
-          <div className="w-16 h-16 rounded-full bg-tertiary-container text-on-tertiary-container flex items-center justify-center">
-            <span className="material-symbols-outlined text-[36px]">local_shipping</span>
-          </div>
-          <h2 className="font-headline-lg text-headline-lg text-on-surface">Remito de Salida Registrado</h2>
-          <p className="font-body-lg text-body-lg text-on-surface-variant">
-            {isDeferredDispatch
-              ? 'El remito quedó vinculado al pedido y descontó del depósito la cantidad entregada.'
-              : 'El remito quedó vinculado a la venta; el stock ya fue descontado por la VENTA.'}
-          </p>
-        </div>
+        <SuccessPanel
+          icon="local_shipping"
+          title="Remito de Salida Registrado"
+          description={isDeferredDispatch
+            ? 'El remito quedó vinculado al pedido y descontó del depósito la cantidad entregada.'
+            : 'El remito quedó vinculado a la venta; el stock ya fue descontado por la VENTA.'}
+        />
       ) : (
         <>
           {error && (

@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { formatMoney } from '../../lib/format';
+import { useSubmitFlow } from '../../lib/useSubmitFlow';
+import { SuccessPanel } from '../ui/SuccessPanel';
 import { ViewPath, Supplier, Product, WarehouseOption } from '../../types';
 
 interface NewPurchaseOrderViewProps {
@@ -37,9 +39,10 @@ export const NewPurchaseOrderView: React.FC<NewPurchaseOrderViewProps> = ({
   ]);
   const [warehouse, setWarehouse] = useState('');
   const [notes, setNotes] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
-  const [saved, setSaved] = useState(false);
+  const { saved, saving, error, submit, setError } = useSubmitFlow({
+    redirectTo: () => onNavigate('compras'),
+    fallbackMessage: 'No se pudo crear la orden de compra.',
+  });
 
   const addLine = () => {
     setLines((prev) => [
@@ -84,23 +87,14 @@ export const NewPurchaseOrderView: React.FC<NewPurchaseOrderViewProps> = ({
       setError('Complete todas las líneas: elija producto y cantidad válida.');
       return;
     }
-    setSaving(true);
-    try {
-      await onCreateOrder({
+    await submit(() =>
+      onCreateOrder({
         supplierId: Number(selectedSupplier),
         items: lines.map((l) => ({ productId: l.productId!, quantity: l.qty, unitPrice: l.unitCost })),
         warehouseId: warehouse ? Number(warehouse) : undefined,
         notes: notes || undefined,
-      });
-      setSaved(true);
-      setTimeout(() => {
-        onNavigate('compras');
-      }, 1500);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo crear la orden de compra.');
-    } finally {
-      setSaving(false);
-    }
+      }),
+    );
   };
 
   return (
@@ -129,13 +123,7 @@ export const NewPurchaseOrderView: React.FC<NewPurchaseOrderViewProps> = ({
       </header>
 
       {saved ? (
-        <div className="p-xl text-center py-20 bg-surface-container-lowest rounded-xl shadow-md border border-outline-variant/30 flex flex-col items-center gap-md">
-          <div className="w-16 h-16 rounded-full bg-tertiary-container text-on-tertiary-container flex items-center justify-center">
-            <span className="material-symbols-outlined text-[36px]">check_circle</span>
-          </div>
-          <h2 className="font-headline-lg text-headline-lg text-on-surface">Orden de Compra Generada</h2>
-          <p className="font-body-lg text-body-lg text-on-surface-variant">La PO se ha guardado correctamente. Redirigiendo a compras...</p>
-        </div>
+        <SuccessPanel icon="check_circle" title="Orden de Compra Generada" description="La PO se ha guardado correctamente. Redirigiendo a compras..." />
       ) : (
         <>
           {error && (

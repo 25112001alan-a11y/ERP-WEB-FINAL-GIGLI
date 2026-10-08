@@ -35,7 +35,7 @@ El código está **bien encuadrado**: señales de nivel senior en seguridad y co
 | Hallazgo | Estado |
 | --- | --- |
 | Sin paginación en listas ilimitadas (documents/products/clients/suppliers/users) | ✅ Resuelto (2026-10-07) — `page`/`limit` ahora cortan a nivel de query (`skip`/`take`) con `total` = filas que matchean sin paginar; sin parámetros se conserva el array completo. Ver sección "Paginación real (2026-10-07)" |
-| Scaffold de formulario repetido en 8 vistas (`FormScaffold` + `useSubmitFlow`, ~-250 líneas) | ⏳ Pendiente — refactor de UI con riesgo de regresión visual; tanda propia |
+| Scaffold de formulario repetido en 8 vistas (`FormScaffold` + `useSubmitFlow`, ~-250 líneas) | ✅ Resuelto (2026-10-08) — `useSubmitFlow` en 8 vistas + `SuccessPanel` en 7; `FormScaffold` descartado (header con 3 variantes reales, cards de cada dominio). Ver fila 3§ y sección "useSubmitFlow + SuccessPanel (2026-10-08)" |
 | `formatMoney`: 4 locales distintos + ~40 `toFixed` sueltos (el mismo monto se ve distinto según vista) | ✅ Verificado (2026-10-07) — formato unificado en `src/lib/format.ts` (`Intl.NumberFormat` es-AR, currency-aware, fallback RangeError), usado en ~25 vistas; 0 `toFixed` de dinero visible; MRR en USD y tienda con su moneda real. Ver sección "Formato monetario (2026-10-07)" |
 | `parseBody` (zod-safeParse→400 repetido 15+ veces), CRUD factory clients/suppliers, line-math, doc-number padding, `getUserPermissions` reutilizable | ✅ Verificado (2026-10-07) — `parseBody` y `getUserPermissions` ya existen y se usan en todos los caminos; factory y line-math se **rechazan** por YAGNI/churn (ver sección "parseBody y simplificaciones (2026-10-07)") |
 | -7 dependencias sin imports en el frontend (`lucide-react`, `motion`, `@google/genai`, `express`, `dotenv`, `autoprefixer`, `esbuild`) y rename de `"react-example"` | ✅ Verificado (2026-10-07) — ya removidas en `1ddaa68`; `express`/`dotenv` viven en `server/package.json` donde se usan; 0 imports en `src/`; nombre del paquete es `nexus-erp`; `esbuild` solo transitivo de Vite. Ver sección "Dependencias sin imports (2026-10-07)" |
@@ -81,13 +81,13 @@ Potencial medido: **~850-950 líneas menos y −7 dependencias** sin cambiar com
 
 | Duplicación | Estado |
 | --- | --- |
-| 8 vistas con scaffold de formulario (header, cards, panel de éxito, error, redirect) → `FormScaffold` + `useSubmitFlow` | ⏳ Pendiente |
+| 8 vistas con scaffold de formulario (header, cards, panel de éxito, error, redirect) → `FormScaffold` + `useSubmitFlow` | ✅ Resuelto (2026-10-08) — `useSubmitFlow` (`src/lib/useSubmitFlow.ts`) unifica el ciclo de vida `saving → submit → saved + redirect con timeout, o error` en las **8** vistas de formulario (User, ManualOrder, PurchaseOrder, GoodsReceipt, RemitoSalida, RegistrarFactura, StockTransfer, StockAdjustment); las validaciones previas quedan en cada vista. `SuccessPanel` (`src/components/ui/SuccessPanel.tsx`) extrae el panel de éxito byte-idéntico (icono+título+texto) que repetían 7 vistas. Se **descarta** `FormScaffold` como wrapper de header/cards: el header tiene 3 variantes reales (breadcrumb+ruta, botones/estados de disabled propios) y las cards son terreno de cada dominio — como `loadResource(path)` de la fila 9, la indirección no pagaba. StockTransfer/StockAdjustment conservan su mensaje de éxito dinámico y el flag `refreshFailed` del catch adentro de la action. Ver sección "useSubmitFlow + SuccessPanel (2026-10-08)" |
 | 9 `loadX` en `App.tsx` (~270 líneas) → un `loadResource(path)` | ✅ Resuelto (2026-10-08) — helper `loadResource(label, action)` en `App.tsx` unifica el contrato `try/set→true, catch→console.error+false` de los **12** loaders del componente (los 3 con `Promise.all` multi-set — purchases/sales/users — conservan su acción adentro). Bloque de loaders: 270 → 211 líneas. Se **descarta** la forma `loadResource(path)`: los loaders son callbacks con identidad estable (`useCallback` deps `[]`) usados como refrescadores en toda la UI, y cada uno tiene su propio mapeo a front — un solo fetch+set genérico no representa esa diversidad. Ver sección "loadResource (2026-10-08)" |
-| `clients.routes.ts` y `suppliers.routes.ts` estructuralmente idénticos → CRUD factory | ⏳ Pendiente |
-| Money formatting en 4 locales + ~40 `toFixed` → `formatMoney()` | ⏳ Decisión ARS tomada; helper en el diff local sin publicar, con USD explícito para MRR y moneda propia de la tienda. Falta verificar cobertura de todas las vistas |
-| `safeParse`→400 repetido 15+ veces → `parseBody()` | ⏳ Pendiente |
-| Line-math de items en 5 vistas y 3 handlers; doc-number `padStart(4,'0')` en 10+ sitios; side-effects de stock en 3 handlers | ⏳ Pendiente (helpers compartidos) |
-| Flatten de permisos en 3 lugares (ya existe `getUserPermissions`) | ⏳ Pendiente |
+| `clients.routes.ts` y `suppliers.routes.ts` estructuralmente idénticos → CRUD factory | ✅ Ya cerrado (fila 40, 2026-10-07) — **rechazado por YAGNI/churn**: dos rutas de ~200 líneas no justifican una factory; duplicado de esta sección |
+| Money formatting en 4 locales + ~40 `toFixed` → `formatMoney()` | ✅ Ya cerrado (fila 39, 2026-10-07) — `formatMoney` en `src/lib/format.ts` usado en ~25 vistas, 0 `toFixed` de dinero visibles; duplicado de esta sección |
+| `safeParse`→400 repetido 15+ veces → `parseBody()` | ✅ Ya cerrado (fila 40, 2026-10-07) — `parseBody` existe y se usa en todos los caminos; duplicado de esta sección |
+| Line-math de items en 5 vistas y 3 handlers; doc-number `padStart(4,'0')` en 10+ sitios; side-effects de stock en 3 handlers | ✅ Ya cerrado (fila 40, 2026-10-07) — line-math **rechazado** por YAGNI; helper de padding y side-effects ya verificados; duplicado de esta sección |
+| Flatten de permisos en 3 lugares (ya existe `getUserPermissions`) | ✅ Ya cerrado (fila 40, 2026-10-07) — `getUserPermissions` existe y se usa; duplicado de esta sección |
 | Header con 19 botones hardcodeados vs `navItems` del Sidebar (una sola fuente) | ✅ Resuelto (2026-10-07) — `src/lib/navigation.ts` es la única fuente (`NAV_SECTIONS`/`ADMIN_SECTIONS`/`QUICK_NAV_ITEMS`); el quick-nav del Header consume el registro y gatea por `VIEW_PERMISSIONS`. Ver sección "Navegación única (2026-10-07)" |
 | Carrito mobile + summary duplicados en POS y PublicClientStore | ✅ Resuelto (2026-10-07) — `MobileFloatingBar` + `MobileCartDrawer` compartidos en `src/components/ui/MobileCartDrawer.tsx`; cada vista conserva su carrito (divergen a propósito: split de pago vs pedido WhatsApp). Ver sección "Drawer mobile compartido (2026-10-07)" |
 | Dependencias sin imports (`lucide-react`, `motion`, `@google/genai`, `express`, `dotenv`, `autoprefixer`, `esbuild`) | ✅ Verificado (2026-10-07) — misma conclusión que la fila anterior; `vite` ya está en `devDependencies` y el lock root no tiene entradas top-level de ninguna de las 7 |
@@ -1077,22 +1077,45 @@ La firma de MP hashea solo `id;request-id;ts` (no el body completo), as� que e
 
 ## loadResource (2026-10-08)
 
-### Qu� se hizo
+### Qu� se hizo
 
-- Helper module-level `loadResource(label, action): Promise<boolean>` en `src/App.tsx` que unifica el contrato que repet�an los 12 loaders del componente: `try { await action(); return true } catch { console.error(label, err); return false }`.
-- Los 12 `loadX` pasaron a `useCallback(() => loadResource(<label>, async () => { ...acci�n original... }), [])`. Acciones textualmente id�nticas (mismos endpoints, mismos sets, mismo orden de `Promise.all`); solo cambi� el wrapping.
-- Bloque de loaders: **270 ? 211 l�neas**; App.tsx 1084 ? 1072.
+- Helper module-level `loadResource(label, action): Promise<boolean>` en `src/App.tsx` que unifica el contrato que repet�an los 12 loaders del componente: `try { await action(); return true } catch { console.error(label, err); return false }`.
+- Los 12 `loadX` pasaron a `useCallback(() => loadResource(<label>, async () => { ...acci�n original... }), [])`. Acciones textualmente id�nticas (mismos endpoints, mismos sets, mismo orden de `Promise.all`); solo cambi� el wrapping.
+- Bloque de loaders: **270 ? 211 l�neas**; App.tsx 1084 ? 1072.
 
-### Por qu� NO `loadResource(path)`
+### Por qu� NO `loadResource(path)`
 
-El nombre de la fila suger�a un �nico fetch+set gen�rico por path. Se descarta:
-1. Los loaders son callbacks con **identidad estable** (`useCallback` deps `[]`) que adem�s se usan como refrescadores/asignaciones directas en toda la UI (onClientCreated, onSupplierCreated, onRolesChanged, refresh de �rdenes p�blicas, etc.). Un generic por path los recrear�a y romper�a esos contratos.
-2. Cada loader tiene su **propio mapeo a front** (toFrontProduct, toFrontSale, toFrontPublicOrder, transforms de finanzas/auditor�a) y 3 hacen `Promise.all` multi-endpoint con sets distintos.
+El nombre de la fila suger�a un �nico fetch+set gen�rico por path. Se descarta:
+1. Los loaders son callbacks con **identidad estable** (`useCallback` deps `[]`) que adem�s se usan como refrescadores/asignaciones directas en toda la UI (onClientCreated, onSupplierCreated, onRolesChanged, refresh de �rdenes p�blicas, etc.). Un generic por path los recrear�a y romper�a esos contratos.
+2. Cada loader tiene su **propio mapeo a front** (toFrontProduct, toFrontSale, toFrontPublicOrder, transforms de finanzas/auditor�a) y 3 hacen `Promise.all` multi-endpoint con sets distintos.
 
-Lo que S� era duplicaci�n real � el esqueleto try/catch + log + boolean � qued� en un solo lugar.
+Lo que S� era duplicaci�n real � el esqueleto try/catch + log + boolean � qued� en un solo lugar.
 
 ### Evidencia
 
 - `npm run lint` (tsc --noEmit): 0 errores.
 - `npm test` (vitest): **48/48**.
 - `npm run build`: OK (595.90 kB, warning de chunk preexistente).
+
+## useSubmitFlow + SuccessPanel (2026-10-08)
+
+### Qué se hizo
+
+- `src/lib/useSubmitFlow.ts` — hook que unifica el ciclo de vida de submit que repetían las **8** vistas de formulario: `saving → action → saved + redirect con timeout`, o `error` con mensaje. La validación previa queda en cada vista (varía por dominio); el hook solo normaliza el ciclo.
+- Migradas: NewUserView, NewManualOrderView, NewPurchaseOrderView, GoodsReceiptView, RemitoSalidaView, RegistrarFacturaView, StockTransferView, StockAdjustmentView.
+- `src/components/ui/SuccessPanel.tsx` — extrae el panel de éxito byte-idéntico (icono + título + texto, contenedor con `className` para el caso centrado de NewUser) repetido en 7 vistas.
+- Casos con semántica propia que se conservan adentro de la action: StockTransfer/StockAdjustment setean su mensaje de éxito dinámico (`completed`/`appliedMessage`) en la action, y su flag `refreshFailed` (error que igual registró el server) se setea en un catch que re-lanza para que el hook lo muestre.
+
+### Por qué NO `FormScaffold`
+
+El nombre de la fila sugería un wrapper de header + cards + panel. Se descarta:
+1. El header tiene 3 variantes reales (breadcrumb con ruta distinta, botones y estados de `disabled` propios, contenedor distinto en StockTransfer/NewUser) — un wrapper los pasaría como props y no reduciría nada.
+2. Las "cards" de cada formulario son terreno del dominio (líneas de ítems, selectores de depósito, editor de clientes): no comparten estructura por encima del contenedor.
+
+Lo que SÍ era duplicación real — el ciclo `saving/error/saved/redirect` y el panel de éxito — quedó en un solo lugar cada uno.
+
+### Evidencia
+
+- `npm run lint` (tsc --noEmit): 0 errores.
+- `npm test` (vitest): **48/48**.
+- Sin cambios de comportamiento: mismas rutas, mismos mensajes, mismos timeouts de redirect (1200-1500ms).

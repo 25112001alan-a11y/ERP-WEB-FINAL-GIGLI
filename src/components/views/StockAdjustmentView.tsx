@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ViewPath, Product, WarehouseOption } from '../../types';
 import { adjustmentWarehouses } from '../../lib/branch';
+import { useSubmitFlow } from '../../lib/useSubmitFlow';
 
 interface StockAdjustmentViewProps {
   products: Product[];
@@ -24,9 +25,11 @@ export const StockAdjustmentView: React.FC<StockAdjustmentViewProps> = ({
   const [reason, setReason] = useState('miscount');
   const [note, setNote] = useState('');
   const [appliedMessage, setAppliedMessage] = useState<string | null>(null);
-  const [error, setError] = useState('');
-  const [saving, setSaving] = useState(false);
   const [refreshFailed, setRefreshFailed] = useState(false);
+  const { saving, error, submit, setError } = useSubmitFlow({
+    redirectTo: () => onNavigate('inventario'),
+    fallbackMessage: 'No se pudo ajustar el stock. Intentá de nuevo.',
+  });
   const eligibleWarehouses = adjustmentWarehouses(selectedProduct ?? undefined, warehouses);
   const chosenWarehouseId = warehouseId
     ? (eligibleWarehouses.some((w) => w.id === Number(warehouseId)) ? Number(warehouseId) : null)
@@ -61,18 +64,16 @@ export const StockAdjustmentView: React.FC<StockAdjustmentViewProps> = ({
     const delta = type === 'increment' ? amount : -amount;
     const reasonLabel = REASON_LABELS[reason] ?? reason;
     const fullReason = note.trim() ? `${reasonLabel}: ${note.trim()}` : reasonLabel;
-    setSaving(true);
-    try {
-      await onApplyAdjustment(selectedProduct.id, chosenWarehouseId, delta, fullReason);
+    await submit(async () => {
+      try {
+        await onApplyAdjustment(selectedProduct.id, chosenWarehouseId, delta, fullReason);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'No se pudo ajustar el stock. Intentá de nuevo.';
+        if (message.startsWith('El ajuste se registró')) setRefreshFailed(true);
+        throw new Error(message);
+      }
       setAppliedMessage(`Ajuste de stock aplicado a "${selectedProduct.name}" (${type === 'increment' ? '+' : '-'}${amount} unidades)`);
-      setTimeout(() => onNavigate('inventario'), 1500);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'No se pudo ajustar el stock. Intentá de nuevo.';
-      setError(message);
-      if (message.startsWith('El ajuste se registró')) setRefreshFailed(true);
-    } finally {
-      setSaving(false);
-    }
+    });
   };
 
   const filtered = products.filter(

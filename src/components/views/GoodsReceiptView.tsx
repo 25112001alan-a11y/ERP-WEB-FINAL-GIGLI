@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { formatMoney } from '../../lib/format';
 import { defaultWarehouseForBranch } from '../../lib/branch';
 import { ViewPath, PurchaseDocument, WarehouseOption, Product } from '../../types';
+import { useSubmitFlow } from '../../lib/useSubmitFlow';
+import { SuccessPanel } from '../ui/SuccessPanel';
 
 interface GoodsReceiptViewProps {
   orders: PurchaseDocument[];
@@ -43,9 +45,10 @@ export const GoodsReceiptView: React.FC<GoodsReceiptViewProps> = ({
   const [warehouse, setWarehouse] = useState(''); // userName
   const [notes, setNotes] = useState('');
   const [items, setItems] = useState<ReceiptLine[]>([]);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
-  const [saved, setSaved] = useState(false);
+  const { saved, saving, error, submit, setError } = useSubmitFlow({
+    redirectTo: () => onNavigate('compras'),
+    fallbackMessage: 'No se pudo registrar la recepción.',
+  });
   const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
 
   const selectedOrder = orders.find((o) => o.id === selectedPo);
@@ -109,8 +112,7 @@ export const GoodsReceiptView: React.FC<GoodsReceiptViewProps> = ({
       setError('Ingrese al menos una cantidad recibida mayor a cero.');
       return;
     }
-    setSaving(true);
-    try {
+    await submit(async () => {
       await onReceive(
         selectedOrder.id,
         idempotencyKey,
@@ -121,15 +123,7 @@ export const GoodsReceiptView: React.FC<GoodsReceiptViewProps> = ({
         notes || undefined,
       );
       setIdempotencyKey(crypto.randomUUID());
-      setSaved(true);
-      setTimeout(() => {
-        onNavigate('compras');
-      }, 1500);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo registrar la recepción.');
-    } finally {
-      setSaving(false);
-    }
+    });
   };
 
   return (
@@ -164,13 +158,7 @@ export const GoodsReceiptView: React.FC<GoodsReceiptViewProps> = ({
       </header>
 
       {saved ? (
-        <div className="p-xl text-center py-20 bg-surface-container-lowest rounded-xl shadow-md border border-outline-variant/30 flex flex-col items-center gap-md">
-          <div className="w-16 h-16 rounded-full bg-tertiary-container text-on-tertiary-container flex items-center justify-center">
-            <span className="material-symbols-outlined text-[36px]">inventory_2</span>
-          </div>
-          <h2 className="font-headline-lg text-headline-lg text-on-surface">Remito Registrado y Stock Actualizado</h2>
-          <p className="font-body-lg text-body-lg text-on-surface-variant">El inventario físico ha sido incrementado en las cantidades recepcionadas.</p>
-        </div>
+        <SuccessPanel icon="inventory_2" title="Remito Registrado y Stock Actualizado" description="El inventario físico ha sido incrementado en las cantidades recepcionadas." />
       ) : (
         <>
           {error && (

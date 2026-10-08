@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { ViewPath, Product, WarehouseOption } from '../../types';
 import { transferError } from '../../lib/branch';
+import { useSubmitFlow } from '../../lib/useSubmitFlow';
+import { SuccessPanel } from '../ui/SuccessPanel';
 
 interface StockTransferViewProps {
   products: Product[];
@@ -21,10 +23,12 @@ export const StockTransferView: React.FC<StockTransferViewProps> = ({ products, 
   const [productId, setProductId] = useState<string>(products[0]?.id ?? '');
   const [quantity, setQuantity] = useState(1);
   const [notes, setNote] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
   const [completed, setCompleted] = useState('');
   const [refreshFailed, setRefreshFailed] = useState(false);
+  const { saving, error, submit, setError } = useSubmitFlow({
+    redirectTo: () => onNavigate('inventario'),
+    fallbackMessage: 'No se pudo transferir el stock',
+  });
 
   const selectedProduct = products.find((p) => p.id === productId);
   // El backend descuenta del depósito de ORIGEN: el máximo transferible es el
@@ -42,25 +46,22 @@ export const StockTransferView: React.FC<StockTransferViewProps> = ({ products, 
       setError(validationError ?? 'Seleccioná un producto.');
       return;
     }
-    setSaving(true);
-    setError('');
-    try {
-      await onTransfer({
-        productId: Number(selectedProduct.id),
-        fromWarehouseId: sourceWarehouseId,
-        toWarehouseId: targetWarehouseId,
-        quantity,
-        reason: notes || undefined,
-      });
+    await submit(async () => {
+      try {
+        await onTransfer({
+          productId: Number(selectedProduct.id),
+          fromWarehouseId: sourceWarehouseId,
+          toWarehouseId: targetWarehouseId,
+          quantity,
+          reason: notes || undefined,
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'No se pudo transferir el stock';
+        if (msg.startsWith('La transferencia se registró')) setRefreshFailed(true);
+        throw new Error(msg);
+      }
       setCompleted(`Se transfirieron ${quantity} unidades de ${selectedProduct.name} entre depósitos.`);
-      setTimeout(() => onNavigate('inventario'), 1500);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'No se pudo transferir el stock';
-      setError(msg);
-      if (msg.startsWith('La transferencia se registró')) setRefreshFailed(true);
-    } finally {
-      setSaving(false);
-    }
+    });
   };
 
   return (
@@ -90,15 +91,7 @@ export const StockTransferView: React.FC<StockTransferViewProps> = ({ products, 
       </div>
 
       {completed ? (
-        <div className="bg-surface-container-lowest p-xl rounded-xl shadow-md border border-outline-variant/30 text-center py-16 flex flex-col items-center gap-md">
-          <div className="w-16 h-16 rounded-full bg-tertiary-container text-on-tertiary-container flex items-center justify-center">
-            <span className="material-symbols-outlined text-[36px]">swap_horiz</span>
-          </div>
-          <h2 className="font-headline-lg text-headline-lg text-on-surface">Transferencia Registrada</h2>
-          <p className="font-body-lg text-body-lg text-on-surface-variant">
-            {completed}
-          </p>
-        </div>
+        <SuccessPanel icon="swap_horiz" title="Transferencia Registrada" description={completed} />
       ) : (
         <div className="grid grid-cols-12 gap-lg w-full items-start">
           <div className="col-span-12 lg:col-span-8 flex flex-col gap-lg">

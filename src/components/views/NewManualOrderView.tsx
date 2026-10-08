@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { formatMoney } from '../../lib/format';
+import { useSubmitFlow } from '../../lib/useSubmitFlow';
+import { SuccessPanel } from '../ui/SuccessPanel';
 import { ViewPath, Product } from '../../types';
 import { apiFetch } from '../../lib/api';
 import { ClientOption, resolveClientSelection } from '../../lib/clientSelection';
@@ -22,9 +24,11 @@ export const NewManualOrderView: React.FC<NewManualOrderViewProps> = ({ products
   const [clientSearch, setClientSearch] = useState('');
   const [lines, setLines] = useState<OrderLine[]>([]);
   const [notes, setNotes] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
+  const { saved, saving, error, submit, setError } = useSubmitFlow({
+    redirectTo: () => onNavigate('pedidos-publicos'),
+    redirectMs: 1200,
+    fallbackMessage: 'No se pudo guardar el pedido',
+  });
 
   const addLine = () => {
     const first = products[0];
@@ -65,7 +69,6 @@ export const NewManualOrderView: React.FC<NewManualOrderViewProps> = ({ products
   const total = subtotalNeto + totalTax;
 
   const handleSave = async () => {
-    setError(null);
     const clientName = clientSearch.trim();
     if (!clientName) {
       setError('Ingresá el nombre del cliente.');
@@ -77,9 +80,8 @@ export const NewManualOrderView: React.FC<NewManualOrderViewProps> = ({ products
       return;
     }
 
-    setSaving(true);
-    try {
-      await apiFetch('/api/documents', {
+    await submit(() =>
+      apiFetch('/api/documents', {
         method: 'POST',
         body: {
           type: 'PEDIDO',
@@ -96,14 +98,8 @@ export const NewManualOrderView: React.FC<NewManualOrderViewProps> = ({ products
             };
           }),
         },
-      });
-      setSaved(true);
-      setTimeout(() => onNavigate('pedidos-publicos'), 1200);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo guardar el pedido');
-    } finally {
-      setSaving(false);
-    }
+      }),
+    );
   };
 
   return (
@@ -144,13 +140,7 @@ export const NewManualOrderView: React.FC<NewManualOrderViewProps> = ({ products
       </div>
 
       {saved ? (
-        <div className="p-xl text-center py-20 bg-surface-container-lowest m-xl rounded-xl shadow-md border border-outline-variant/30 flex flex-col items-center gap-md">
-          <div className="w-16 h-16 rounded-full bg-tertiary-container text-on-tertiary-container flex items-center justify-center">
-            <span className="material-symbols-outlined text-[36px]">check_circle</span>
-          </div>
-          <h2 className="font-headline-lg text-headline-lg text-on-surface">Pedido Registrado</h2>
-          <p className="font-body-lg text-body-lg text-on-surface-variant">Redirigiendo a la gestión de pedidos públicos...</p>
-        </div>
+        <SuccessPanel className="m-xl" icon="check_circle" title="Pedido Registrado" description="Redirigiendo a la gestión de pedidos públicos..." />
       ) : (
         <div className="p-xl grid grid-cols-12 gap-xl relative h-full">
           {/* Left Column */}
