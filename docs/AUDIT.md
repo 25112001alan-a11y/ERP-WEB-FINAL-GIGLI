@@ -44,7 +44,7 @@ El cÃ³digo estÃ¡ **bien encuadrado**: seÃ±ales de nivel senior en seguridad y co
 | `imageUrl` renderizado sin columna en el schema | âœ… Verificado (2026-10-07) â€” el campo ya no existe en Prisma ni en el frontend (0 referencias en `src/` y `server/`); la fila era residual. Ver secciÃ³n "imageUrl, CRUD sin UI y multi-warehouse (2026-10-07)" |
 | Test de webhook MP con fixture grabado (body + firma reales) | âœ… Resuelto (2026-10-08) â€” fixture `server/test/fixtures/mp-payment-webhook.json` con body crudo documentado de MP (whitespace no-minificado a propÃ³sito) + test que firma sobre los **bytes exactos**, verifica que el payload se persiste TAL CUAL (regresiÃ³n de `31f3b6a`: un handler que re-serializara guardarÃ­a otra cadena), replay â†’ duplicate, y firma con token ajeno â†’ 401. Ver secciÃ³n "Webhook MP con fixture real (2026-10-08)" |
 | `trust proxy 1` | âœ… Verificado por topologÃ­a: la API corre en Railway tras exactamente un proxy TLS; no es un defecto en ese despliegue |
-| Webhook `eventId` fallback `evt-${Date.now()}` rompe idempotencia si faltan ambos IDs | âš ï¸ Menor â€” decidir si rechazar el evento en vez de inventar ID |
+| Webhook `eventId` fallback `evt-${Date.now()}` rompe idempotencia si faltan ambos IDs | âœ… Resuelto (2026-10-08) â€” se rechaza el evento con 400 si falta `data.id` (la Ãºnica clave estable: MP la reenvÃ­a idÃ©ntica en reintentos). Se quitÃ³ el fallback a `x-request-id` porque MP la genera por intento (una redelivery con nuevo request-id doblarÃ­a el procesamiento). Test nuevo: firma vÃ¡lida + `data: {}` â†’ 400, 0 eventos persistidos. Ver secciÃ³n "Webhook MP con fixture real (2026-10-08)" |
 | Registro: `registerSchema` defaulteaba `USD` pese a moneda canÃ³nica ARS | âœ… Resuelto (Fase 0): default â†’ `ARS` en `server/src/routes/auth.routes.ts` |
 | Admin panel mostraba "26 empresas" hardcodeado | âœ… Resuelto (Fase 0): conteo real vÃ­a `/api/billing/admin/overview` (SuperAdmin) o 1 (admin regular) en `AdminView.tsx` |
 | Compras â–¸ 3 puntitos sin acciÃ³n | âœ… Resuelto (Fase 0): menÃº con Ver/Editar/Duplicar/Anular en `PurchasesView.tsx` |
@@ -1049,21 +1049,28 @@ De las filas que quedaban reales, 4 resultaron **ya resueltas por verificaciÃ³n*
 
 ## Webhook MP con fixture real (2026-10-08)
 
-### Qué se agregó
+### Quï¿½ se agregï¿½
 
-- `server/test/fixtures/mp-payment-webhook.json`: body crudo de un webhook `payment` de Mercado Pago en el formato documentado (action/api_version/application_id/data/date_created/id/live_mode/type/user_id), con whitespace no-minificado a propósito (`"action" : ...`).
-- Test nuevo en `server/test/mp-collection.test.ts` que ejerce el path con EL fixture: crea venta abierta, mockea `GET /v1/payments/:id` (MP detail — el webhook no confía en el body), firma con el algoritmo real X-Signature sobre los bytes exactos, y valida:
+- `server/test/fixtures/mp-payment-webhook.json`: body crudo de un webhook `payment` de Mercado Pago en el formato documentado (action/api_version/application_id/data/date_created/id/live_mode/type/user_id), con whitespace no-minificado a propï¿½sito (`"action" : ...`).
+- Test nuevo en `server/test/mp-collection.test.ts` que ejerce el path con EL fixture: crea venta abierta, mockea `GET /v1/payments/:id` (MP detail ï¿½ el webhook no confï¿½a en el body), firma con el algoritmo real X-Signature sobre los bytes exactos, y valida:
   1. Webhook acepta y devuelve `collection_approved`; el documento pasa a `Pagado`.
-  2. `billingEvent.payload` persiste **idéntico** al body crudo (regresión de `31f3b6a`).
+  2. `billingEvent.payload` persiste **idï¿½ntico** al body crudo (regresiï¿½n de `31f3b6a`).
   3. Replay con el mismo `data.id` ? `duplicate`.
   4. Firma con token ajeno ? `401` y no toca la base.
 
-### El hallazgo práctico de la fila
+### El hallazgo prï¿½ctico de la fila
 
-La firma de MP hashea solo `id;request-id;ts` (no el body completo), así que el riesgo real de 'firmas sintéticas' era que el handler re-serializara el body: el manifest seguiría matcheando `data.id`, pero el `payload` persistido y el body que MP re-entregue dejarían de ser byte-idénticos. El assertion clave (2) atrapa exactamente eso.
+La firma de MP hashea solo `id;request-id;ts` (no el body completo), asï¿½ que el riesgo real de 'firmas sintï¿½ticas' era que el handler re-serializara el body: el manifest seguirï¿½a matcheando `data.id`, pero el `payload` persistido y el body que MP re-entregue dejarï¿½an de ser byte-idï¿½nticos. El assertion clave (2) atrapa exactamente eso.
 
 ### Evidencia
 
 - Suite focalizada `mp-collection.test.ts`: **7/7 pass**.
-- Suite server completa: **87/88** (único fail: `branch-boundaries.test.ts:141`, preexistente conocido — NO tocar).
+- Suite server completa: **87/88** (ï¿½nico fail: `branch-boundaries.test.ts:141`, preexistente conocido ï¿½ NO tocar).
 - `tsc --noEmit`: 0 errores.
+
+### Cierre de fila 47 (2026-10-08) — eventId sin data.id
+
+- `server/src/routes/billing.routes.ts`: el webhook ahora **rechaza con 400** todo evento sin `data.id` (válido en MP para pagos y suscripciones). Se eliminó el fallback `evt-${Date.now()}` **y** al `x-request-id`.
+- Razón del cambio más amplio: `x-request-id` también rompe la idempotencia — MP la genera por intento, así que una redelivery con request-id nuevo no se detectaría como duplicada. `data.id` es la única clave estable.
+- Test `webhook sin data.id ? 400` en `mp-collection.test.ts`: firma válida (manifest con id vacío) + `data: {}` ? 400, 0 eventos en la base.
+- Gates: suite MP **8/8**; server completa en serie **89/88** (único fail `branch-boundaries:141`, preexistente); `tsc --noEmit` 0.

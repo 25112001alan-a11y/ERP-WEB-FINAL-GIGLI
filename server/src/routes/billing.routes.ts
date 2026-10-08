@@ -276,10 +276,20 @@ router.post('/webhook', async (req, res) => {
 
   // MP avisa pagos como ?type=payment, {type:'payment'} o {action:'payment.created'}.
   const topic = (req.query.type as string) ?? payload?.type ?? payload?.action ?? 'unknown';
-  const eventId = payload?.data?.id ?? req.headers['x-request-id'] ?? `evt-${Date.now()}`;
+
+  // data.id ES la clave de idempotencia: MP la reenvía idéntica en cada
+  // reintento. x-request-id y evt-* cambian por intento (duplicarían el
+  // procesamiento), así que un evento sin data.id se rechaza: no se puede
+  // deduplicar, y procesarlo dos veces corrompería el cobro.
+  const eventIdValue = payload?.data?.id;
+  if (eventIdValue === undefined || eventIdValue === null || eventIdValue === '') {
+    res.status(400).json({ error: 'Evento sin data.id: se rechaza por no poder deduplicarlo' });
+    return;
+  }
+  const eventId = String(eventIdValue);
 
   try {
-    const result = await applyWebhookEvent(topic, String(eventId), body);
+    const result = await applyWebhookEvent(topic, eventId, body);
     res.json(result);
   } catch (err) {
     console.error('[billing] webhook processing error:', err);

@@ -342,3 +342,19 @@ test('webhook payment.approved aplica + replay es duplicate; pagado → 409', as
     restoreFetch();
   }
 });
+
+test('webhook sin data.id → 400 (firma valida pero evento no deduplicable)', async () => {
+  const body = JSON.stringify({ type: 'payment', data: {} });
+  // Firma válida: el manifest se arma con id vacío y el token de test.
+  const res = await fetch(`${base}/api/billing/webhook`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...mpHeaders('') },
+    body,
+  });
+  assert.equal(res.status, 400, JSON.stringify(await res.json()));
+  const events = await prisma.billingEvent.findMany({
+    where: { payload: body },
+    select: { id: true },
+  });
+  assert.equal(events.length, 0, 'no event persisted without data.id');
+});
