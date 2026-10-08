@@ -50,6 +50,21 @@ function getPublicStoreSlug(): string | null {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
+/**
+ * Runs one data-fetching action and folds success/failure into the boolean+log
+ * contract every loader in App uses. Actions that need multiple endpoints
+ * (loadPurchases, loadSales, loadUsers) keep their Promise.all inside.
+ */
+async function loadResource(label: string, action: () => Promise<void>): Promise<boolean> {
+  try {
+    await action();
+    return true;
+  } catch (err) {
+    console.error(label, err);
+    return false;
+  }
+}
+
 export default function App() {
   const { user, logout, loading } = useAuth();
   // bootSlug is the anonymous entry (/t/:slug). It wins over the session's own
@@ -142,89 +157,76 @@ export default function App() {
   );
   const activeBranchName = branches.find((b) => b.id === activeBranchId)?.name;
 
-  const loadProducts = useCallback(async (): Promise<boolean> => {
-    try {
-      const data = await apiFetch<ApiProduct[]>('/api/products');
-      setProducts(data.map(toFrontProduct));
-      return true;
-    } catch (err) {
-      console.error('No se pudieron cargar los productos', err);
-      return false;
-    }
-  }, []);
+  const loadProducts = useCallback(
+    () =>
+      loadResource('No se pudieron cargar los productos', async () => {
+        setProducts((await apiFetch<ApiProduct[]>('/api/products')).map(toFrontProduct));
+      }),
+    [],
+  );
 
-  const loadPurchases = useCallback(async (): Promise<boolean> => {
-    try {
-      const [ocs, compras, remitos, facturas, sups] = await Promise.all([
-        apiFetch<ApiDocument[]>('/api/documents?type=OC'),
-        apiFetch<ApiDocument[]>('/api/documents?type=COMPRA'),
-        apiFetch<ApiDocument[]>('/api/documents?type=REMITO'),
-        apiFetch<ApiDocument[]>('/api/documents?type=FACTURA'),
-        apiFetch<{ id: number; name: string; email: string; phone: string | null; taxId: string | null; contact: string | null }[]>('/api/suppliers'),
-      ]);
-      setSuppliers(
-        sups.map((s) => ({
-          id: String(s.id),
-          name: s.name,
-          email: s.email ?? '',
-          phone: s.phone,
-          taxId: s.taxId,
-          contact: s.contact,
-          contactPerson: s.contact ?? '',
-        })),
-      );
-      setRemitoDocs(remitos);
-      setPurchaseOrders(
-        // Supplier invoices (no client) live in Compras; client ones in Ventas.
-        [...ocs, ...compras, ...remitos, ...facturas.filter((f) => !f.client)]
-          .map(toFrontPurchaseOrder)
-          .sort((a, b) => b.id.localeCompare(a.id)),
-      );
-      setOpenOrders(ocs.filter((o) => o.status !== 'Recibido').map(toFrontPurchaseDocument));
-      return true;
-    } catch (err) {
-      console.error('No se pudieron cargar las compras', err);
-      return false;
-    }
-  }, []);
+  const loadPurchases = useCallback(
+    () =>
+      loadResource('No se pudieron cargar las compras', async () => {
+        const [ocs, compras, remitos, facturas, sups] = await Promise.all([
+          apiFetch<ApiDocument[]>('/api/documents?type=OC'),
+          apiFetch<ApiDocument[]>('/api/documents?type=COMPRA'),
+          apiFetch<ApiDocument[]>('/api/documents?type=REMITO'),
+          apiFetch<ApiDocument[]>('/api/documents?type=FACTURA'),
+          apiFetch<{ id: number; name: string; email: string; phone: string | null; taxId: string | null; contact: string | null }[]>('/api/suppliers'),
+        ]);
+        setSuppliers(
+          sups.map((s) => ({
+            id: String(s.id),
+            name: s.name,
+            email: s.email ?? '',
+            phone: s.phone,
+            taxId: s.taxId,
+            contact: s.contact,
+            contactPerson: s.contact ?? '',
+          })),
+        );
+        setRemitoDocs(remitos);
+        setPurchaseOrders(
+          // Supplier invoices (no client) live in Compras; client ones in Ventas.
+          [...ocs, ...compras, ...remitos, ...facturas.filter((f) => !f.client)]
+            .map(toFrontPurchaseOrder)
+            .sort((a, b) => b.id.localeCompare(a.id)),
+        );
+        setOpenOrders(ocs.filter((o) => o.status !== 'Recibido').map(toFrontPurchaseDocument));
+      }),
+    [],
+  );
 
-  const loadClients = useCallback(async (): Promise<boolean> => {
-    try {
-      // No pagination: the master is small and the selector wants every name.
-      setClients(await apiFetch<ClientOption[]>('/api/clients'));
-      return true;
-    } catch (err) {
-      console.error('No se pudieron cargar los clientes', err);
-      return false;
-    }
-  }, []);
+  const loadClients = useCallback(
+    () =>
+      loadResource('No se pudieron cargar los clientes', async () => {
+        // No pagination: the master is small and the selector wants every name.
+        setClients(await apiFetch<ClientOption[]>('/api/clients'));
+      }),
+    [],
+  );
 
-  const loadWarehouses = useCallback(async (): Promise<boolean> => {
-    try {
-      const whs = await apiFetch<WarehouseOption[]>('/api/stock/warehouses');
-      setWarehouses(whs);
-      return true;
-    } catch (err) {
-      console.error('No se pudieron cargar los depósitos', err);
-      return false;
-    }
-  }, []);
+  const loadWarehouses = useCallback(
+    () =>
+      loadResource('No se pudieron cargar los depósitos', async () => {
+        setWarehouses(await apiFetch<WarehouseOption[]>('/api/stock/warehouses'));
+      }),
+    [],
+  );
 
   const handleSetBranchDefaultWarehouse = useCallback(async (branchId: number, warehouseId: number | null): Promise<void> => {
     await apiFetch(`/api/branches/${branchId}`, { method: 'PATCH', body: { defaultWarehouseId: warehouseId } });
     await loadWarehouses();
   }, [loadWarehouses]);
 
-  const loadSalePoints = useCallback(async (): Promise<boolean> => {
-    try {
-      const pvs = await apiFetch<SalePointOption[]>('/api/sale-points');
-      setSalePoints(pvs);
-      return true;
-    } catch (err) {
-      console.error('No se pudieron cargar los puntos de venta', err);
-      return false;
-    }
-  }, []);
+  const loadSalePoints = useCallback(
+    () =>
+      loadResource('No se pudieron cargar los puntos de venta', async () => {
+        setSalePoints(await apiFetch<SalePointOption[]>('/api/sale-points'));
+      }),
+    [],
+  );
 
   const handleAddSalePoint = useCallback(async (branchId: number, number: number, name?: string): Promise<void> => {
     await apiFetch('/api/sale-points', { method: 'POST', body: { branchId, number, name } });
@@ -236,149 +238,135 @@ export default function App() {
     await loadSalePoints();
   }, [loadSalePoints]);
 
-  const loadSales = useCallback(async (): Promise<boolean> => {
-    try {
-      const [ventas, pedidos, remitos, facturas] = await Promise.all([
-        apiFetch<ApiDocument[]>('/api/documents?type=VENTA'),
-        apiFetch<ApiDocument[]>('/api/documents?type=PEDIDO'),
-        apiFetch<ApiDocument[]>('/api/documents?type=REMITO'),
-        apiFetch<ApiDocument[]>('/api/documents?type=FACTURA'),
-      ]);
-      setSalesDocs([...ventas, ...pedidos, ...remitos, ...facturas]);
-      // Sale invoices (with client) live in Ventas; supplier ones stay in Compras.
-      setSales([...ventas, ...facturas.filter((f) => f.client)].map(toFrontSale));
-      return true;
-    } catch (err) {
-      console.error('No se pudieron cargar las ventas', err);
-      return false;
-    }
-  }, []);
+  const loadSales = useCallback(
+    () =>
+      loadResource('No se pudieron cargar las ventas', async () => {
+        const [ventas, pedidos, remitos, facturas] = await Promise.all([
+          apiFetch<ApiDocument[]>('/api/documents?type=VENTA'),
+          apiFetch<ApiDocument[]>('/api/documents?type=PEDIDO'),
+          apiFetch<ApiDocument[]>('/api/documents?type=REMITO'),
+          apiFetch<ApiDocument[]>('/api/documents?type=FACTURA'),
+        ]);
+        setSalesDocs([...ventas, ...pedidos, ...remitos, ...facturas]);
+        // Sale invoices (with client) live in Ventas; supplier ones stay in Compras.
+        setSales([...ventas, ...facturas.filter((f) => f.client)].map(toFrontSale));
+      }),
+    [],
+  );
 
-  const loadPublicOrders = useCallback(async (): Promise<boolean> => {
-    try {
-      const data = await apiFetch<ApiDocument[]>('/api/documents?type=PEDIDO');
-      setPublicOrders(data.map(toFrontPublicOrder));
-      return true;
-    } catch (err) {
-      console.error('No se pudieron cargar los pedidos públicos', err);
-      return false;
-    }
-  }, []);
+  const loadPublicOrders = useCallback(
+    () =>
+      loadResource('No se pudieron cargar los pedidos públicos', async () => {
+        setPublicOrders((await apiFetch<ApiDocument[]>('/api/documents?type=PEDIDO')).map(toFrontPublicOrder));
+      }),
+    [],
+  );
 
-  const loadFinance = useCallback(async (): Promise<boolean> => {
-    try {
-      const data = await apiFetch<
-        { id: string; date: string; concept: string; method: string; amount: number; type: 'Ingreso' | 'Egreso'; status: string }[]
-      >('/api/finance');
-      setFinanceTxs(
-        data.map((t) => ({
-          id: t.id,
-          date: new Date(t.date).toLocaleString('es-ES', { dateStyle: 'medium', timeStyle: 'short' }),
-          concept: t.concept,
-          method: t.method,
-          amount: t.amount,
-          type: t.type,
-          status: t.status,
-        })),
-      );
-      return true;
-    } catch (err) {
-      console.error('No se pudieron cargar las finanzas', err);
-      return false;
-    }
-  }, []);
+  const loadFinance = useCallback(
+    () =>
+      loadResource('No se pudieron cargar las finanzas', async () => {
+        setFinanceTxs(
+          (
+            await apiFetch<
+              { id: string; date: string; concept: string; method: string; amount: number; type: 'Ingreso' | 'Egreso'; status: string }[]
+            >('/api/finance')
+          ).map((t) => ({
+            id: t.id,
+            date: new Date(t.date).toLocaleString('es-ES', { dateStyle: 'medium', timeStyle: 'short' }),
+            concept: t.concept,
+            method: t.method,
+            amount: t.amount,
+            type: t.type,
+            status: t.status,
+          })),
+        );
+      }),
+    [],
+  );
 
-  const loadDashboard = useCallback(async (): Promise<boolean> => {
-    try {
-      setDashboard(await apiFetch<DashboardData>('/api/dashboard'));
-      return true;
-    } catch (err) {
-      console.error('No se pudo cargar el dashboard', err);
-      return false;
-    }
-  }, []);
+  const loadDashboard = useCallback(
+    () =>
+      loadResource('No se pudo cargar el dashboard', async () => {
+        setDashboard(await apiFetch<DashboardData>('/api/dashboard'));
+      }),
+    [],
+  );
 
-  const loadUsers = useCallback(async (): Promise<boolean> => {
-    try {
-      const [userList, roles] = await Promise.all([
-        apiFetch<{
-          id: number;
-          name: string;
-          email: string;
-          status: string;
-          lastAccess: string | null;
-          roles: string[];
-          branchId: number | null;
-        }[]>('/api/users'),
-        apiFetch<RoleOption[]>('/api/users/roles'),
-      ]);
-      setUsers(
-        userList.map((u) => ({
-          id: String(u.id),
-          name: u.name,
-          email: u.email,
-          role: u.roles[0] ?? 'Sin rol',
-          roles: u.roles,
-          lastAccess: u.lastAccess ? new Date(u.lastAccess).toLocaleString('es-ES') : 'Nunca',
-          status: u.status === 'Activo' ? 'Activo' : u.status === 'Inactivo' ? 'Inactivo' : 'Pendiente',
-          branchId: u.branchId,
-        })),
-      );
-      setUserRoles(roles);
-      return true;
-    } catch (err) {
-      console.error('No se pudieron cargar los usuarios', err);
-      return false;
-    }
-  }, []);
+  const loadUsers = useCallback(
+    () =>
+      loadResource('No se pudieron cargar los usuarios', async () => {
+        const [userList, roles] = await Promise.all([
+          apiFetch<{
+            id: number;
+            name: string;
+            email: string;
+            status: string;
+            lastAccess: string | null;
+            roles: string[];
+            branchId: number | null;
+          }[]>('/api/users'),
+          apiFetch<RoleOption[]>('/api/users/roles'),
+        ]);
+        setUsers(
+          userList.map((u) => ({
+            id: String(u.id),
+            name: u.name,
+            email: u.email,
+            role: u.roles[0] ?? 'Sin rol',
+            roles: u.roles,
+            lastAccess: u.lastAccess ? new Date(u.lastAccess).toLocaleString('es-ES') : 'Nunca',
+            status: u.status === 'Activo' ? 'Activo' : u.status === 'Inactivo' ? 'Inactivo' : 'Pendiente',
+            branchId: u.branchId,
+          })),
+        );
+        setUserRoles(roles);
+      }),
+    [],
+  );
 
-  const loadAudit = useCallback(async (): Promise<boolean> => {
-    try {
-      const data = await apiFetch<
-        {
-          id: number;
-          timestamp: string;
-          user: string;
-          action: string;
-          module: string;
-          ip: string | null;
-          details: string | null;
-        }[]
-      >('/api/audit-logs');
-      setAuditLogs(
-        data.map((l) => ({
-          id: String(l.id),
-          timestamp: new Date(l.timestamp).toLocaleString('es-ES', { dateStyle: 'medium', timeStyle: 'short' }),
-          user: l.user,
-          userInitials: l.user
-            .split(/\s+/)
-            .map((p) => p[0])
-            .join('')
-            .slice(0, 2)
-            .toUpperCase(),
-          action: l.action,
-          module: (l.module as AuditLog['module']) ?? 'Configuración',
-          ip: l.ip ?? '—',
-          details: l.details ?? '',
-        })),
-      );
-      return true;
-    } catch (err) {
-      console.error('No se pudo cargar el log de auditoría', err);
-      return false;
-    }
-  }, []);
+  const loadAudit = useCallback(
+    () =>
+      loadResource('No se pudo cargar el log de auditoría', async () => {
+        setAuditLogs(
+          (
+            await apiFetch<
+              {
+                id: number;
+                timestamp: string;
+                user: string;
+                action: string;
+                module: string;
+                ip: string | null;
+                details: string | null;
+              }[]
+            >('/api/audit-logs')
+          ).map((l) => ({
+            id: String(l.id),
+            timestamp: new Date(l.timestamp).toLocaleString('es-ES', { dateStyle: 'medium', timeStyle: 'short' }),
+            user: l.user,
+            userInitials: l.user
+              .split(/\s+/)
+              .map((p) => p[0])
+              .join('')
+              .slice(0, 2)
+              .toUpperCase(),
+            action: l.action,
+            module: (l.module as AuditLog['module']) ?? 'Configuración',
+            ip: l.ip ?? '—',
+            details: l.details ?? '',
+          })),
+        );
+      }),
+    [],
+  );
 
-  const loadTaxes = useCallback(async (): Promise<boolean> => {
-    try {
-      const data = await apiFetch<TaxRate[]>('/api/products/taxes');
-      setTaxes(data);
-      return true;
-    } catch (err) {
-      console.error('No se pudieron cargar los impuestos', err);
-      return false;
-    }
-  }, []);
+  const loadTaxes = useCallback(
+    () =>
+      loadResource('No se pudieron cargar los impuestos', async () => {
+        setTaxes(await apiFetch<TaxRate[]>('/api/products/taxes'));
+      }),
+    [],
+  );
 
   const loadAll = useCallback(async () => {
     setDataLoading(true);

@@ -82,9 +82,9 @@ Potencial medido: **~850-950 lÃ­neas menos y âˆ’7 dependencias** sin cambiar com
 | DuplicaciÃ³n | Estado |
 | --- | --- |
 | 8 vistas con scaffold de formulario (header, cards, panel de Ã©xito, error, redirect) â†’ `FormScaffold` + `useSubmitFlow` | â³ Pendiente |
-| 9 `loadX` en `App.tsx` (~270 lÃ­neas) â†’ un `loadResource(path)` | â³ Pendiente |
-| Money formatting en 4 locales + ~40 `toFixed` â†’ `formatMoney()` | â³ DecisiÃ³n ARS tomada; helper en el diff local sin publicar, con USD explÃ­cito para MRR y moneda propia de la tienda. Falta verificar cobertura de todas las vistas |
+| 9 `loadX` en `App.tsx` (~270 lÃ­neas) â†’ un `loadResource(path)` | âœ… Resuelto (2026-10-08) â€” helper `loadResource(label, action)` en `App.tsx` unifica el contrato `try/setâ†’true, catchâ†’console.error+false` de los **12** loaders del componente (los 3 con `Promise.all` multi-set â€” purchases/sales/users â€” conservan su acciÃ³n adentro). Bloque de loaders: 270 â†’ 211 lÃ­neas. Se **descarta** la forma `loadResource(path)`: los loaders son callbacks con identidad estable (`useCallback` deps `[]`) usados como refrescadores en toda la UI, y cada uno tiene su propio mapeo a front â€” un solo fetch+set genÃ©rico no representa esa diversidad. Ver secciÃ³n "loadResource (2026-10-08)" |
 | `clients.routes.ts` y `suppliers.routes.ts` estructuralmente idÃ©nticos â†’ CRUD factory | â³ Pendiente |
+| Money formatting en 4 locales + ~40 `toFixed` â†’ `formatMoney()` | â³ DecisiÃ³n ARS tomada; helper en el diff local sin publicar, con USD explÃ­cito para MRR y moneda propia de la tienda. Falta verificar cobertura de todas las vistas |
 | `safeParse`â†’400 repetido 15+ veces â†’ `parseBody()` | â³ Pendiente |
 | Line-math de items en 5 vistas y 3 handlers; doc-number `padStart(4,'0')` en 10+ sitios; side-effects de stock en 3 handlers | â³ Pendiente (helpers compartidos) |
 | Flatten de permisos en 3 lugares (ya existe `getUserPermissions`) | â³ Pendiente |
@@ -1068,9 +1068,31 @@ La firma de MP hashea solo `id;request-id;ts` (no el body completo), asï¿½ que e
 - Suite server completa: **87/88** (ï¿½nico fail: `branch-boundaries.test.ts:141`, preexistente conocido ï¿½ NO tocar).
 - `tsc --noEmit`: 0 errores.
 
-### Cierre de fila 47 (2026-10-08) — eventId sin data.id
+### Cierre de fila 47 (2026-10-08) ï¿½ eventId sin data.id
 
-- `server/src/routes/billing.routes.ts`: el webhook ahora **rechaza con 400** todo evento sin `data.id` (válido en MP para pagos y suscripciones). Se eliminó el fallback `evt-${Date.now()}` **y** al `x-request-id`.
-- Razón del cambio más amplio: `x-request-id` también rompe la idempotencia — MP la genera por intento, así que una redelivery con request-id nuevo no se detectaría como duplicada. `data.id` es la única clave estable.
-- Test `webhook sin data.id ? 400` en `mp-collection.test.ts`: firma válida (manifest con id vacío) + `data: {}` ? 400, 0 eventos en la base.
-- Gates: suite MP **8/8**; server completa en serie **89/88** (único fail `branch-boundaries:141`, preexistente); `tsc --noEmit` 0.
+- `server/src/routes/billing.routes.ts`: el webhook ahora **rechaza con 400** todo evento sin `data.id` (vï¿½lido en MP para pagos y suscripciones). Se eliminï¿½ el fallback `evt-${Date.now()}` **y** al `x-request-id`.
+- Razï¿½n del cambio mï¿½s amplio: `x-request-id` tambiï¿½n rompe la idempotencia ï¿½ MP la genera por intento, asï¿½ que una redelivery con request-id nuevo no se detectarï¿½a como duplicada. `data.id` es la ï¿½nica clave estable.
+- Test `webhook sin data.id ? 400` en `mp-collection.test.ts`: firma vï¿½lida (manifest con id vacï¿½o) + `data: {}` ? 400, 0 eventos en la base.
+- Gates: suite MP **8/8**; server completa en serie **89/88** (ï¿½nico fail `branch-boundaries:141`, preexistente); `tsc --noEmit` 0.
+
+## loadResource (2026-10-08)
+
+### Qué se hizo
+
+- Helper module-level `loadResource(label, action): Promise<boolean>` en `src/App.tsx` que unifica el contrato que repetían los 12 loaders del componente: `try { await action(); return true } catch { console.error(label, err); return false }`.
+- Los 12 `loadX` pasaron a `useCallback(() => loadResource(<label>, async () => { ...acción original... }), [])`. Acciones textualmente idénticas (mismos endpoints, mismos sets, mismo orden de `Promise.all`); solo cambió el wrapping.
+- Bloque de loaders: **270 ? 211 líneas**; App.tsx 1084 ? 1072.
+
+### Por qué NO `loadResource(path)`
+
+El nombre de la fila sugería un único fetch+set genérico por path. Se descarta:
+1. Los loaders son callbacks con **identidad estable** (`useCallback` deps `[]`) que además se usan como refrescadores/asignaciones directas en toda la UI (onClientCreated, onSupplierCreated, onRolesChanged, refresh de órdenes públicas, etc.). Un generic por path los recrearía y rompería esos contratos.
+2. Cada loader tiene su **propio mapeo a front** (toFrontProduct, toFrontSale, toFrontPublicOrder, transforms de finanzas/auditoría) y 3 hacen `Promise.all` multi-endpoint con sets distintos.
+
+Lo que SÍ era duplicación real — el esqueleto try/catch + log + boolean — quedó en un solo lugar.
+
+### Evidencia
+
+- `npm run lint` (tsc --noEmit): 0 errores.
+- `npm test` (vitest): **48/48**.
+- `npm run build`: OK (595.90 kB, warning de chunk preexistente).
