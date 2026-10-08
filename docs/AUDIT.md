@@ -42,7 +42,7 @@ El código está **bien encuadrado**: señales de nivel senior en seguridad y co
 | `loadAll` pide 3 endpoints (users/roles/audit) a todo usuario autenticado → banner de error para no-admins; navegación sin gating de permisos | ✅ Verificado (2026-10-07) — resuelto en `3d19ce2`: `loadAll` gatea cada fetch con `can(p, ...)` (el fetch salteado no es error), sidebar filtra cada ítem por `VIEW_PERMISSIONS` y una vista sin permiso muestra panel amigable en vez de tablas vacías. Ver sección "loadAll y gating de navegación (2026-10-07)" |
 | Endpoints vivos sin UI: `/api/clients`, edit/delete de products/suppliers | ✅ Decidido (2026-10-07) — la API conserva el CRUD completo como contrato (todo permissionado y testeado); la UI cubre lo que el producto hoy necesita (listas, alta de producto/cliente/proveedor, POS). No se agregan vistas de gestión sin pedido del producto ni se borran endpoints que no estorban. Ver sección "imageUrl, CRUD sin UI y multi-warehouse (2026-10-07)" |
 | `imageUrl` renderizado sin columna en el schema | ✅ Verificado (2026-10-07) — el campo ya no existe en Prisma ni en el frontend (0 referencias en `src/` y `server/`); la fila era residual. Ver sección "imageUrl, CRUD sin UI y multi-warehouse (2026-10-07)" |
-| Test de webhook MP con fixture grabado (body + firma reales) | ⚠️ Recomendado antes de depender de producción — hoy la suite ejerce el path con firmas sintéticas |
+| Test de webhook MP con fixture grabado (body + firma reales) | ✅ Resuelto (2026-10-08) — fixture `server/test/fixtures/mp-payment-webhook.json` con body crudo documentado de MP (whitespace no-minificado a propósito) + test que firma sobre los **bytes exactos**, verifica que el payload se persiste TAL CUAL (regresión de `31f3b6a`: un handler que re-serializara guardaría otra cadena), replay → duplicate, y firma con token ajeno → 401. Ver sección "Webhook MP con fixture real (2026-10-08)" |
 | `trust proxy 1` | ✅ Verificado por topología: la API corre en Railway tras exactamente un proxy TLS; no es un defecto en ese despliegue |
 | Webhook `eventId` fallback `evt-${Date.now()}` rompe idempotencia si faltan ambos IDs | ⚠️ Menor — decidir si rechazar el evento en vez de inventar ID |
 | Registro: `registerSchema` defaulteaba `USD` pese a moneda canónica ARS | ✅ Resuelto (Fase 0): default → `ARS` en `server/src/routes/auth.routes.ts` |
@@ -1046,3 +1046,24 @@ De las filas que quedaban reales, 4 resultaron **ya resueltas por verificación*
 
 - Commit `d80242f` "fix(ui): chips de auditoria reales y clean cross-platform".
 - Gates: `tsc --noEmit` 0, vitest **48/48**, `npm run clean` verificado en Windows, `git diff --check` limpio.
+
+## Webhook MP con fixture real (2026-10-08)
+
+### Qu� se agreg�
+
+- `server/test/fixtures/mp-payment-webhook.json`: body crudo de un webhook `payment` de Mercado Pago en el formato documentado (action/api_version/application_id/data/date_created/id/live_mode/type/user_id), con whitespace no-minificado a prop�sito (`"action" : ...`).
+- Test nuevo en `server/test/mp-collection.test.ts` que ejerce el path con EL fixture: crea venta abierta, mockea `GET /v1/payments/:id` (MP detail � el webhook no conf�a en el body), firma con el algoritmo real X-Signature sobre los bytes exactos, y valida:
+  1. Webhook acepta y devuelve `collection_approved`; el documento pasa a `Pagado`.
+  2. `billingEvent.payload` persiste **id�ntico** al body crudo (regresi�n de `31f3b6a`).
+  3. Replay con el mismo `data.id` ? `duplicate`.
+  4. Firma con token ajeno ? `401` y no toca la base.
+
+### El hallazgo pr�ctico de la fila
+
+La firma de MP hashea solo `id;request-id;ts` (no el body completo), as� que el riesgo real de 'firmas sint�ticas' era que el handler re-serializara el body: el manifest seguir�a matcheando `data.id`, pero el `payload` persistido y el body que MP re-entregue dejar�an de ser byte-id�nticos. El assertion clave (2) atrapa exactamente eso.
+
+### Evidencia
+
+- Suite focalizada `mp-collection.test.ts`: **7/7 pass**.
+- Suite server completa: **87/88** (�nico fail: `branch-boundaries.test.ts:141`, preexistente conocido � NO tocar).
+- `tsc --noEmit`: 0 errores.

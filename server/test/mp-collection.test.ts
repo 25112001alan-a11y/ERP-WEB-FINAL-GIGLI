@@ -1,11 +1,24 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { app } from '../src/app.js';
 import { prisma } from '../src/lib/prisma.js';
 import { collectionReference, parseCollectionReference } from '../src/lib/billing.js';
+
+/**
+ * Fixture "grabado": body crudo de un webhook `payment` real de Mercado Pago
+ * (formato y orden documentados por MP, whitespace no-minificado a propósito).
+ * El test firma y postea ESTOS bytes exactos; si el handler re-serializara el
+ * body antes de validar la firma (bug 31f3b6a), la firma dejaría de coincidir.
+ */
+const FIXTURE_PATH = fileURLToPath(
+  new URL('./fixtures/mp-payment-webhook.json', import.meta.url),
+);
+const MP_FIXTURE_DATA_ID = '1496693053';
 
 // Fase E: cobro MP real (Checkout Pro preferences) para VENTA de mostrador.
 // Se mockea SOLO api.mercadopago.com; el resto pasa al fetch real.
@@ -80,12 +93,12 @@ async function api(path: string, options: RequestInit = {}, token?: string) {
 const createdDocs: { id: number; productId: number; warehouseId: number; qty: number }[] = [];
 const createdEventIds: string[] = [];
 
-/** Replica el algoritmo X-Signature de MP con token conocido. */
-function mpHeaders(dataId: string) {
+/** Replica el algoritmo X-Signature de MP, opcionalmente con otro token. */
+function mpHeaders(dataId: string, token: string = MP_TEST_TOKEN) {
   const xRequestId = `req-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
   const ts = String(Math.floor(Date.now() / 1000));
   const manifest = `id:${dataId};request-id:${xRequestId};ts:${ts};`;
-  const v1 = createHmac('sha256', MP_TEST_TOKEN).update(manifest).digest('hex');
+  const v1 = createHmac('sha256', token).update(manifest).digest('hex');
   return { 'x-signature': `ts=${ts};v1=${v1}`, 'x-request-id': xRequestId };
 }
 
@@ -224,6 +237,67 @@ test('GET /payments/:id con search approved → approved y marca Pagado', async 
       select: { status: true },
     });
     assert.equal(updated?.status, 'Pagado');
+  } finally {
+    restoreFetch();
+  }
+});
+
+test('webhook con fixture real de MP: firma valida sobre bytes crudos, payload persistido intacto, replay es duplicate', async () => {
+  const { token, companyId } = await login();
+  const doc = await createOpenSale(token, 'fixture');
+
+  // Fixture "grabado": una corrida previa caída no debe contaminar la idempotencia.
+  await prisma.billingEvent.deleteMany({ where: { eventId: MP_FIXTURE_DATA_ID } });
+
+  const rawBody = readFileSync(FIXTURE_PATH, 'utf8');
+  const ref = collectionReference(companyId, doc.id);
+  // El detail de MP se lee de la API (el webhook NO confía en el body).
+  mockMp({ paymentDetail: { id: MP_FIXTURE_DATA_ID, status: 'approved', external_reference: ref } });
+  try {
+    // Headers firmados sobre el body crudo, tal como los genera MP.
+    const headers = mpHeaders(MP_FIXTURE_DATA_ID);
+    const r1 = await fetch(`${base}/api/billing/webhook`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...headers },
+      body: rawBody,
+    });
+    const json = (await r1.json()) as { action: string };
+    assert.equal(r1.status, 200, JSON.stringify(json));
+    assert.equal(json.action, 'collection_approved', JSON.stringify(json));
+    createdEventIds.push(MP_FIXTURE_DATA_ID);
+
+    // Los bytes crudos del fixture deben persistirse TAL CUAL: un handler que
+    // re-serializara el body (JSON.stringify) guardaría otra cadena y rompería
+    // la firma de MP. Este assertion es la regresión de 31f3b6a.
+    const stored = await prisma.billingEvent.findUnique({
+      where: { eventId: MP_FIXTURE_DATA_ID },
+      select: { payload: true },
+    });
+    assert.equal(stored?.payload, rawBody, 'payload persisted must be the exact raw fixture bytes');
+
+    // El documento quedó pagado.
+    const updated = await prisma.document.findUnique({
+      where: { id: doc.id },
+      select: { status: true },
+    });
+    assert.equal(updated?.status, 'Pagado');
+
+    // Replay con el mismo body → duplicate (idempotencia por data.id).
+    const r2 = await fetch(`${base}/api/billing/webhook`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...mpHeaders(MP_FIXTURE_DATA_ID) },
+      body: rawBody,
+    });
+    const dup = (await r2.json()) as { action: string };
+    assert.equal(dup.action, 'duplicate', JSON.stringify(dup));
+
+    // Una firma inválida (token distinto) nunca debe tocar la base.
+    const tampered = await fetch(`${base}/api/billing/webhook`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...mpHeaders(MP_FIXTURE_DATA_ID, 'wrong-token') },
+      body: rawBody,
+    });
+    assert.equal(tampered.status, 401, 'invalid signature must be rejected');
   } finally {
     restoreFetch();
   }
