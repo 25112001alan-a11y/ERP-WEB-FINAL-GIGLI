@@ -138,14 +138,11 @@ test('derived lines reject overridden unitPrice/discount but accept absent ones'
 
     const derive = (unitPrice?: number) =>
       api(
-        '/api/documents',
+        `/api/documents/${pedidoId}/dispatch`,
         {
           method: 'POST',
           body: JSON.stringify({
-            type: 'REMITO',
-            direction: 'egreso',
             series: `R${String(stamp).slice(-8)}`,
-            sourceDocumentId: pedidoId,
             warehouseId: stock.warehouseId,
             items: [
               {

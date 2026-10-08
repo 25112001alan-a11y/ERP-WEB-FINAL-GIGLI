@@ -76,13 +76,10 @@ test('concurrent order dispatch moves stock once and failed dispatch rolls back'
     await new Promise<void>((resolve) => server.once('listening', resolve));
     const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
     const dispatch = async (sourceId: number, items: { productId: number; sourceDocumentItemId: number; quantity: number }[]) => {
-      const response = await fetch(`${base}/api/documents`, {
+      const response = await fetch(`${base}/api/documents/${sourceId}/dispatch`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          type: 'REMITO', direction: 'egreso', sourceDocumentId: sourceId,
-          warehouseId: warehouse.id, items,
-        }),
+        body: JSON.stringify({ warehouseId: warehouse.id, items }),
       });
       return { status: response.status, body: await response.json() };
     };

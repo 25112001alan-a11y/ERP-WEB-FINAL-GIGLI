@@ -733,8 +733,6 @@ branchReady && can(p, 'inventario.leer') ? loadWarehouses() : true,
   const handleCreateFactura = async (payload: CreateFacturaPayload) => {
     try {
       const body: Record<string, unknown> = {
-        type: 'FACTURA',
-        direction: payload.direction,
         series: 'A',
         items: payload.items,
         invoice: {
@@ -747,19 +745,26 @@ branchReady && can(p, 'inventario.leer') ? loadWarehouses() : true,
         paymentMethod: payload.paymentMethod,
         notes: payload.notes,
       };
+      // F1.4: la factura derivada sale del comando /:id/invoice, que infiere
+      // dirección y contraparte del origen. La factura manual (borrador
+      // compatible) sigue por el POST genérico con su contraparte explícita.
       if (payload.sourceDocumentId) {
-        body.sourceDocumentId = payload.sourceDocumentId;
-      } else if (payload.direction === 'ingreso') {
-        if (!payload.supplierId) throw new Error('Seleccione el proveedor de la factura.');
-        body.supplierId = payload.supplierId;
+        await apiFetch(`/api/documents/${payload.sourceDocumentId}/invoice`, { method: 'POST', body });
       } else {
-        if (!payload.clientId && !payload.clientName) {
-          throw new Error('Seleccione el cliente de la factura.');
+        body.type = 'FACTURA';
+        body.direction = payload.direction;
+        if (payload.direction === 'ingreso') {
+          if (!payload.supplierId) throw new Error('Seleccione el proveedor de la factura.');
+          body.supplierId = payload.supplierId;
+        } else {
+          if (!payload.clientId && !payload.clientName) {
+            throw new Error('Seleccione el cliente de la factura.');
+          }
+          body.clientId = payload.clientId;
+          body.clientName = payload.clientName;
         }
-        body.clientId = payload.clientId;
-        body.clientName = payload.clientName;
+        await apiFetch('/api/documents', { method: 'POST', body });
       }
-      await apiFetch('/api/documents', { method: 'POST', body });
       await loadAll();
     } catch (err) {
       console.error('No se pudo registrar la factura', err);
@@ -778,13 +783,10 @@ branchReady && can(p, 'inventario.leer') ? loadWarehouses() : true,
 
   const handleRegisterRemitoSalida = async (payload: RegisterRemitoSalidaPayload) => {
     try {
-      await apiFetch('/api/documents', {
+      await apiFetch(`/api/documents/${payload.sourceDocumentId}/dispatch`, {
         method: 'POST',
         body: {
-          type: 'REMITO',
-          direction: payload.direction,
           series: 'A',
-          sourceDocumentId: payload.sourceDocumentId,
           warehouseId: payload.warehouseId,
           items: payload.items,
           externalNumber: payload.externalNumber,

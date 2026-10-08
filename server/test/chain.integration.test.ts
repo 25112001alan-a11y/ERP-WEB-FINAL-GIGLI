@@ -129,14 +129,11 @@ test('chain: OC -> receive (REMITO) -> FACTURA', { skip: !RUN }, async () => {
 
   // 3) Register the supplier invoice chained to the REMITO.
   const factura = await api(
-    '/api/documents',
+    `/api/documents/${remito.id}/invoice`,
     {
       method: 'POST',
       body: JSON.stringify({
-        type: 'FACTURA',
         series: 'A',
-        supplierId,
-        sourceDocumentId: remito.id,
         externalNumber: '0004-99999999',
         invoice: {
           invoiceType: 'A',

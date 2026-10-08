@@ -194,6 +194,11 @@ test('derived invoices and delivery notes enforce direction, source identity and
     value: mock.fn(async () => 0),
     configurable: true,
   });
+  // F1.4: los comandos validan el origen en la ruta con el cliente global.
+  Object.defineProperty(prisma.document, 'findFirst', {
+    value: mock.fn(async () => source),
+    configurable: true,
+  });
   Object.defineProperty(prisma, '$transaction', { value: transaction, configurable: true });
 
   const server: Server = app.listen(0);
@@ -220,29 +225,34 @@ test('derived invoices and delivery notes enforce direction, source identity and
       });
       return { status: response.status, body: await response.json() as { error?: string } };
     };
-    const invoice = (overrides: Record<string, unknown> = {}) => ({
-      type: 'FACTURA',
-      direction: 'egreso',
-      sourceDocumentId: 10,
-      items: [{ productId: 7, quantity: 2, unitPrice: 999 }],
-      invoice: { invoiceType: 'A' },
-      ...overrides,
-    });
-    const delivery = (overrides: Record<string, unknown> = {}) => ({
-      type: 'REMITO',
-      direction: 'egreso',
-      sourceDocumentId: 10,
-      // Derived lines carry no price overrides: price/tax/discount are inherited
-      // from the source (a mismatched unitPrice is rejected with a 400 now).
-      items: [{ productId: 7, quantity: 2 }],
-      ...overrides,
-    });
+    // F1.4: los documentos derivados se crean por los comandos operativos, no
+    // por el POST genérico. dispatch e invoice fijan tipo, dirección y origen
+    // en la ruta; el body solo aporta ítems (e invoiceData para la FACTURA).
+    const command = async (path: string, body: Record<string, unknown>) => {
+      const response = await fetch(`${base}/api/documents${path}`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      return { response, body: await response.json() as { error?: string } };
+    };
+    const invoice = (overrides: Record<string, unknown> = {}) =>
+      command('/10/invoice', {
+        items: [{ productId: 7, quantity: 2 }],
+        invoice: { invoiceType: 'A' },
+        ...overrides,
+      });
+    const delivery = (overrides: Record<string, unknown> = {}) =>
+      command('/10/dispatch', {
+        items: [{ productId: 7, quantity: 2 }],
+        ...overrides,
+      });
 
-    let result: Awaited<ReturnType<typeof post>>;
+    let result: Awaited<ReturnType<typeof command>>;
     source = { ...sale(), type: DocumentType.PEDIDO, warehouseId: null };
     children = [];
     events.length = 0;
-    result = await post(delivery({ warehouseId: 3, items: [{ productId: 7, sourceDocumentItemId: 101, quantity: 2 }] }));
+    result = await delivery({ warehouseId: 3, items: [{ productId: 7, sourceDocumentItemId: 101, quantity: 2 }] });
     assert.equal(result.response.status, 201);
     assert.equal(events[0], 'lock-source', 'the source lock must precede any nonlocking transaction read');
     assert.ok(events.indexOf('lock-source') < events.indexOf('read-warehouse'));
@@ -258,58 +268,52 @@ test('derived invoices and delivery notes enforce direction, source identity and
     const cancelAfterPartial = await patchStatus('Anulado');
     assert.equal(cancelAfterPartial.status, 409, JSON.stringify(cancelAfterPartial.body));
     assert.equal(source.status, 'Abierto');
-    result = await post(delivery({ warehouseId: 3, items: [{ productId: 7, sourceDocumentItemId: 101, quantity: 3 }] }));
+    result = await delivery({ warehouseId: 3, items: [{ productId: 7, sourceDocumentItemId: 101, quantity: 3 }] });
     assert.equal(result.response.status, 201);
     assert.equal(stockQuantity, 0);
     assert.equal(movements.length, 2);
     assert.equal(source.status, 'Enviado');
     assert.deepEqual(sourceUpdates, ['Enviado']);
     children.push({ type: DocumentType.REMITO, items: [{ productId: 7, sourceDocumentItemId: 101, quantity: 3 }] });
-    result = await post(delivery({ warehouseId: 3, items: [{ productId: 7, sourceDocumentItemId: 101, quantity: 1 }] }));
+    result = await delivery({ warehouseId: 3, items: [{ productId: 7, sourceDocumentItemId: 101, quantity: 1 }] });
     assert.equal(result.response.status, 409);
     assert.equal(stockQuantity, 0);
     assert.equal(movements.length, 2);
     children = [];
-    result = await post(delivery({ items: [{ productId: 7, sourceDocumentItemId: 101, quantity: 1 }] }));
+    result = await delivery({ items: [{ productId: 7, sourceDocumentItemId: 101, quantity: 1 }] });
     assert.equal(result.response.status, 400);
     warehouseBranchId = 4;
-    result = await post(delivery({ warehouseId: 3, items: [{ productId: 7, sourceDocumentItemId: 101, quantity: 1 }] }));
+    result = await delivery({ warehouseId: 3, items: [{ productId: 7, sourceDocumentItemId: 101, quantity: 1 }] });
     assert.equal(result.response.status, 409);
     assert.equal(movements.length, 2);
     warehouseBranchId = 2;
     stockQuantity = 0;
     allowOversell = true;
-    result = await post(delivery({ warehouseId: 3, items: [{ productId: 7, sourceDocumentItemId: 101, quantity: 1 }] }));
+    result = await delivery({ warehouseId: 3, items: [{ productId: 7, sourceDocumentItemId: 101, quantity: 1 }] });
     assert.equal(result.response.status, 409);
     assert.equal(movements.length, 2);
     allowOversell = false;
     stockQuantity = 5;
     source = sale();
-    result = await post(delivery());
+    result = await delivery();
     assert.equal(result.response.status, 201);
     assert.equal(stockQuantity, 5, 'a POS sale must not be deducted twice');
     assert.equal(movements.length, 2);
     events.length = 0;
 
     permissions = ['compras.escribir'];
-    result = await post(invoice());
+    result = await invoice();
     assert.equal(result.response.status, 403);
     assert.equal(result.body.error, 'Permiso requerido: ventas.escribir');
-    result = await post(delivery());
+    result = await delivery();
     assert.equal(result.response.status, 403);
     assert.equal(result.body.error, 'Permiso requerido: ventas.escribir');
 
     permissions = ['ventas.escribir'];
     source = supplierReceipt();
-    result = await post(invoice({ direction: 'ingreso', sourceDocumentId: 30 }));
-    assert.equal(result.response.status, 403);
-    assert.equal(result.body.error, 'Permiso requerido: compras.escribir');
-    result = await post({
-      type: 'REMITO',
-      direction: 'ingreso',
-      supplierId: 40,
-      warehouseId: 3,
+    result = await command('/30/invoice', {
       items: [{ productId: 7, quantity: 1 }],
+      invoice: { invoiceType: 'A' },
     });
     assert.equal(result.response.status, 403);
     assert.equal(result.body.error, 'Permiso requerido: compras.escribir');
@@ -329,36 +333,32 @@ test('derived invoices and delivery notes enforce direction, source identity and
     permissions = ['ventas.escribir'];
     source = sale();
     children = [];
-    result = await post(invoice({ clientId: 21 }));
-    assert.equal(result.response.status, 409);
-    assert.equal(result.body.error, 'El cliente no coincide con el documento origen');
-
     const transactionCountBeforeDuplicate = transaction.mock.callCount();
-    result = await post(invoice({
+    result = await invoice({
       items: [
         { productId: 7, quantity: 1 },
         { productId: 7, quantity: 1 },
       ],
-    }));
+    });
     assert.equal(result.response.status, 400);
     assert.equal(result.body.error, 'No se puede repetir el mismo producto en un FACTURA derivado');
     assert.equal(transaction.mock.callCount(), transactionCountBeforeDuplicate);
 
-    result = await post(invoice({ items: [{ productId: 8, quantity: 1 }] }));
+    result = await invoice({ items: [{ productId: 8, quantity: 1 }] });
     assert.equal(result.response.status, 400);
     assert.equal(result.body.error, 'El producto 8 no pertenece al documento origen');
 
     source.items.push({ ...source.items[0]!, id: 102, quantity: 4 });
-    result = await post(invoice({ items: [{ productId: 7, quantity: 1 }] }));
+    result = await invoice({ items: [{ productId: 7, quantity: 1 }] });
     assert.equal(result.response.status, 400);
     assert.match(result.body.error ?? '', /varias líneas de origen/);
-    result = await post(invoice({ items: [{ productId: 7, sourceDocumentItemId: 102, quantity: 1 }] }));
+    result = await invoice({ items: [{ productId: 7, sourceDocumentItemId: 102, quantity: 1 }] });
     assert.equal(result.response.status, 201);
     const linkedItems = (createdData?.items as { create: { sourceDocumentItemId: number }[] }).create;
     assert.equal(linkedItems[0]?.sourceDocumentItemId, 102);
     source.items.pop();
 
-    result = await post(invoice({ items: [{ productId: 7, quantity: 6 }] }));
+    result = await invoice({ items: [{ productId: 7, quantity: 6 }] });
     assert.equal(result.response.status, 409);
     assert.equal(result.body.error, 'La cantidad de la línea de origen 101 supera el saldo pendiente (5)');
 
@@ -366,7 +366,7 @@ test('derived invoices and delivery notes enforce direction, source identity and
       type: DocumentType.FACTURA,
       items: [{ productId: 7, quantity: 3 }],
     }];
-    result = await post(invoice({ items: [{ productId: 7, quantity: 3 }] }));
+    result = await invoice({ items: [{ productId: 7, quantity: 3 }] });
     assert.equal(result.response.status, 409);
     assert.equal(result.body.error, 'La cantidad de la línea de origen 101 supera el saldo pendiente (2)');
 
@@ -374,7 +374,7 @@ test('derived invoices and delivery notes enforce direction, source identity and
       type: DocumentType.REMITO,
       items: [{ productId: 7, quantity: 1 }],
     }];
-    result = await post(invoice());
+    result = await invoice();
     assert.equal(result.response.status, 409);
     assert.equal(result.body.error, 'La VENTA ya tiene remito; facture desde el REMITO correspondiente');
 
@@ -382,7 +382,7 @@ test('derived invoices and delivery notes enforce direction, source identity and
       type: DocumentType.FACTURA,
       items: [{ productId: 7, quantity: 1 }],
     }];
-    result = await post(delivery());
+    result = await delivery();
     assert.equal(result.response.status, 409);
     assert.equal(result.body.error, 'La VENTA ya fue facturada directamente y no admite un REMITO posterior');
 
@@ -392,11 +392,11 @@ test('derived invoices and delivery notes enforce direction, source identity and
     }];
     events.length = 0;
     createdData = null;
-    result = await post(invoice({ items: [{ productId: 7, quantity: 2, unitPrice: 999 }] }));
+    result = await invoice({ items: [{ productId: 7, quantity: 2, unitPrice: 999 }] });
     assert.equal(result.response.status, 400);
     assert.match(result.body.error ?? '', /hereda el precio/);
     createdData = null;
-    result = await post(invoice({ items: [{ productId: 7, quantity: 2 }] }));
+    result = await invoice({ items: [{ productId: 7, quantity: 2 }] });
     assert.equal(result.response.status, 201);
     assert.ok(events.indexOf('lock-source') < events.indexOf('read-source'));
     assert.ok(events.indexOf('read-source') < events.indexOf('read-children'));
@@ -412,11 +412,10 @@ test('derived invoices and delivery notes enforce direction, source identity and
     source = supplierReceipt();
     children = [];
     createdData = null;
-    result = await post(invoice({
-      direction: 'ingreso',
-      sourceDocumentId: 30,
+    result = await command('/30/invoice', {
       items: [{ productId: 7, quantity: 1 }],
-    }));
+      invoice: { invoiceType: 'A' },
+    });
     assert.equal(result.response.status, 201);
     assert.equal(createdData?.supplierId, 40);
     assert.equal(createdData?.clientId, undefined);
@@ -445,6 +444,7 @@ test('derived invoices and delivery notes enforce direction, source identity and
     Reflect.deleteProperty(prisma.user, 'findUnique');
     Reflect.deleteProperty(prisma.companySubscription, 'findUnique');
     Reflect.deleteProperty(prisma.document, 'count');
+    Reflect.deleteProperty(prisma.document, 'findFirst');
     Reflect.deleteProperty(prisma, '$transaction');
   }
 });

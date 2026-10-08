@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import multer from 'multer';
 import fs from 'node:fs';
@@ -441,7 +441,11 @@ router.patch('/:id/status', requireAnyPermission('ventas.escribir', 'compras.esc
  * Other types are created without stock side effects.
  * Fiscal numbering is auto-incremented per (companyId, type, series).
  */
-router.post('/', requireAnyPermission('ventas.escribir', 'compras.escribir'), async (req, res) => {
+const crearDocumentoOperativo = async (
+  req: Request,
+  res: Response,
+  esComando = false,
+): Promise<void> => {
   // SaaS plan gate: the Free plan caps monthly document creation.
   try {
     await assertDocCreationAllowed(req.authUser!.companyId);
@@ -533,6 +537,23 @@ router.post('/', requireAnyPermission('ventas.escribir', 'compras.escribir'), as
   ) {
     res.status(400).json({
       error: 'Use POST /api/documents/:id/receive para recibir una orden de compra',
+    });
+    return;
+  }
+  // F1.4: los comandos operativos son la autoridad para los documentos
+  // derivados. El POST genérico queda para borradores compatibles (OC, PEDIDO,
+  // COTIZACION, VENTA, COMPRA y facturas manuales sin origen). Los comandos
+  // vuelven a entrar por aquí con esComando=true (dispatch/invoice ya fijaron
+  // tipo, dirección y origen y validaron el source).
+  if (!esComando && type === DocumentType.REMITO) {
+    res.status(409).json({
+      error: 'Los remitos se registran con POST /api/documents/:id/receive o /:id/dispatch',
+    });
+    return;
+  }
+  if (!esComando && type === DocumentType.FACTURA && data.sourceDocumentId) {
+    res.status(409).json({
+      error: 'Las facturas derivadas se registran con POST /api/documents/:id/invoice',
     });
     return;
   }
@@ -1412,6 +1433,77 @@ router.post('/', requireAnyPermission('ventas.escribir', 'compras.escribir'), as
   });
 
   res.status(replayed ? 200 : 201).json(result);
+};
+
+router.post('/', requireAnyPermission('ventas.escribir', 'compras.escribir'), (req: Request, res: Response) => crearDocumentoOperativo(req, res));
+
+/**
+ * POST /api/documents/:id/dispatch (F1.4)
+ * Despacha una VENTA o un PEDIDO creando el REMITO (egreso) chained al origen.
+ * Es la autoridad para los remitos de salida: reutiliza la creación operativa
+ * fijando el tipo, la dirección y el origen desde la ruta (el body no los cambia).
+ */
+router.post('/:id/dispatch', requireAnyPermission('ventas.escribir', 'compras.escribir'), async (req: Request, res: Response) => {
+  const sourceId = parsePositiveInt(req.params.id);
+  if (sourceId === null) {
+    res.status(400).json({ error: 'Parámetro inválido' });
+    return;
+  }
+  const existing = await prisma.document.findFirst({
+    where: { id: sourceId, ...documentBranchWhere(req) },
+    select: { id: true, type: true },
+  });
+  if (!existing) {
+    res.status(400).json({ error: 'Documento origen no válido' });
+    return;
+  }
+  if (existing.type !== DocumentType.VENTA && existing.type !== DocumentType.PEDIDO) {
+    res.status(400).json({
+      error: 'Solo se despachan VENTA o PEDIDO con un remito de salida',
+    });
+    return;
+  }
+  req.body.type = DocumentType.REMITO;
+  req.body.direction = 'egreso';
+  req.body.sourceDocumentId = sourceId;
+  await crearDocumentoOperativo(req, res, true);
+});
+
+/**
+ * POST /api/documents/:id/invoice (F1.4)
+ * Factura cualquier documento de cliente o proveedor (VENTA, OC, COMPRA,
+ * REMITO en ambos sentidos). La dirección se infiere de la contraparte del
+ * origen: el body no puede elegir un origen ni cambiar la dirección.
+ */
+router.post('/:id/invoice', requireAnyPermission('ventas.escribir', 'compras.escribir'), async (req: Request, res: Response) => {
+  const sourceId = parsePositiveInt(req.params.id);
+  if (sourceId === null) {
+    res.status(400).json({ error: 'Parámetro inválido' });
+    return;
+  }
+  const source = await prisma.document.findFirst({
+    where: { id: sourceId, ...documentBranchWhere(req) },
+    select: { clientId: true, supplierId: true, type: true },
+  });
+  if (!source) {
+    res.status(400).json({ error: 'Documento origen no válido' });
+    return;
+  }
+  if (source.clientId == null && source.supplierId == null) {
+    res.status(400).json({
+      error: 'El documento origen debe tener un cliente o un proveedor',
+    });
+    return;
+  }
+  req.body.type = DocumentType.FACTURA;
+  req.body.direction = source.clientId != null ? 'egreso' : 'ingreso';
+  req.body.sourceDocumentId = sourceId;
+  // La contraparte la define el origen; el body no puede inventar otra.
+  delete req.body.clientId;
+  delete req.body.clientName;
+  delete req.body.supplierId;
+  delete req.body.supplierName;
+  await crearDocumentoOperativo(req, res, true);
 });
 
 const receiveSchema = z.object({
