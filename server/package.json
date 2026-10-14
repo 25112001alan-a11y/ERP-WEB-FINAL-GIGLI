@@ -10,6 +10,7 @@
     "test": "node --import tsx --import ./test/setup.ts --test test/*.test.ts",
     "prisma:seed": "tsx prisma/seed.ts",
     "prisma:seed:ar": "tsx prisma/seed-ar-demo.ts",
+    "prisma:seed:platform": "tsx prisma/seed-platform-admin.ts",
     "audit:enviado": "tsx src/auditEnviado.ts"
   },
   "prisma": {

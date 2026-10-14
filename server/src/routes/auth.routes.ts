@@ -126,6 +126,15 @@ router.post('/register', async (req, res) => {
     return;
   }
 
+  // A platform admin is staff, never a company admin: its email is reserved and
+  // cannot register a tenant account. Same generic 409 to avoid disclosing which
+  // emails are platform staff.
+  const platformClash = await prisma.platformUser.findUnique({ where: { email: data.email } });
+  if (platformClash) {
+    res.status(409).json({ error: 'El email ya está registrado' });
+    return;
+  }
+
   const passwordHash = await bcrypt.hash(data.password, 10);
 
   // Onboarding is all-or-nothing: a half-created company (no role/user) would be

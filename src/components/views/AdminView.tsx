@@ -246,7 +246,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ users, roles, permissions,
           {activeTab === 'usuarios' && (
             <div className="space-y-md">
               <div className="flex justify-between items-center">
-                <p className="font-body-md text-on-surface-variant">Listado de usuarios registrados en la plataforma.</p>
+                <p className="font-body-md text-on-surface-variant">Listado de usuarios registrados en la empresa.</p>
                 <button
                   onClick={() => onNavigate('nuevo-usuario')}
                   className="px-md py-xs bg-primary text-on-primary font-label-md text-xs rounded-lg cursor-pointer"

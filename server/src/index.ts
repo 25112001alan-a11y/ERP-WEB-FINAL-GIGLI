@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { runMigrations, ensureSeeded, runDemoSeed } from './bootstrap.js';
+import { runMigrations, ensureSeeded, ensurePlatformAdmin, runDemoSeed } from './bootstrap.js';
 import { sweepOrphanAttachments } from './lib/uploads.js';
 import { backfillCompanySlugs } from './lib/slug.js';
 import { ensureCompanySubscriptions } from './lib/billing.js';
@@ -15,6 +15,7 @@ async function start() {
   await ensureCompanySubscriptions();
   await sweepOrphanAttachments();
   runDemoSeed();
+  ensurePlatformAdmin();
   app.listen(PORT, () => {
     console.log(`nexus-erp-api listening on http://localhost:${PORT}`);
   });

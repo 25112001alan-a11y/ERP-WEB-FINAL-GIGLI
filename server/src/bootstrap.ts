@@ -65,3 +65,18 @@ export function runDemoSeed(): void {
   execFileSync(process.execPath, [TSX_CLI, 'prisma/seed-ar-demo.ts'], { stdio: 'inherit', cwd: CWD });
   console.log('[bootstrap] demo seed complete');
 }
+
+/**
+ * Ensures a NEXUS platform admin exists, driven purely by environment
+ * credentials (PLATFORM_ADMIN_EMAIL / PLATFORM_ADMIN_PASSWORD). Idempotent and
+ * independent of SKIP_SEED: platform staff are not demo data. No-op when the
+ * credentials are absent, so this is safe to call on every boot.
+ */
+export function ensurePlatformAdmin(): void {
+  if (!process.env.PLATFORM_ADMIN_EMAIL || !process.env.PLATFORM_ADMIN_PASSWORD) {
+    return;
+  }
+  console.log('[bootstrap] PLATFORM_ADMIN_* set — ensuring platform admin...');
+  execFileSync(process.execPath, [TSX_CLI, 'prisma/seed-platform-admin.ts'], { stdio: 'inherit', cwd: CWD });
+  console.log('[bootstrap] platform admin OK');
+}
