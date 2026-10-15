@@ -19,11 +19,18 @@ test('platform companies expose only selected fields with bounded database pagin
     assert.deepEqual(orderBy, { id: 'asc' });
     return rows.toSorted((a, b) => a.id - b.id).slice(skip, skip + take);
   });
-  const findUnique = mock.fn(async ({ where, select }: { where: { id: number }; select: Record<string, boolean> }) => {
-    assert.deepEqual(select, { id: true, name: true, slug: true, legalName: true, currency: true, timezone: true, createdAt: true });
+  const findUnique = mock.fn(async ({ where, select }: { where: { id: number }; select: Record<string, unknown> }) => {
+    assert.deepEqual(select, {
+      id: true, name: true, slug: true, legalName: true, taxId: true, address: true,
+      province: true, postalCode: true, taxCondition: true, currency: true, timezone: true,
+      createdAt: true, updatedAt: true,
+      subscription: { select: { status: true, currentPeriodStart: true, currentPeriodEnd: true, cancelAtPeriodEnd: true, plan: { select: { code: true, name: true, priceMonthly: true } } } },
+    });
     return where.id === 1 ? {
-      id: 1, name: 'First', slug: 'first', legalName: 'First Ltd', currency: 'ARS', timezone: null,
-      createdAt: new Date('2026-01-01T00:00:00Z'),
+      id: 1, name: 'First', slug: 'first', legalName: 'First Ltd', taxId: null, address: null,
+      province: null, postalCode: null, taxCondition: null, currency: 'ARS', timezone: null,
+      createdAt: new Date('2026-01-01T00:00:00Z'), updatedAt: new Date('2026-01-02T00:00:00Z'),
+      subscription: { status: 'active', currentPeriodStart: null, currentPeriodEnd: null, cancelAtPeriodEnd: false, plan: { code: 'free', name: 'Gratis', priceMonthly: 0 } },
     } : null;
   });
   const count = mock.fn(async () => 2);
@@ -74,12 +81,53 @@ test('platform companies expose only selected fields with bounded database pagin
     const detail = await get('/1', platform);
     assert.equal(detail.status, 200);
     assert.deepEqual(await detail.json(), {
-      id: 1, name: 'First', slug: 'first', legalName: 'First Ltd', currency: 'ARS', timezone: null,
-      createdAt: '2026-01-01T00:00:00.000Z',
+      id: 1, name: 'First', slug: 'first', legalName: 'First Ltd', taxId: null, address: null,
+      province: null, postalCode: null, taxCondition: null, currency: 'ARS', timezone: null,
+      createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-02T00:00:00.000Z',
+      subscription: { status: 'active', currentPeriodStart: null, currentPeriodEnd: null, cancelAtPeriodEnd: false, plan: { code: 'free', name: 'Gratis', priceMonthly: 0 } },
     });
     assert.equal((await get('/999', platform)).status, 404);
     assert.equal(count.mock.callCount(), 3);
     assert.equal(tenantLookup.mock.callCount(), 0);
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((err) => err ? reject(err) : resolve()));
+    for (const [delegate, method] of stubs) Reflect.deleteProperty(delegate, method);
+  }
+});
+
+test('platform company filters build the where clause and reject invalid values', async () => {
+  const principal = mock.fn(async () => ({ id: 1, email: 'platform@example.test', status: 'Activo' }));
+  const seen: unknown[] = [];
+  const findMany = mock.fn(async ({ where }: { where: unknown }) => { seen.push(where); return []; });
+  const count = mock.fn(async ({ where }: { where: unknown }) => { assert.deepEqual(where, seen.at(-1)); return 0; });
+  const stubs: [object, string, Function][] = [
+    [prisma.platformUser, 'findUnique', principal], [prisma.company, 'findMany', findMany], [prisma.company, 'count', count],
+  ];
+  for (const [delegate, method, fn] of stubs) Object.defineProperty(delegate, method, { value: fn, configurable: true });
+  const server = app.listen(0);
+  try {
+    await new Promise<void>((resolve) => server.once('listening', resolve));
+    const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/platform/companies`;
+    const platform = signPlatformToken(1);
+    const get = (path: string) => fetch(`${base}${path}`, { headers: { authorization: `Bearer ${platform}` } });
+
+    assert.equal((await get('')).status, 200);
+    assert.equal((await get('?q=nexus')).status, 200);
+    assert.equal((await get('?status=past_due')).status, 200);
+    assert.equal((await get('?plan=pro')).status, 200);
+    assert.equal((await get('?q=a&status=active&plan=free')).status, 200);
+    assert.deepEqual(seen, [
+      {},
+      { OR: [{ name: { contains: 'nexus' } }, { slug: { contains: 'nexus' } }] },
+      { subscription: { is: { status: 'past_due' } } },
+      { subscription: { is: { plan: { is: { code: 'pro' } } } } },
+      { OR: [{ name: { contains: 'a' } }, { slug: { contains: 'a' } }], subscription: { is: { status: 'active', plan: { is: { code: 'free' } } } } },
+    ]);
+    const callsBefore = findMany.mock.callCount();
+    for (const path of ['?status=nope', `?q=${'x'.repeat(121)}`, '?plan=' + 'p'.repeat(31)]) {
+      assert.equal((await get(path)).status, 400, path);
+    }
+    assert.equal(findMany.mock.callCount(), callsBefore);
   } finally {
     await new Promise<void>((resolve, reject) => server.close((err) => err ? reject(err) : resolve()));
     for (const [delegate, method] of stubs) Reflect.deleteProperty(delegate, method);

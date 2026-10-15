@@ -6,10 +6,11 @@ import { prisma } from '../src/lib/prisma.js';
 import { signPlatformToken, signToken } from '../src/lib/jwt.js';
 
 test('ECO company edit validates fields and audits only committed changes', async () => {
-  const selected = { id: true, name: true, slug: true, legalName: true, currency: true, timezone: true, createdAt: true };
+  const selected = { id: true, name: true, slug: true, legalName: true, taxId: true, address: true, province: true, postalCode: true, taxCondition: true, currency: true, timezone: true, createdAt: true, updatedAt: true };
   const initial = {
-    id: 41, name: 'Company', slug: 'company', legalName: null, currency: 'ARS', timezone: null,
-    createdAt: new Date('2026-01-01T00:00:00Z'),
+    id: 41, name: 'Company', slug: 'company', legalName: null, taxId: null, address: null,
+    province: null, postalCode: null, taxCondition: null, currency: 'ARS', timezone: null,
+    createdAt: new Date('2026-01-01T00:00:00Z'), updatedAt: new Date('2026-01-01T00:00:00Z'),
   };
   let stored = { ...initial };
   let missing = false;
@@ -72,10 +73,13 @@ test('ECO company edit validates fields and audits only committed changes', asyn
     assert.equal(principal.mock.callCount(), 0);
     for (const id of ['abc', '0', '2147483648']) assert.equal((await patch(id, { name: 'Updated' }, platform)).status, 400);
     for (const body of [
-      {}, { slug: 'new-slug' }, { currency: 'USD' }, { taxId: '123' }, { id: 4 },
+      {}, { slug: 'new-slug' }, { currency: 'USD' }, { id: 4 },
       { billing: {} }, { owner: {} }, { roles: [] }, { name: 'New', slug: 'new' },
       { name: ' ' }, { name: 'x'.repeat(121) }, { name: null },
       { legalName: '' }, { legalName: 'x'.repeat(201) },
+      { taxId: '' }, { taxId: 'x'.repeat(51) },
+      { address: '' }, { address: 'x'.repeat(201) },
+      { province: 'x'.repeat(101) }, { postalCode: 'x'.repeat(21) }, { taxCondition: 'x'.repeat(41) },
       { timezone: '' }, { timezone: 'Invalid/Timezone' }, { timezone: 'x'.repeat(51) },
       { timezone: 42 }, [], null,
     ]) assert.equal((await patch('41', body, platform)).status, 400, JSON.stringify(body));
@@ -90,14 +94,24 @@ test('ECO company edit validates fields and audits only committed changes', asyn
     assert.deepEqual(writes, []);
     assert.deepEqual(committedAudit, []);
 
-    const response = await patch('41', { name: '  Updated  ', legalName: ' Updated LLC ', timezone: 'America/Argentina/Buenos_Aires' }, platform);
+    const response = await patch('41', {
+      name: '  Updated  ', legalName: ' Updated LLC ', taxId: ' 20-12345678-9 ',
+      address: 'Av. Siempreviva 742', province: ' Buenos Aires ', postalCode: 'B1900',
+      taxCondition: 'Responsable Inscripto', timezone: 'America/Argentina/Buenos_Aires',
+    }, platform);
     assert.equal(response.status, 200);
     assert.deepEqual(await response.json(), {
-      ...initial, name: 'Updated', legalName: 'Updated LLC', timezone: 'America/Argentina/Buenos_Aires',
-      createdAt: '2026-01-01T00:00:00.000Z',
+      ...initial, name: 'Updated', legalName: 'Updated LLC', taxId: '20-12345678-9',
+      address: 'Av. Siempreviva 742', province: 'Buenos Aires', postalCode: 'B1900',
+      taxCondition: 'Responsable Inscripto', timezone: 'America/Argentina/Buenos_Aires',
+      createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
     });
     assert.deepEqual(writes, [
-      { kind: 'update', data: { name: 'Updated', legalName: 'Updated LLC', timezone: 'America/Argentina/Buenos_Aires' } },
+      { kind: 'update', data: {
+        name: 'Updated', legalName: 'Updated LLC', taxId: '20-12345678-9',
+        address: 'Av. Siempreviva 742', province: 'Buenos Aires', postalCode: 'B1900',
+        taxCondition: 'Responsable Inscripto', timezone: 'America/Argentina/Buenos_Aires',
+      } },
       { kind: 'audit', data: { platformUserId: 7, targetCompanyId: 41, action: 'company.updated' } },
     ]);
     assert.deepEqual(committedAudit, [{ platformUserId: 7, targetCompanyId: 41, action: 'company.updated' }]);

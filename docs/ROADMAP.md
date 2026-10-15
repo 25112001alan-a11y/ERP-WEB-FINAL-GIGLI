@@ -1,6 +1,6 @@
 # Nexus ERP — Roadmap
 
-> Estado: **8/8 fases completadas + Fase A (captura de documento del proveedor) + cadena AFIP** — funcionalidad terminada, pero **el producto no está operativo en producción**: la API de Railway está caída (ver "Historial de despliegue") y por eso no se puede iniciar sesión. El front de Vercel sirve la UI pero no proxea `/api`. Las secciones "Próximo" son ampliaciones planificadas, no deudas.
+> Estado: **8/8 fases completadas + Fase A (captura de documento del proveedor) + cadena AFIP + panel ECO de plataforma** — funcionalidad terminada y **operativa en producción**: el front está en Vercel y la API en Render (`/api/health` → 200 JSON). El deploy histórico de Railway quedó muerto y fue reemplazado por Render. Las secciones "Próximo" son ampliaciones planificadas, no deudas.
 
 ## Fases completadas
 
@@ -25,17 +25,19 @@ server/            Express 5 + Prisma (MySQL) — API REST /api/*
   src/app.ts       Configuración (CORS, JSON, rutas, error handler, /uploads estático) — exportada para tests
   src/index.ts     Bootstrap: dotenv + listen
   src/routes/      auth, products, stock, clients, suppliers, documents,
-                   dashboard, finance, users, audit-logs, company, public
+                   dashboard, finance, users, audit-logs, company, public,
+                   billing, platform (back-office de plataforma /eco)
   src/lib/         prisma, jwt, auth (middleware + RBAC), audit (logAudit transaccional)
 src/               React 19 + Vite + Tailwind 4 (frontend SPA)
   lib/api.ts       apiFetch con token (auth: true/false), apiUpload
   lib/auth.ts      Context de sesión + permisos
   lib/mappers.ts   Mappers API -> vista (unit-tested)
-  components/views Panel admin completo + portal público
+  components/views Panel admin completo + portal público + EcoView (panel plataforma, ruta /eco)
 docs/              Documentación
 ```
 
 - **Multi-tenancy**: cada fila lleva `companyId`; los queries usan `tenantWhere(req)`; los tokens JWT llevan `sub`, `companyId` y `email`.
+- **Plataforma vs tenant**: el back-office de plataforma (`/eco`) usa un modelo y auth separados — `PlatformUser` (`usuarios_plataforma`) con `requirePlatformAuth` y audience JWT propia, contra `User` (tenant) con `requireAuth`. `PLATFORM_ONLY_PERMISSIONS = ['billing.manage']`. El front rutea `/eco` fuera de `<AuthProvider>` (`src/main.tsx`).
 - **RBAC**: permisos por rol (`usuarios.*`, `inventario.*`, `ventas.*`, `compras.*`, `finanzas.*`, `configuracion.*`, `auditoria.*`). Los documentos mapean tipo → permiso (`DOCUMENT_PERMISSION`).
 - **Auditoría transaccional**: `logAudit` escribe el `AuditLog` en la MISMA transacción de la operación (consistencia garantizada).
 - **Stocks atómicos**: ventas, recepciones, ajustes y transferencias mutan `Stock` dentro de la transacción del documento.
@@ -57,6 +59,12 @@ docs/              Documentación
 | `GET/PATCH /api/company` | token | Perfil de empresa |
 | `GET /api/public/store/:slug/products` | — | Catálogo público por empresa |
 | `POST /api/public/store/:slug/orders` | — | Checkout público; seguimiento por WhatsApp |
+| `GET /api/billing/plans` | — | Catálogo de planes (público) |
+| `GET /api/billing/admin/overview` | platform | Métricas de plataforma: MRR, `planBreakdown`, `pastDueCompanies` |
+| `GET /api/platform/companies` | platform | Listado con filtros (`?q=`, `?status=`, `?plan=`) + paginación |
+| `GET/PATCH /api/platform/companies/:id` | platform | Ficha 360 (con `subscription`) y edición de datos |
+| `PATCH /api/platform/companies/:id/subscription` | platform | Cambiar plan/estado de suscripción |
+| `GET /api/platform/audit` · `/companies/:id/audit` | platform | Auditoría global y por empresa |
 
 ## Ejecución local
 
@@ -74,16 +82,21 @@ Seed demo (`npm --prefix server run prisma:seed`): tenant demo, 3 clientes de pr
 ## Tests
 
 ```bash
-npm test               # Vitest — mappers del front (13 tests)
-npm test               # server — node:test + tsx: smoke API, cadena OC->REMITO->FACTURA, voucher (15 tests, 14 pass + 1 skip)
+npm test               # Vitest — lógica pura del front (mappers, formatters)
+npm run test:server    # server — node:test + tsx (suite completa; unit de plataforma mockean prisma y firman tokens)
+npm run lint           # tsc --noEmit (front)
+npm run lint:server    # tsc --noEmit (server)
 ```
+
+> Nota: `npm run test:server` tiene ~2 fallos flaky que rotan entre `pagination-tenant` y `branch-boundaries`/`pedido-status` por data compartida y paralelismo; no son regresiones.
 
 ## Próximo — Plan de fases v2 (desde Fase A cerrada)
 
 - **Fase B — Consolidación y deuda de seguridad**
   - ROADMAP v2 documentado (este documento).
-  - Rotar password MySQL de Railway (variable expuesta en sesiones previas).
-  - Split del panel SuperAdmin: navegación/vistas de administración (Usuarios, Roles, Auditoría) separadas de la configuración operativa de empresa (Empresa, Impuestos) — sin cambios de backend (RBAC ya existe).
+  - Rotar credenciales expuestas en sesiones previas: password de MySQL Aiven y API key de Render (ver "Pendientes de seguridad").
+  - ~~Split del panel SuperAdmin~~ ✅ Resuelto: el back-office de plataforma (`/eco`) quedó separado del panel de empresa (modelo `PlatformUser` + `requirePlatformAuth`, commit `6b65416`).
+- **Panel ECO de plataforma** ✅ (2026-10-15, sin publicar): vista 360 de empresa + auditoría, gestión de suscripciones (`PATCH .../subscription`), finanzas (`planBreakdown` + `pastDueCompanies`) y filtros del listado (`?q/?status/?plan`). Detalle completo en [AUDIT.md](./AUDIT.md).
 - **Fase C — Facturación electrónica real (AFIP WSFE)**: conectar a los webservices de AFIP (WSAA/WSFE) en vez de capturar datos estáticos; cola de comprobantes y estado (aprobado/rechazado/pendiente) reflejado en invoiceData.
 - **Fase D — Portal público B2B multi-tenant**: parametrizar el portal por tenant (hoy usa la primera empresa demo) con subdominio/ruta y catálogo propio.
 - **Fase E — Pagos online (Mercado Pago)** en el checkout público: preferencia MP, webhook de confirmación → PEDIDO pagado.
@@ -97,5 +110,13 @@ npm test               # server — node:test + tsx: smoke API, cadena OC->REMIT
 
 | Entorno | URL | Estado |
 | --- | --- | --- |
-| API (Railway) | `https://erp-web-final-gigli-production.up.railway.app` | **Caída** — verificada 2026-10-06: responde `404` incluso en `/`. Requiere intervención en la cuenta de Railway (no accesible desde este entorno) |
-| Front (Vercel) | `https://erp-web-final-gigli.vercel.app` | Activa, auto-deploy desde `main`. Ojo: `vercel.json` reescribe `/api/*` al SPA, así que devuelve `index.html` y no proxea a la API. `/api/health` responde `200 text/html`, no JSON |
+| API (Render) | `https://nexus-erp-api-v3o0.onrender.com` | **Live** — `/api/health` → 200 JSON; login demo OK. Servicio `srv-db3jfo6i0phs73aerpj0`. Free tier: cold start ~30-60s tras inactividad |
+| Front (Vercel) | `https://erp-web-final-gigli.vercel.app` | Activa, auto-deploy desde `main`. El back-office de plataforma vive en `/eco` |
+| API (Railway) | `https://erp-web-final-gigli-production.up.railway.app` | **Muerta** (histórica) — reemplazada por Render. Requiere intervención en la cuenta de Railway (no accesible desde este entorno) |
+
+## Pendientes de seguridad
+
+- **Rotar credenciales expuestas en el chat** (quedaron visibles en sesiones previas):
+  - MySQL Aiven: consola Aiven → Users → `avnadmin` → Reset password (luego actualizar `DATABASE_URL` en Render).
+  - API key de Render: Account Settings → API Keys → revocar la expuesta y crear una nueva.
+- **Bug POS pendiente de investigación**: en algunos casos generar una venta "se reinicia" el carrito (parcialmente mitigado 2026-10-15; ver [AUDIT.md](./AUDIT.md), sección "Panel ECO de plataforma + bug POS").

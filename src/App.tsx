@@ -379,8 +379,8 @@ export default function App() {
     [],
   );
 
-  const loadAll = useCallback(async () => {
-    setDataLoading(true);
+  const loadAll = useCallback(async (background = false) => {
+    if (!background) setDataLoading(true);
     setDataError(null);
     // Gate each fetch on the session permissions (already loaded via /me
     // before loadAll runs — see the useEffect on `user` below). A skipped
@@ -597,7 +597,7 @@ branchReady && can(p, 'inventario.leer') ? loadWarehouses() : true,
       })),
     };
     setSales((prev) => [sale, ...prev]);
-    await loadAll();
+    await loadAll(true);
     return sale;
   };
 
@@ -703,7 +703,7 @@ branchReady && can(p, 'inventario.leer') ? loadWarehouses() : true,
         method: 'POST',
         body: { idempotencyKey, items, warehouseId, externalNumber, date, notes },
       });
-      await loadAll();
+      await loadAll(true);
     } catch (err) {
       console.error('No se pudo registrar la recepción', err);
       throw err;
@@ -765,7 +765,7 @@ branchReady && can(p, 'inventario.leer') ? loadWarehouses() : true,
         }
         await apiFetch('/api/documents', { method: 'POST', body });
       }
-      await loadAll();
+      await loadAll(true);
     } catch (err) {
       console.error('No se pudo registrar la factura', err);
       throw err;
@@ -793,7 +793,7 @@ branchReady && can(p, 'inventario.leer') ? loadWarehouses() : true,
           notes: payload.notes,
         },
       });
-      await loadAll();
+      await loadAll(true);
     } catch (err) {
       console.error('No se pudo registrar el remito de salida', err);
       throw err;

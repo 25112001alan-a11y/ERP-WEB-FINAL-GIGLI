@@ -301,7 +301,7 @@ router.post('/webhook', async (req, res) => {
 // GET /api/billing/admin/overview  (platform principal only)
 // ---------------------------------------------------------------------------
 router.get('/admin/overview', requirePlatformAuth, async (_req, res) => {
-  const [totals, recentEvents, unsubscribedCompanies] = await Promise.all([
+  const [totals, recentEvents, unsubscribedCompanies, subscriptions, companies] = await Promise.all([
     prisma.companySubscription.groupBy({
       by: ['status'],
       _count: true,
@@ -315,25 +315,51 @@ router.get('/admin/overview', requirePlatformAuth, async (_req, res) => {
       where: { subscription: null },
       select: { id: true, name: true, slug: true },
     }),
+    prisma.companySubscription.findMany({
+      select: {
+        status: true,
+        plan: { select: { code: true, name: true, priceMonthly: true } },
+        company: { select: { id: true, name: true, slug: true } },
+      },
+    }),
+    prisma.company.count(),
   ]);
 
-  // MRR from active subscriptions (sum of priceMonthly for active plans)
-  const activeSubs = await prisma.companySubscription.findMany({
-    where: { status: 'active' },
-    select: { plan: { select: { priceMonthly: true } } },
-  });
-  const mrrUsd = activeSubs.reduce((sum, s) => sum + Number(s.plan.priceMonthly), 0);
+  // MRR and plan distribution derived from the same subscription snapshot.
+  const byPlan = new Map<string, { planCode: string; planName: string; priceMonthly: number; activeCount: number; mrrUsd: number }>();
+  const pastDueCompanies: { id: number; name: string; slug: string | null; planCode: string; planName: string }[] = [];
+  for (const sub of subscriptions) {
+    const price = Number(sub.plan.priceMonthly);
+    let entry = byPlan.get(sub.plan.code);
+    if (!entry) {
+      entry = { planCode: sub.plan.code, planName: sub.plan.name, priceMonthly: price, activeCount: 0, mrrUsd: 0 };
+      byPlan.set(sub.plan.code, entry);
+    }
+    if (sub.status === 'active') {
+      entry.activeCount += 1;
+      entry.mrrUsd += price;
+    }
+    if (sub.status === 'past_due') {
+      pastDueCompanies.push({
+        id: sub.company.id, name: sub.company.name, slug: sub.company.slug,
+        planCode: sub.plan.code, planName: sub.plan.name,
+      });
+    }
+  }
+  const planBreakdown = [...byPlan.values()].sort((a, b) => b.mrrUsd - a.mrrUsd || a.planCode.localeCompare(b.planCode));
 
   const counts = Object.fromEntries(totals.map((t) => [t.status, t._count]));
   res.json({
     totals: {
-      companies: await prisma.company.count(),
+      companies,
       activeSubscriptions: counts['active'] ?? 0,
       pastDueSubscriptions: counts['past_due'] ?? 0,
       canceledSubscriptions: counts['canceled'] ?? 0,
       pendingSubscriptions: counts['pending'] ?? 0,
-      mrrUsd,
+      mrrUsd: planBreakdown.reduce((sum, plan) => sum + plan.mrrUsd, 0),
     },
+    planBreakdown,
+    pastDueCompanies,
     recentEvents,
     unsubscribedCompanies,
   });

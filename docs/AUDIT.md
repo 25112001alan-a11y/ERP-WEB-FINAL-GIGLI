@@ -1,6 +1,6 @@
 # Nexus ERP — Informe de auditoría
 
-> Fecha: 2026-09-19 · Última actualización: 2026-09-23 (prueba CI de migraciones ECO preparada; cambios sin publicar)
+> Fecha: 2026-09-19 · Última actualización: 2026-10-15 (panel ECO slices 1-4 + fix POS + fix layout; cambios sin publicar)
 > Alcance: `src/` (frontend React 19 + Vite + Tailwind 4), `server/` (Express 5 + Prisma + Zod, MySQL), `server/prisma/schema.prisma`
 > Método: revisión de código por agentes de exploración (buenas prácticas, coherencia frontend↔backend, duplicación) + verificación cruzada del diff.
 > Estado: hallazgos marcados ✅ (resuelto), ⏳ (pendiente deliberado), ⚠️ (requiere decisión del usuario). Moneda ARS y datos reales resueltos en tanda 2. Fase 0 completada.
@@ -1150,3 +1150,34 @@ Medición del DOM real con Playwright (`getBoundingClientRect` + computed styles
 - Prod tras deploy (`index-DB_1qaPr.css`): login **448px** / input 400px; 0 inputs < 100px tras abrir el detalle de empresa.
 
 `npm run build` (tsc --noEmit + vite build) ✓ · diff 3 archivos, +6/−3.
+
+---
+
+## Panel ECO de plataforma + bug POS (2026-10-15)
+
+### Split platform/tenant (previo, ya desplegado)
+
+Commit `6b65416`: se separó el administrador de plataforma (NEXUS) del administrador de empresa. `PlatformUser` (`usuarios_plataforma`) vs `User` (tenant), con audiences JWT separadas, middleware `requirePlatformAuth` (`server/src/middleware/auth.ts:66`) vs `requireAuth`, y `PLATFORM_ONLY_PERMISSIONS = ['billing.manage']`. El front rutea `/eco` a `<EcoView/>` FUERA de `<AuthProvider>`/`<App>` (`src/main.tsx:18`), con su propio token (`nexus.platform.token`). Env vars `PLATFORM_ADMIN_EMAIL/PASSWORD` + `CORS_ORIGINS` seteadas en Render. Verificado E2E contra prod.
+
+### Panel ECO: slices 1-4 (sin commitear antes de este informe)
+
+- **Slice 1 — Vista 360 + auditoría**: `GET /api/platform/companies/:id` devuelve la ficha completa (con relación `subscription`, `Cache-Control: no-store`); `PATCH /api/platform/companies/:id` permite editar 8 campos de texto nullable (P2002 → 409); `GET /api/platform/audit` (feed global) y `GET /api/platform/companies/:id/audit` (por empresa). `PlatformAuditEvent` NO tiene columna `details`, así que los cambios se auditan con strings de `action` (`company.updated`, etc.) — sin migración. Tests nuevos: `platform-company-360.unit.test.ts`; actualizados `platform-companies`/`platform-company-edit`.
+- **Slice 2 — Gestión de suscripciones**: `PATCH /api/platform/companies/:id/subscription` (`{planCode?, status?, cancelAtPeriodEnd?}`, zod strict + `.refine` ≥1 campo). Valida el plan contra `Plan` → 400 si no existe; 404 si la empresa no existe; crea la suscripción si falta (`subscription.created`) o actualiza solo los campos cambiados (`subscription.updated`). NO toca períodos de facturación. `subscriptionSelect` reusado en el detalle 360. Test `platform-subscription.unit.test.ts` (auth 401/403, ids/body inválidos, plan inexistente, 404, no-op sin audit, update+audit, create+audit).
+- **Slice 3 — Finanzas**: `GET /api/billing/admin/overview` ahora devuelve `planBreakdown` (por plan: `activeCount`, `mrrUsd`, ordenado por MRR desc) y `pastDueCompanies`; el MRR se deriva del mismo snapshot de suscripciones (se eliminó la query `activeSubs` separada). Test `platform-finance.unit.test.ts`.
+- **Slice 4 — Filtros del listado de empresas**: `GET /api/platform/companies` acepta `?q=` (name/slug `contains`), `?status=` (enum) y `?plan=` (code); `companyFilterSchema` (zod) → 400 si inválido; el `where` combina `OR` de q + `subscription:{is:{status, plan:{is:{code}}}}`, y `count({where})` respeta el filtro. Test agregado a `platform-companies.unit.test.ts`.
+
+Front: `src/components/views/EcoView.tsx` concentra login, alta de empresa, listado con filtros + paginación, ficha 360, form de suscripción, secciones de finanzas y auditoría.
+
+### Bug POS: "generar venta se reinicia"
+
+**Causa raíz**: `handleCompleteSale` (`src/App.tsx:600`) llamaba `await loadAll()` tras crear la venta; `loadAll` arranca con `setDataLoading(true)` (`:383`), y el render de App (`:912-921`) reemplaza TODO el árbol —incluida `PosView`— por un spinner mientras `dataLoading`. `PosView` se desmonta y pierde su estado local (carrito, cliente, modales): al volver `dataLoading=false` remonta con el estado inicial. Además el handler de éxito (`setSaleCompleted(true)`) corría sobre un componente desmontado → el "¡Venta Completada!" nunca se veía.
+
+Era el **camino de éxito** (los errores no resetean el carrito) y afectaba también a los otros callers de `loadAll()` post-mutación (recepción, factura, remito de salida).
+
+**Fix**: `loadAll(background = false)`; solo la carga inicial muestra el spinner (`if (!background) setDataLoading(true)`); las recargas post-mutación pasan `loadAll(true)` (líneas 600, 706, 768, 796). El boot (`:422`) y el botón "Reintentar" (`:904`) conservan el path con spinner.
+
+### Evidencia
+
+- Gates: `npm run lint` (tsc --noEmit) 0 · `npm run lint:server` 0 · `npm run build` ✓.
+- Suites plataforma: `platform-company-360` + `platform-companies` + `platform-company-edit` + `platform-subscription` + `platform-finance` **7/7**; vitest front **51/51**.
+
