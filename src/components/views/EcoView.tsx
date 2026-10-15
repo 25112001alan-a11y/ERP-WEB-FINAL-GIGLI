@@ -255,7 +255,7 @@ export function EcoView() {
         </header>
 
         {!token ? (
-          <form onSubmit={(event) => void login(event)} className="max-w-md space-y-md rounded-xl bg-surface-container-lowest p-lg shadow-sm">
+          <form onSubmit={(event) => void login(event)} className="max-w-[28rem] space-y-md rounded-xl bg-surface-container-lowest p-lg shadow-sm">
             <h2 className="text-xl font-semibold">Acceso ECO</h2>
             <label className="block">Email
               <input type="email" required autoComplete="username" maxLength={150} value={email} onChange={(event) => setEmail(event.target.value)} className="mt-xs block w-full rounded-lg border border-outline-variant p-sm bg-surface" />
@@ -346,7 +346,7 @@ export function EcoView() {
                     <dt>Zona horaria</dt><dd>{company.timezone ?? '—'}</dd>
                     <dt>Creada</dt><dd>{new Date(company.createdAt).toLocaleDateString('es-AR')}</dd>
                   </dl>
-                  <form onSubmit={(event) => void saveCompany(event)} className="mt-md space-y-sm max-w-md">
+                  <form onSubmit={(event) => void saveCompany(event)} className="mt-md space-y-sm max-w-[28rem]">
                     <h4 className="font-semibold">Editar empresa</h4>
                     <label className="block">Nombre
                       <input required minLength={2} maxLength={120} value={editCompany.name} onChange={(event) => setEditCompany((value) => ({ ...value, name: event.target.value }))} className="mt-xs block w-full rounded-lg border border-outline-variant p-sm bg-surface" />

@@ -331,7 +331,7 @@ export const PublicOrdersView: React.FC<PublicOrdersViewProps> = ({ orders, onNa
       {/* Print modal: detalle imprimible del pedido + window.print() */}
       {printOrder && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-inverse-surface/50 p-md" role="dialog" aria-modal="true" aria-label={`Pedido ${printOrder.id}`}>
-          <div className="bg-surface-container-lowest rounded-xl shadow-lg max-w-lg w-full max-h-[90vh] overflow-y-auto">
+          <div className="bg-surface-container-lowest rounded-xl shadow-lg max-w-[32rem] w-full max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between p-md border-b border-outline-variant/30 print:hidden">
               <h2 className="font-headline-md text-headline-md">Pedido {printOrder.id}</h2>
               <button onClick={() => setPrintOrder(null)} className="p-sm hover:bg-surface-container-high rounded-lg transition-colors cursor-pointer" aria-label="Cerrar">

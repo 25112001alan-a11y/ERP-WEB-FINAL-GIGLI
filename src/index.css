@@ -66,6 +66,9 @@ body {
   --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
 
+  /* OJO: estos nombres colisionan con el scale de `max-w-*` de Tailwind v4.
+     `max-w-md` resuelve a --spacing-md (1rem) en vez de --container-md (28rem),
+     y aplasta el elemento. Usar valores explícitos: max-w-[28rem], max-w-[32rem]. */
   --spacing-xs: 0.25rem;
   --spacing-sm: 0.5rem;
   --spacing-base: 0.75rem;
