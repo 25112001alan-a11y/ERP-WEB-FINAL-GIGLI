@@ -1119,3 +1119,34 @@ Lo que SÍ era duplicación real — el ciclo `saving/error/saved/redirect` y el
 - `npm run lint` (tsc --noEmit): 0 errores.
 - `npm test` (vitest): **48/48**.
 - Sin cambios de comportamiento: mismas rutas, mismos mensajes, mismos timeouts de redirect (1200-1500ms).
+
+---
+
+## Colisión de tokens spacing: reincidencia en /eco y pedidos públicos (2026-10-15)
+
+### El bug real
+
+Mismo bug documentado arriba (commit `83f34d9`): el `@theme` de `src/index.css` define `--spacing-sm/md/lg/xl/2xl` propios, y Tailwind v4 resuelve `max-w-md`/`max-w-lg` contra esa escala en vez de los contenedores. El CSS compilado decía `.max-w-md{max-width:var(--spacing-md)}` = **16px** (y `max-w-lg` = 24px). La regla "nunca usar `max-w-{xs,sm,md,lg,xl,2xl}` pelados" ya existía, pero `EcoView` y `PublicOrdersView` se crearon **después** y reintrodujeron las clases → reincidencia.
+
+Síntoma reportado: el panel `/eco` "estaba todo aplastado". El form de login medía 16px (de ahí que costara entrar) y el de "Editar empresa" también 16px.
+
+### Qué se hizo
+
+Valores arbitrarios (inmunes a la colisión, equivalentes a los defaults de Tailwind):
+- `EcoView.tsx:258` (login) y `:349` (editar empresa): `max-w-md` → `max-w-[28rem]`.
+- `PublicOrdersView.tsx:334`: `max-w-lg` → `max-w-[32rem]`.
+- `src/index.css`: comentario junto a los tokens de spacing documentando la colisión.
+
+### Registro de commits
+
+```text
+5364531 fix(front): anchos reales en EcoView y PublicOrdersView
+```
+
+### Verificación
+
+Medición del DOM real con Playwright (`getBoundingClientRect` + computed styles — el agente no puede ver capturas):
+- Antes: login 16px / input 18px; editar empresa 16px; 3 inputs < 20px.
+- Prod tras deploy (`index-DB_1qaPr.css`): login **448px** / input 400px; 0 inputs < 100px tras abrir el detalle de empresa.
+
+`npm run build` (tsc --noEmit + vite build) ✓ · diff 3 archivos, +6/−3.
